@@ -688,6 +688,15 @@ local ws = {
     -- 200 registri di Lua (vedi owlSend).
     pubblica = rawget(_G, "RELAY_PUBLIC") == true,
     pubblicaDetta = false,
+    -- IL CODICE DI SESSIONE (2026-09-27, net/relay.py VIVO_S): 4 byte sorteggiati
+    -- a ogni caricamento dello script, nel corpo di PING e HELLO. Per il relay
+    -- distingue "sono sempre io" (WebSocket riaperto) da "un altro col mio
+    -- stesso peer". E il T_TAKEN (tipo 9) che arriva quando il numero e' di un
+    -- altro: vedi ws.numeroOccupato, piu' in basso vicino a peer().
+    codiceStr = string.pack("<I4", math.random(1, 0x7FFFFFFE)),
+    presoDa = false,
+    presoUltimo = 0,
+    rifiutiNumero = 0,
 }
 
 -- ws://host[:porta][/path] -> host, porta, path. Nessun wss: niente TLS qui.
@@ -820,6 +829,7 @@ local function relayDatagram(data)
     local body = string.sub(data, 12)
 
     if tipo == OWL_PONG then return end
+    if tipo == 9 then ws.numeroOccupato(body) return end   -- T_TAKEN
 
     -- T_CLUB (6): la sessione del Cable Club. Non passa dal dedup dei
     -- datagrammi di camminata - ha numeri di serie suoi, per blocco.
@@ -947,7 +957,7 @@ local function relayPump()
                             .. ws.port .. ws.path
                             .. (ws.riagganci > 0
                                 and (" (riaggancio n." .. ws.riagganci .. ")") or ""))
-                owlSend(OWL_HELLO, "")
+                owlSend(OWL_HELLO, ws.codiceStr)
                 ws.pubblicaDetta = false     -- connessione nuova: si ridice
                 ws.segnoPubblica()
                 -- L'HELLO iscrive alla stanza ma non porta la posizione:
@@ -998,7 +1008,7 @@ local function relayPump()
     -- resta fermo si fa comunque vedere, senza aspettare il prossimo passo.
     if now - ws.pingAt >= 120 then
         ws.pingAt = now
-        owlSend(OWL_PING, "")
+        owlSend(OWL_PING, ws.codiceStr)
         if ws.lastEvent then owlSend(OWL_EVENT, ws.lastEvent) end
         if ws.pubblica then ws.segnoPubblica() end
     end
@@ -1090,6 +1100,9 @@ local function cfgScrivi()
     end
     return nil
 end
+-- Visibile a ws.numeroOccupato, definita piu' in basso ma chiamata da
+-- relayDatagram, che sta sopra questa funzione (niente local nuovi: tetto).
+ws.cfgScrivi = cfgScrivi
 
 -- Il peer NON serve sceglierlo (2026-08-26): come fa il browser, se ne
 -- sorteggia uno. Serve solo che sia unico nella stanza, e 1 su 65000 di
@@ -1213,7 +1226,7 @@ local function riaggancia(cosa)
         if ws.pubblicaDetta and ws.activePeer and ws.activeRoom then
             owlSend(7, "\0", ws.activePeer, ws.activeRoom)
         end
-        owlSend(OWL_HELLO, "")
+        owlSend(OWL_HELLO, ws.codiceStr)
         ws.pubblicaDetta = false
         ws.segnoPubblica()
         ws.activeRoom = RELAY_ROOM
@@ -1272,6 +1285,34 @@ function peer(n)
     end
     RELAY_PEER = n
     riaggancia("peer cambiato")
+end
+
+-- IL NUMERO ERA DI UN ALTRO (2026-09-27). Il relay ci tiene fuori (T_TAKEN):
+-- un altro client vivo, giocatore o spettatore, usa il nostro peer in questa
+-- stanza. Se dura 6 s (360 vblank: un rientro col BYE perso passa da solo in
+-- qualche secondo) si sorteggia un numero nuovo, lo si salva nel config e si
+-- rientra - come fa il sito. Campo di `ws`, non un local: il chunk e' al tetto.
+function ws.numeroOccupato(body)
+    local ora = emu:read32(ADDR_GMAIN_VBLANK1)
+    ws.rifiutiNumero = ws.rifiutiNumero + 1
+    if not ws.presoDa or ora - ws.presoUltimo > 180 then
+        ws.presoDa = ora
+        console:log(string.format("[rete ] il relay dice che il peer %d e' gia' in uso nella stanza %d: "
+            .. "se e' un rientro passa da solo in qualche secondo", RELAY_PEER, RELAY_ROOM))
+    end
+    ws.presoUltimo = ora
+    if ora - ws.presoDa < 360 then return end
+    local chi = (string.byte(body, 1) == 1) and "spettatore" or "giocatore"
+    local vecchio, nuovo = RELAY_PEER, RELAY_PEER
+    while nuovo == vecchio do nuovo = 1 + math.random(65000) end
+    ws.presoDa = false
+    console:error(string.format("[rete ] il peer %d e' USATO da un altro %s nella stanza %d: "
+        .. "passo al peer %d e rientro", vecchio, chi, RELAY_ROOM, nuovo))
+    peer(nuovo)
+    if ws.cfgScrivi then
+        local salvato = ws.cfgScrivi()
+        if salvato then console:log("[rete ] peer " .. nuovo .. " salvato in " .. salvato) end
+    end
 end
 
 function relay(url)

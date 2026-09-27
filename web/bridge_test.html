@@ -1053,6 +1053,46 @@
     return (eq(g.pub, [1, 1, 0]) && eq(s.pub, []) && eq(n.pub, [])) || { giocatore: g.pub, spettatore: s.pub, privata: n.pub };
   });
 
+  // IL NUMERO GIA' IN USO (2026-09-27): il codice di sessione va nel corpo di
+  // PING, HELLO e WATCH (4 byte LE, uguale per tutta la vita del bridge), e il
+  // T_TAKEN fa scattare onNumeroOccupato solo se DURA 6 s.
+  t("numero in uso: il codice di sessione sta in PING, HELLO e WATCH, sempre lo stesso", function () {
+    function prova(spettatore) {
+      var m = [];
+      var b = new OwlBridge({ peerId: 7, room: 42, spettatore: spettatore, log: function () {} });
+      b.link = { send: function (bytes) { m.push(OwlRelay.unpack(bytes)); return true; } };
+      b.sendHello(); b.sendPing(); b.sendPing();
+      return { b: b, m: m };
+    }
+    var g = prova(false), s = prova(true);
+    function corpi(r, kind) { return r.m.filter(function (p) { return p.kind === kind; }).map(function (p) { return Array.from(p.body); }); }
+    var atteso = Array.from(g.b.codiceBytes), attesoS = Array.from(s.b.codiceBytes);
+    var ok1 = g.b.codice > 0 && atteso.length === 4 &&
+      eq(corpi(g, OwlRelay.T.HELLO), [atteso]) && eq(corpi(g, OwlRelay.T.PING), [atteso, atteso]);
+    var ok2 = eq(corpi(s, OwlRelay.T.WATCH), [attesoS]) && eq(corpi(s, OwlRelay.T.PING), [attesoS, attesoS]);
+    var le = (atteso[0] | (atteso[1] << 8) | (atteso[2] << 16) | (atteso[3] << 24)) >>> 0;
+    return (ok1 && ok2 && le === g.b.codice && g.b.codice !== s.b.codice) || { g: corpi(g, OwlRelay.T.PING), s: corpi(s, OwlRelay.T.PING) };
+  });
+  t("numero in uso: T_TAKEN scatta solo se dura 6 s, e dice chi ha il numero", function () {
+    var chiamate = [];
+    var b = new OwlBridge({ peerId: 7, room: 42, log: function () {}, onNumeroOccupato: function (chi) { chiamate.push(chi); } });
+    var taken = function (ruolo) { return OwlRelay.pack(OwlRelay.T.TAKEN, 7, 42, 0, new Uint8Array([ruolo])); };
+    b.onRelayMessage(taken(1));
+    var subito = chiamate.length;
+    // 7 s di rifiuti di fila: si finge che il primo sia arrivato 7 s fa e l'ultimo 0,5 s fa
+    var ora = performance.now();
+    b.presoDa = ora - 7000; b.presoUltimo = ora - 500;
+    b.onRelayMessage(taken(1));
+    var dopo = chiamate.slice();
+    b.onRelayMessage(taken(1));                    // una volta sola
+    // un buco di piu' di 3 s fa ripartire il conto: niente scatto
+    var c = new OwlBridge({ peerId: 8, room: 42, log: function () {}, onNumeroOccupato: function (chi) { chiamate.push("c:" + chi); } });
+    c.presoDa = ora - 9000; c.presoUltimo = ora - 4000;
+    c.onRelayMessage(taken(0));
+    return (subito === 0 && eq(dopo, ["spettatore"]) && eq(chiamate, ["spettatore"]) && b.rifiutiNumero === 3)
+      || { subito: subito, dopo: dopo, tutte: chiamate, rifiuti: b.rifiutiNumero };
+  });
+
   function stampa(extra) {
     document.getElementById("out").innerHTML = out.join("\n") + (extra || "") + "\n\nRISULTATO: " + ok + " ok, " + ko + " ko" + (ko ? "  <span class=ko>FALLITO</span>" : "  <span class=ok>TUTTO VERDE</span>");
     window.__risultato = { ok: ok, ko: ko };

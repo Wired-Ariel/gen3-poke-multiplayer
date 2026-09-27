@@ -259,9 +259,10 @@ python net/test_tre_giocatori.py
 
 Gli altri: `net/test_deframer.py`, `test_bridge_tcp.py`, `test_relay_rebind.py`, `test_club.py`,
 `test_pannello.py`, `test_relay_ws.py`, `test_slot.py`, `test_relay_cap.py`, `test_client_ws.py`,
-`test_spettatore.py`, `test_presenza.py`, e in `tools/` `test_ruolo_relay.py`, `test_club_lua.py`
+`test_spettatore.py`, `test_presenza.py`, `test_stanze_aperte.py`, `test_numero_occupato.py` (un numero di peer
+già usato nella stanza da un altro giocatore o spettatore vivo viene rifiutato con `T_TAKEN`), e in `tools/` `test_ruolo_relay.py`, `test_club_lua.py`
 (richiedono `pip install lupa`). Il sito ha i suoi autotest nel browser: `web/test.html`,
-`web/mb_test.html`, `web/bridge_test.html`.
+`web/mb_test.html`, `web/bridge_test.html`, `web/device_test.html` (il controllo del firmware del Pico, con un Pico finto).
 
 Prova end-to-end in emulatore, senza mani: `.\tools\prova-in-tre.ps1 -Rom <smeraldo-ita.gba> -Giocatori 3`
 avvia tre mGBA pilotati da `mgba/autopilota.lua`, li fa camminare e **fotografa** ogni schermo

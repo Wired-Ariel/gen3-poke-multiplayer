@@ -258,9 +258,10 @@ python net/test_tre_giocatori.py
 
 The others: `net/test_deframer.py`, `test_bridge_tcp.py`, `test_relay_rebind.py`, `test_club.py`,
 `test_pannello.py`, `test_relay_ws.py`, `test_slot.py`, `test_relay_cap.py`, `test_client_ws.py`,
-`test_spettatore.py`, `test_presenza.py`, and in `tools/` `test_ruolo_relay.py`, `test_club_lua.py`
+`test_spettatore.py`, `test_presenza.py`, `test_stanze_aperte.py`, `test_numero_occupato.py` (a peer number
+already used in the room by another live player or spectator is refused with `T_TAKEN`), and in `tools/` `test_ruolo_relay.py`, `test_club_lua.py`
 (these need `pip install lupa`). The website has its own in-browser self-tests: `web/test.html`,
-`web/mb_test.html`, `web/bridge_test.html`.
+`web/mb_test.html`, `web/bridge_test.html`, `web/device_test.html` (the Pico firmware check, with a fake Pico).
 
 Hands-free end-to-end test in the emulator: `.\tools\prova-in-tre.ps1 -Rom <emerald-ita.gba> -Giocatori 3`
 launches three mGBA instances driven by `mgba/autopilota.lua`, makes them walk and **screenshots** every

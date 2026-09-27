@@ -89,6 +89,18 @@
     // eventi). Il bridge lo deve SAPERE perche' cambia il verbo con cui entra
     // in stanza - WATCH invece di HELLO - e quindi se occupa un posto.
     this.spettatore = !!opts.spettatore;
+    // IL CODICE DI SESSIONE (2026-09-27, net/relay.py VIVO_S): 4 byte sorteggiati
+    // una volta per bridge, nel corpo di PING, HELLO e WATCH. Per il relay e'
+    // la differenza fra "sono sempre io da un'altra porta" (WebSocket riaperto:
+    // stesso bridge, stesso codice) e "un altro con il mio stesso numero".
+    this.codice = (opts.codice >>> 0) || (1 + Math.floor((opts.rand || Math.random)() * 0xFFFFFFFE)) >>> 0;
+    this.codiceBytes = new Uint8Array([this.codice & 0xFF, (this.codice >>> 8) & 0xFF,
+                                       (this.codice >>> 16) & 0xFF, (this.codice >>> 24) & 0xFF]);
+    // T_TAKEN: il numero e' di un altro. Si dice solo se DURA (6 s): un
+    // rientro con codice nuovo (pagina ricaricata col BYE perso) viene
+    // rifiutato per qualche secondo e poi entra da solo, e non va gridato.
+    this.onNumeroOccupato = opts.onNumeroOccupato || null;
+    this.presoDa = 0; this.presoUltimo = 0; this.presoDetto = false; this.rifiutiNumero = 0;
     this.watchInviati = 0;
     this.timerWatch = null;
     this.wireCopies = Math.max(1, opts.copies || 2);
@@ -172,11 +184,11 @@
    * potrebbe non ricordarsi piu' di noi). */
   OwlBridge.prototype.sendHello = function () {
     if (this.spettatore) {
-      this.sendRelay(R.pack(R.T.WATCH, this.peerId, this.room, 0));
+      this.sendRelay(R.pack(R.T.WATCH, this.peerId, this.room, 0, this.codiceBytes));
       this.watchInviati++;
       return;
     }
-    this.sendRelay(R.pack(R.T.HELLO, this.peerId, this.room, 0));
+    this.sendRelay(R.pack(R.T.HELLO, this.peerId, this.room, 0, this.codiceBytes));
     // L'HELLO iscrive alla stanza ma non porta la posizione, e il relay non
     // conserva niente: se abbiamo gia' una fotografia la si rimanda subito.
     this.rimandaPresenza();
@@ -326,7 +338,7 @@
   OwlBridge.prototype.sendPing = function () {
     var seq = this.nextSeq();
     this.pendingPing[seq] = now();
-    this.sendRelay(R.pack(R.T.PING, this.peerId, this.room, seq));
+    this.sendRelay(R.pack(R.T.PING, this.peerId, this.room, seq, this.codiceBytes));
     // Il battito porta con se' la presenza: e' il solo pacchetto che parte
     // anche quando il GBA tace (club, menu, lotta).
     this.rimandaPresenza();
@@ -356,6 +368,26 @@
         var rtt = t - sentAt;
         this.rtts.push(rtt);
         this.rttUltimo = rtt;
+      }
+      return;
+    }
+
+    if (p.kind === R.T.TAKEN) {
+      // Il relay ci tiene FUORI: il nostro numero lo usa un altro client vivo
+      // (corpo 0 = un giocatore, 1 = uno spettatore). Vedi il costruttore.
+      this.rifiutiNumero++;
+      if (!this.presoDa || t - this.presoUltimo > 3000) {
+        this.presoDa = t;
+        this.log("il relay dice che il peer " + this.peerId + " e' gia' in uso nella stanza " + this.room +
+          ": se e' un rientro passa da solo in qualche secondo");
+      }
+      this.presoUltimo = t;
+      if (!this.presoDetto && t - this.presoDa >= 6000) {
+        this.presoDetto = true;
+        var chi = p.body.length && p.body[0] === 1 ? "spettatore" : "giocatore";
+        this.log("!!! il peer " + this.peerId + " e' USATO da un altro " + chi + " nella stanza " + this.room +
+          ": resti fuori finche' non lo cambi");
+        if (this.onNumeroOccupato) this.onNumeroOccupato(chi);
       }
       return;
     }

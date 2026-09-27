@@ -259,6 +259,7 @@
       </div>
       <div class="esito" id="esito-azione"></div>
       <p class="aiuto" id="aiuto-firmware" hidden style="border-left:4px solid var(--ambra);padding-left:12px"><b>Il GBA non ha mai risposto.</b> La causa più comune è il <b>firmware del Pico</b>: questo progetto vuole il suo <a href="https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2"><code>celio.uf2</code></a>, anche se l’adattatore ha già il firmware Celio o GB-Link. Tieni premuto BOOTSEL mentre colleghi il Pico, trascina il file nell’unità che compare, poi riprova. Se non basta: slot cartuccia vuoto, GBA acceso <i>dopo</i> il cavo, cavo nel verso giusto.</p>
+      <p class="aiuto" id="aiuto-firmware-pico" hidden style="border-left:4px solid var(--ambra);padding-left:12px"><b>Il Pico non ha il firmware di questo progetto</b> (<span id="fw-trovato"></span>). Senza, il gioco non si carica e il GBA non risponde. Scarica <a href="https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2"><code>celio.uf2</code></a>, tieni premuto BOOTSEL mentre colleghi il Pico, trascina il file nell’unità che compare, poi premi di nuovo «Collega il Pico». Va fatto una volta sola.</p>
 
       <div class="separa"></div>
       <p class="etichetta" style="margin-bottom:10px">Attrezzi</p>
@@ -309,7 +310,7 @@
           <label class="spunta"><input type="checkbox" id="stanza-aperta">
             <span><b>Stanza aperta</b>: la tua stanza compare nell'elenco qui sotto e <b>chiunque può entrare</b>
               (fino a 4 giocatori). Resta aperta finché la spunta c'è e tu sei in partita. Vale anche per lo <b>script dell'emulatore</b> scaricato da questa pagina; dentro mGBA si cambia con <code>aperta(true)</code> o dal pannello L+R+B.</span></label>
-          <div class="testa"><span>Stanze aperte adesso</span><button class="minore" id="btn-stanze" type="button">Aggiorna</button></div>
+          <div class="testa"><span>Stanze aperte adesso</span><button class="minore" id="btn-stanza-caso" type="button">Entra in una stanza libera</button><button class="minore" id="btn-stanze" type="button">Aggiorna</button></div>
           <ul id="lista-stanze"></ul>
           <small class="guida" id="stanze-nota"></small>
         </div>
@@ -317,7 +318,8 @@
           <input type="number" id="peer" min="1" max="65534">
           <small class="guida">Il tuo identificativo dentro la stanza: <b>deve essere diverso
             da quello di ogni amico</b>, altrimenti i pacchetti si confondono. La pagina ne ha
-            sorteggiato uno a caso per te: in genere va bene così.</small></label>
+            sorteggiato uno a caso per te: in genere va bene così. Se nella stanza lo usa già
+            qualcun altro, giocatore o spettatore, il relay te lo dice e la pagina te ne dà uno nuovo da sola.</small></label>
         <label class="campo"><span>Il tuo numero di gioco (solo da spettatore)</span>
           <input type="number" id="peer-gioco" min="1" max="65534" placeholder="vuoto = nessuno">
           <small class="guida">Se stai <b>giocando altrove</b> — dentro mGBA, o col GBA collegato a

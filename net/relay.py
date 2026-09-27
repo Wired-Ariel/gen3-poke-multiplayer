@@ -27,8 +27,33 @@ sys.path.insert(0, __file__.rsplit("\\", 1)[0].rsplit("/", 1)[0])
 
 from protocol import (  # noqa: E402
     HEADER_SIZE, T_BYE, T_CLUB, T_EVENT, T_HELLO, T_LIST, T_PING, T_PONG,
-    T_PUBLIC, T_WATCH, TYPE_NAMES, pack, unpack,
+    T_PUBLIC, T_TAKEN, T_WATCH, TYPE_NAMES, pack, unpack,
 )
+
+# IL NUMERO GIA' IN USO (2026-09-27, richiesta di Luca: «verifica che il peer
+# selezionato sia disponibile e non usato da altri, sia per visitatori che per
+# giocatori»). Un client con lo stesso peer-id di un altro, nella stessa
+# stanza, da un altro indirizzo:
+#   - se l'altro ha parlato negli ultimi VIVO_S secondi, e' un'ALTRA persona:
+#     il nuovo resta fuori e riceve T_TAKEN, chi c'era non viene toccato;
+#   - se tace da piu' di VIVO_S, e' lo stesso client che rientra (rebinding
+#     NAT, pagina ricaricata, WebSocket riaperto): il vecchio indirizzo si
+#     toglie come prima.
+# I battiti: sito e client.py 1 PING/s, lo script Lua 1 ogni 2 s, lo spettatore
+# 1 PING/s. 5 s sono due battiti Lua persi. Prima di oggi i due si buttavano
+# fuori a vicenda per sempre (vedi _forse_ping_pong), e fra ruoli diversi
+# convivevano con lo stesso numero.
+#
+# IL CODICE DI SESSIONE. Il silenzio da solo non basta: in un rebinding NAT
+# o in un WebSocket riaperto il vecchio indirizzo ha parlato un attimo prima,
+# e con la sola regola dei 5 s il giocatore resterebbe fuori per 5 s. I client
+# nuovi sorteggiano all'avvio 4 byte (u32 LE, mai 0) e li mettono nel corpo di
+# PING, HELLO e WATCH, che prima era vuoto: codice UGUALE = stesso client che
+# rientra, codice DIVERSO = un'altra persona. Il PONG rimanda il corpo intatto
+# e i client riconoscono il PONG dal seq, quindi i client vecchi non se ne
+# accorgono. Due client VECCHI (senza codice) seguono la regola di prima.
+VIVO_S = 5.0
+CODICE_LEN = 4
 
 # LE STANZE APERTE (2026-09-27). Un giocatore segna la propria stanza come
 # pubblica con T_PUBLIC, e il segno va RINNOVATO: dopo PUBBLICA_S secondi senza
@@ -62,6 +87,12 @@ class Peer:
         # spettatore col browser - ed e' esattamente il caso d'uso (uno guarda
         # sulla mappa il proprio avatar). Vedi il rientro-NAT piu' sotto.
         self.observer = False
+        # Il codice di sessione (VIVO_S, CODICE_LEN): None per i client vecchi.
+        self.codice = None
+        # Numero gia' in uso (T_TAKEN): la stanza per cui lo si e' detto nel
+        # log, e l'ultima volta che glielo si e' mandato (1/s al massimo).
+        self.taken_room = None
+        self.taken_detto_at = 0.0
         # Eventi rifiutati perche' arrivati da uno spettatore: si dice una
         # volta sola, come per refused_room.
         self.event_warned = False
@@ -79,6 +110,7 @@ class Relay:
         self.rooms = {}      # room_id -> set(addr)
         self.seq = 0
         self.rebinds = 0     # rientri in stanza da un indirizzo nuovo (NAT)
+        self.rifiuti_numero = 0   # T_TAKEN mandati: numero gia' in uso
         self.eventi_da_spettatori = 0   # DEVE restare 0: vedi il ramo T_EVENT
         # Il ping-pong dei peer-id duplicati: vedi _forse_ping_pong.
         self._rientri = {}   # peer_id -> [istanti degli ultimi rientri]
@@ -182,6 +214,30 @@ class Relay:
 
         members = self.rooms.setdefault(room_id, set())
 
+        # IL NUMERO E' GIA' DI QUALCUN ALTRO? Prima del rientro qui sotto, e
+        # per QUALUNQUE ruolo: vedi VIVO_S e il codice di sessione.
+        adesso = time.monotonic()
+        for other_addr in list(members):
+            other = self.peers.get(other_addr)
+            if (other is None or other_addr == peer.addr
+                    or other.peer_id != peer.peer_id
+                    or adesso - other.last_seen >= VIVO_S):
+                continue                      # fantasma o altro numero
+            if peer.codice is not None and other.codice is not None:
+                if peer.codice == other.codice:
+                    continue                  # stesso client: rientro qui sotto
+                self.numero_occupato(peer, room_id, other)
+                return
+            if peer.codice is None and other.codice is None:
+                continue                      # due client vecchi: regola di prima
+            if peer.codice is None and peer.last_kind in (T_EVENT, T_CLUB):
+                # Un evento da un indirizzo nuovo arriva prima del suo PING:
+                # il codice non lo porta. Non si decide, non si entra: fra al
+                # massimo 2 s arriva il PING che lo dice.
+                return
+            self.numero_occupato(peer, room_id, other)
+            return
+
         # RIENTRO DA UN INDIRIZZO NUOVO (2026-08-02, per la partita via
         # internet). Su internet il NAT di casa puo' riciclare la porta
         # sorgente: stesso giocatore, indirizzo diverso. Per il relay, che
@@ -195,14 +251,22 @@ class Relay:
         # non un dettaglio da lasciar scadere in silenzio.
         for other_addr in list(members):
             other = self.peers.get(other_addr)
-            # ...MA SOLO FRA PARI RUOLO (2026-08-26). Chi gioca in emulatore
-            # apre il sito da spettatore, e la cosa piu' naturale del mondo e'
-            # che ci metta lo stesso numero di peer del suo client Lua. Senza
-            # questo controllo lo spettatore espellerebbe il proprio giocatore
-            # (e il PING del giocatore, un attimo dopo, espellerebbe lo
-            # spettatore): i due si butterebbero fuori a vicenda per sempre.
-            if (other is not None and other.peer_id == peer.peer_id
-                    and other.observer == peer.observer):
+            # Qui arriva solo un indirizzo che TACE da VIVO_S (quelli vivi li
+            # ha gia' fermati il controllo del numero occupato): e' un
+            # fantasma, di qualunque ruolo. Dal 2026-08-26 al 2026-09-27 il
+            # rientro valeva solo fra pari ruolo, perche' chi gioca in
+            # emulatore poteva guardarsi dal sito con lo STESSO numero; oggi
+            # il sito ha il campo «il tuo numero di gioco», diverso per
+            # costruzione (app.js lo vieta uguale), e due ruoli con lo stesso
+            # numero sono due persone.
+            if (other is None or other_addr == peer.addr
+                    or other.peer_id != peer.peer_id):
+                continue
+            fantasma = time.monotonic() - other.last_seen >= VIVO_S
+            stesso = (peer.codice is not None and peer.codice == other.codice)
+            vecchi = (peer.codice is None and other.codice is None
+                      and other.observer == peer.observer)
+            if fantasma or stesso or vecchi:
                 members.discard(other_addr)
                 self.peers.pop(other_addr, None)
                 self.rebinds += 1
@@ -239,6 +303,7 @@ class Relay:
                          % (room_id, peer.peer_id))
             return
         peer.refused_room = None
+        peer.taken_room = None
         peer.room = room_id
         members.add(peer.addr)
         # La stanza e' la PARTITA, non la mappa (decisione del 2026-07-30): stamparla
@@ -254,6 +319,24 @@ class Relay:
             self.log("peer %d entra nella stanza %d (%d giocatori%s)"
                      % (peer.peer_id, room_id, giocatori,
                         (" + %d spettatori" % spettatori) if spettatori else ""))
+
+    def numero_occupato(self, peer, room_id, other):
+        """Il nuovo resta FUORI e gli si dice perche' (T_TAKEN), al massimo una
+        volta al secondo: arriva a ogni suo PING. Nel log una volta sola per
+        peer e stanza, come la stanza piena."""
+        adesso = time.monotonic()
+        if adesso - peer.taken_detto_at >= 1.0:
+            peer.taken_detto_at = adesso
+            self.rifiuti_numero += 1
+            self.sock.sendto(pack(T_TAKEN, peer.peer_id, room_id, 0,
+                                  bytes([1 if other.observer else 0])), peer.addr)
+        if peer.taken_room != room_id:
+            peer.taken_room = room_id
+            self.log("peer %d da %s:%d RIFIUTATO nella stanza %d: il numero e' "
+                     "gia' usato da %s vivo da %s:%d"
+                     % (peer.peer_id, peer.addr[0], peer.addr[1], room_id,
+                        "uno spettatore" if other.observer else "un giocatore",
+                        other.addr[0], other.addr[1]))
 
     def leave_room(self, peer, notify):
         members = self.rooms.get(peer.room)
@@ -315,6 +398,10 @@ class Relay:
 
         peer.last_seen = time.monotonic()
         peer.peer_id = peer_id
+        if kind in (T_PING, T_HELLO, T_WATCH) and len(body) >= CODICE_LEN:
+            codice = int.from_bytes(body[:CODICE_LEN], "little")
+            if codice:
+                peer.codice = codice
         peer.last_kind = kind     # per il log dello sfratto: vedi sweep()
         peer.rx += 1
 

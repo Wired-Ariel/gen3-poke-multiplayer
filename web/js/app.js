@@ -216,6 +216,21 @@
     return m;
   }
 
+  /* Il firmware del Pico, letto all'apertura (device.js, leggiFirmware):
+   * se non e' quello di questo progetto si dice SUBITO, col link, invece di
+   * scoprirlo dopo tre multiboot falliti (2026-09-27). Non blocca niente. */
+  function avvisaFirmware(d) {
+    var es = d && d.firmwareEsito;
+    if (!es || es.ok === null) return;
+    $("aiuto-firmware-pico").hidden = !!es.ok;
+    if (es.ok) return;
+    $("fw-trovato").textContent = es.versione
+      ? L("trovato " + es.versione + ", serve " + es.atteso, "found " + es.versione + ", needs " + es.atteso)
+      : L("non ha risposto alla richiesta di versione", "it did not answer the version request");
+    log(L("[usb ] ATTENZIONE: il firmware del Pico non e' quello di questo progetto (" + (es.versione || "nessuna risposta") + "): aggiornalo con celio.uf2: ",
+          "[usb ] WARNING: the Pico firmware is not this project's (" + (es.versione || "no answer") + "): update it with celio.uf2: ") + URL_FIRMWARE, "usb", true);
+  }
+
   async function collegaPico() {
     if (!CelioDevice.supportato()) { errore(L("questo browser non ha WebUSB: serve Chrome o Edge.", "this browser has no WebUSB: you need Chrome or Edge.")); return; }
     if (dev) return;
@@ -228,6 +243,7 @@
       log("[usb ] device " + d.productName + " (" + d.manufacturerName + ") serial " + d.serialNumber, "usb");
       fase = "apri";
       await d0.open();
+      avvisaFirmware(d0);
       dev = d0;
       picoPerso = false;
       // Il bridge di una partita gia' avviata tiene il device VECCHIO, quello
@@ -270,6 +286,7 @@
         var d = await d0.riusa();
         if (!d) continue;
         await d0.open();
+        avvisaFirmware(d0);
         dev = d0;
         log("[usb ] canale riaperto dopo il " + motivo + " (" + (i + 1) + " tentativi)", "usb");
         disegnaTutto();
@@ -328,6 +345,7 @@
       if (!d) d = await raw.request();
       picoNome = (d.productName || "Pico") + (d.serialNumber ? " · " + d.serialNumber : "");
       await raw.open();
+      avvisaFirmware(raw);
       var buttate = await raw.drainRx(500);
       if (buttate) log("[mb  ] " + buttate + " parole di rumore buttate prima di iniziare", "mb");
       var t = cfg.timing || 3700;
@@ -608,6 +626,40 @@
       ul.appendChild(li);
     });
   }
+  /* «Entra in una stanza libera», come il matchmaking di Tetris (richiesta di
+   * Coltin, 2026-09-27). Fra le stanze aperte con posto (meno di 4 giocatori)
+   * e diverse dalla tua si sceglie quella con PIU' giocatori, cosi' chi arriva
+   * trova gente invece di riempire le stanze una per una; a parita', a sorte.
+   * Pura, per i test: `caso` e' Math.random se non lo si passa. */
+  function scegliStanzaLibera(stanze, mia, caso) {
+    caso = caso || Math.random;
+    var libere = (stanze || []).filter(function (st) { return st.giocatori < 4 && st.stanza !== mia; });
+    if (!libere.length) return null;
+    var max = Math.max.apply(null, libere.map(function (st) { return st.giocatori; }));
+    var migliori = libere.filter(function (st) { return st.giocatori === max; });
+    return migliori[Math.floor(caso() * migliori.length) % migliori.length].stanza;
+  }
+  window.Gen3Stanze = { scegliStanzaLibera: scegliStanzaLibera };
+  function entraInStanzaLibera() {
+    var u = urlStanze();
+    if (!u) { disegnaStanze([], L("scrivi prima il relay nelle impostazioni", "enter the relay in the settings first")); return; }
+    fetch(u, { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
+      var stanze = (d && d.stanze) || [];
+      disegnaStanze(stanze, "");
+      var mia = inPartita && cfg ? cfg.stanza : null;
+      var n = scegliStanzaLibera(stanze, mia);
+      if (n === null) {
+        $("stanze-nota").textContent = L("nessuna stanza aperta con un posto libero: apri la tua con la spunta qui sopra, e gli altri entreranno da te",
+                                         "no open room with a free seat: open yours with the box above, and others will join you");
+        return;
+      }
+      log(L("[rete ] stanza libera scelta: " + n, "[net  ] free room picked: " + n), "rete");
+      entraInStanza(n);
+    }, function () {
+      disegnaStanze([], L("elenco non disponibile (relay spento, o troppo vecchio per le stanze aperte)",
+                          "list unavailable (relay down, or too old for open rooms)"));
+    });
+  }
   function aggiornaStanze() {
     var u = urlStanze();
     if (!u) { disegnaStanze([], L("scrivi prima il relay nelle impostazioni", "enter the relay in the settings first")); return; }
@@ -646,7 +698,8 @@
       peerId: cfg.peer, room: cfg.stanza, device: dev, log: logDa,
       copies: 2, onStatus: function () { disegnaStato(); },
       onPos: inviaPosizioniEvento, spettatore: spettatore,
-      pubblica: cfg.aperta && !spettatore
+      pubblica: cfg.aperta && !spettatore,
+      onNumeroOccupato: numeroOccupato
     });
     link = new OwlRelay.RelayLink(url, {
       onMessage: function (b) { bridge.onRelayMessage(b); },
@@ -677,6 +730,28 @@
     }
     disegnaTutto();
   }
+  /* IL NUMERO ERA DI UN ALTRO (2026-09-27). Il relay ci tiene fuori da piu'
+   * di 6 s perche' un altro client vivo, giocatore o spettatore, usa il nostro
+   * peer in questa stanza (bridge.js, T_TAKEN). Si sceglie un numero nuovo,
+   * diverso anche dal «numero di gioco», lo si salva e si rientra da soli:
+   * chi gioca non deve sapere cos'e' un peer per risolverlo. */
+  function numeroOccupato(chi) {
+    var vecchio = cfg.peer, nuovo;
+    do { nuovo = 1 + Math.floor(Math.random() * 65000); }
+    while (nuovo === vecchio || (cfg.peerGioco && nuovo === cfg.peerGioco));
+    $("peer").value = nuovo;
+    log(L("[rete ] il numero " + vecchio + " e' gia' usato nella stanza " + cfg.stanza + " da un altro " + chi +
+          ": te ne ho dato uno nuovo (" + nuovo + ") e rientro",
+          "[net  ] number " + vecchio + " is already used in room " + cfg.stanza + " by another " +
+          (chi === "spettatore" ? "spectator" : "player") + ": I gave you a new one (" + nuovo + ") and I'm rejoining"), "rete", true);
+    var guarda = spettatore;
+    fermaPartita();
+    avviaPartita(guarda);
+    if (cfg) salvaCfg();
+    esito("esito-azione", L("Il tuo numero (" + vecchio + ") era gia' usato da un altro nella stanza: ora sei il " + nuovo + ".",
+                            "Your number (" + vecchio + ") was already used by someone else in the room: you are now " + nuovo + "."), "bene");
+  }
+
   function fermaPartita() {
     if (!inPartita) return;
     inPartita = false;
@@ -702,7 +777,11 @@
     var t0 = 0, seq = 0x5A, finito = false;
     var timer = setTimeout(function () { chiudi(L("il relay non risponde entro 5 s: indirizzo sbagliato, porta chiusa, o ws:// su una pagina https", "the relay did not answer within 5 s: wrong address, closed port, or ws:// on an https page"), "male"); }, 5000);
     var l = new OwlRelay.RelayLink(url, {
-      onOpen: function () { t0 = performance.now(); l.send(OwlRelay.pack(OwlRelay.T.PING, cfg.peer, cfg.stanza, seq)); },
+      // STANZA 0 (2026-09-27): il relay non ci mette nessuno (move_to_room la
+      // salta) ma risponde lo stesso col PONG. Con la stanza vera la prova
+      // occupava per qualche secondo il numero di chi poi preme Gioca, e il
+      // controllo del numero gia' in uso lo avrebbe tenuto fuori.
+      onOpen: function () { t0 = performance.now(); l.send(OwlRelay.pack(OwlRelay.T.PING, cfg.peer, 0, seq)); },
       onMessage: function (bytes) {
         var p = OwlRelay.unpack(bytes);
         if (p && p.kind === OwlRelay.T.PONG && p.seq === seq) {
@@ -862,6 +941,7 @@
     caricaCfg();
     $("btn-salva").onclick = salva;
     $("btn-stanze").onclick = aggiornaStanze;
+    $("btn-stanza-caso").onclick = entraInStanzaLibera;
     $("stanza-aperta").onchange = function () {
       cfg.aperta = this.checked;
       salvaCfg();

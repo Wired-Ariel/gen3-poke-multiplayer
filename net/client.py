@@ -57,7 +57,7 @@ from protocol import (  # noqa: E402
     CLUB_DATA, CLUB_ENTER, CLUB_LEAVE, CLUB_REQ, CLUB_STATUS,
     EV_CLUB, EV_STATUS, EVENT_SIZE, IMPRONTA_LUA, IMPRONTA_SORGENTI,
     IMPRONTA_WEB, T_BYE, T_CLUB,
-    T_EVENT, T_HELLO, T_PING, T_PONG, VERSIONE_CLUB,
+    T_EVENT, T_HELLO, T_PING, T_PONG, T_TAKEN, VERSIONE_CLUB,
     club_block_riga, club_enter, club_leave, club_unpack,
     extract_map_key, make_leave_event, nome_stato, pack, unpack,
 )
@@ -160,6 +160,17 @@ class Bridge:
 
     def __init__(self, args):
         self.peer_id = args.peer_id
+        # IL CODICE DI SESSIONE (2026-09-27, relay.py VIVO_S): 4 byte sorteggiati
+        # all'avvio, nel corpo di PING e HELLO. Per il relay distingue "sono
+        # sempre io da un'altra porta" da "un altro col mio stesso numero".
+        self.codice = random.randint(1, 0xFFFFFFFF)
+        self.codice_b = self.codice.to_bytes(4, "little")
+        # T_TAKEN: il numero e' di un altro client vivo. Si reagisce solo se
+        # DURA 6 s (un rientro col BYE perso passa da solo in qualche secondo).
+        self.preso_da = 0.0
+        self.preso_ultimo = 0.0
+        self.rifiuti_numero = 0
+        self.numeri_cambiati = 0
         self.listen_port = args.listen
         self.transport = args.transport
         self.netem = Netem(args.delay, args.jitter, args.loss)
@@ -520,7 +531,7 @@ class Bridge:
         self.pending_ping[seq] = now
         # Il PING non passa dal simulatore: misuriamo la rete VERA. Il ritardo
         # finto lo conosciamo gia', non serve misurarlo.
-        self.send_udp(pack(T_PING, self.peer_id, self.room, seq), now,
+        self.send_udp(pack(T_PING, self.peer_id, self.room, seq, self.codice_b), now,
                       simulate=False)
         # Il battito porta con se' la presenza: e' il solo pacchetto che parte
         # anche quando il GBA tace (club, menu, lotta).
@@ -552,6 +563,35 @@ class Bridge:
         self.last_seq[peer_id] = seq
         return True
 
+    def numero_occupato(self, body, now):
+        """Il relay ci tiene FUORI: un altro client vivo (giocatore o
+        spettatore) usa il nostro peer-id in questa stanza (relay.py,
+        T_TAKEN). Se dura 6 s si sceglie un numero nuovo e si rientra da soli,
+        come fa il sito: il gioco non si ferma, il payload non se ne accorge."""
+        self.rifiuti_numero += 1
+        if not self.preso_da or now - self.preso_ultimo > 3.0:
+            self.preso_da = now
+            self.log("il relay dice che il peer %d e' gia' in uso nella stanza %d: "
+                     "se e' un rientro passa da solo in qualche secondo"
+                     % (self.peer_id, self.room))
+        self.preso_ultimo = now
+        if now - self.preso_da < 6.0:
+            return
+        chi = "spettatore" if body[:1] == bytes([1]) else "giocatore"
+        vecchio = self.peer_id
+        nuovo = vecchio
+        while nuovo == vecchio:
+            nuovo = random.randint(1, 65000)
+        self.peer_id = nuovo
+        self.numeri_cambiati += 1
+        self.preso_da = 0.0
+        self.log("!!! il peer %d e' USATO da un altro %s nella stanza %d: passo al "
+                 "peer %d e rientro (per tenerlo fisso la prossima volta: --peer-id %d)"
+                 % (vecchio, chi, self.room, nuovo, nuovo))
+        self.send_udp(pack(T_HELLO, self.peer_id, self.room, 0, self.codice_b),
+                      now, simulate=False)
+        self.rimanda_presenza(now)
+
     def handle_udp(self, data, now):
         parsed = unpack(data)
         if parsed is None:
@@ -563,6 +603,10 @@ class Bridge:
             sent_at = self.pending_ping.pop(seq, None)
             if sent_at is not None:
                 self.rtts.append((now - sent_at) * 1000.0)
+            return
+
+        if kind == T_TAKEN:
+            self.numero_occupato(body, now)
             return
 
         if kind == T_BYE:
@@ -1545,7 +1589,7 @@ class Bridge:
             # timing -> StartHandshake: la sequenza a verbale del 2026-08-02)
             # e il thread di lettura parte qui dentro.
             self.usb.open()
-            self.send_udp(pack(T_HELLO, self.peer_id, self.room, 0),
+            self.send_udp(pack(T_HELLO, self.peer_id, self.room, 0, self.codice_b),
                           time.monotonic(), simulate=False)
             # L'HELLO iscrive alla stanza ma non porta la posizione: se
             # abbiamo gia' una fotografia (riaggancio), la si rimanda subito.
@@ -1629,7 +1673,7 @@ class Bridge:
                     self.last_seq.clear()
                     self.peer_room.clear()
                     self.log("gioco collegato da %s:%d" % addr)
-                    self.send_udp(pack(T_HELLO, self.peer_id, self.room, 0), now,
+                    self.send_udp(pack(T_HELLO, self.peer_id, self.room, 0, self.codice_b), now,
                                   simulate=False)
                     self.rimanda_presenza(now)
 

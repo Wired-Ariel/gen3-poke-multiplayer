@@ -259,6 +259,7 @@
       </div>
       <div class="esito" id="esito-azione"></div>
       <p class="aiuto" id="aiuto-firmware" hidden style="border-left:4px solid var(--ambra);padding-left:12px"><b>The GBA never answered.</b> The most common cause is the <b>Pico firmware</b>: this project needs its own <a href="https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2"><code>celio.uf2</code></a>, even if your adapter already runs Celio or GB-Link firmware. Hold BOOTSEL while plugging in the Pico, drag the file onto the drive that appears, then try again. If it still fails: empty cartridge slot, GBA switched on <i>after</i> the cable, cable the right way round.</p>
+      <p class="aiuto" id="aiuto-firmware-pico" hidden style="border-left:4px solid var(--ambra);padding-left:12px"><b>The Pico does not have this project’s firmware</b> (<span id="fw-trovato"></span>). Without it the game won’t load and the GBA never answers. Download <a href="https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2"><code>celio.uf2</code></a>, hold BOOTSEL while plugging in the Pico, drag the file onto the drive that appears, then press «Connect the Pico» again. You only need to do this once.</p>
 
       <div class="separa"></div>
       <p class="etichetta" style="margin-bottom:10px">Tools</p>
@@ -309,7 +310,7 @@
           <label class="spunta"><input type="checkbox" id="stanza-aperta">
             <span><b>Open room</b>: your room shows up in the list below and <b>anyone can join</b>
               (up to 4 players). It stays open while the box is ticked and you are in a game. It also applies to the <b>emulator script</b> downloaded from this page; inside mGBA use <code>aperta(true)</code> or the L+R+B panel.</span></label>
-          <div class="testa"><span>Open rooms right now</span><button class="minore" id="btn-stanze" type="button">Refresh</button></div>
+          <div class="testa"><span>Open rooms right now</span><button class="minore" id="btn-stanza-caso" type="button">Join a free room</button><button class="minore" id="btn-stanze" type="button">Refresh</button></div>
           <ul id="lista-stanze"></ul>
           <small class="guida" id="stanze-nota"></small>
         </div>
@@ -317,7 +318,8 @@
           <input type="number" id="peer" min="1" max="65534">
           <small class="guida">Your identifier inside the room: <b>it must be different
             from every friend's</b>, otherwise packets get mixed up. The page has
-            picked a random one for you: usually that's fine.</small></label>
+            picked a random one for you: usually that's fine. If someone else in the room, player or
+            spectator, is already using it, the relay says so and the page gives you a new one by itself.</small></label>
         <label class="campo"><span>Your game number (spectators only)</span>
           <input type="number" id="peer-gioco" min="1" max="65534" placeholder="empty = none">
           <small class="guida">If you're <b>playing elsewhere</b> — inside mGBA, or with the GBA connected to

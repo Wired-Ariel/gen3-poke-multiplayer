@@ -51,6 +51,14 @@ T_LIST = 8    # l'elenco delle stanze aperte. Richiesta SOLO da loopback (e'
               # relay_ws.py che la fa, per servirla su GET /ws?stanze); la
               # risposta porta nel corpo un JSON utf-8.
 
+T_TAKEN = 9   # "il tuo peer-id e' GIA' IN USO in questa stanza" (2026-09-27).
+              # Dal relay al client che arriva con un numero che un ALTRO
+              # client (giocatore o spettatore) sta usando ed e' vivo (ha
+              # parlato negli ultimi VIVO_S secondi, relay.py). Il nuovo resta
+              # fuori dalla stanza, chi c'era non viene toccato. Corpo: 1 byte,
+              # 0 = lo usa un giocatore, 1 = uno spettatore. Il relay lo manda
+              # al massimo una volta al secondo per peer.
+
 TYPE_NAMES = {
     T_HELLO: "HELLO",
     T_EVENT: "EVENT",
@@ -61,6 +69,7 @@ TYPE_NAMES = {
     T_CLUB: "CLUB",
     T_PUBLIC: "PUBLIC",
     T_LIST: "LIST",
+    T_TAKEN: "TAKEN",
 }
 
 # --- corpo dei T_CLUB --------------------------------------------------------

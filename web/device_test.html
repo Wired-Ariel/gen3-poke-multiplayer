@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>test device.js</title>
+<style>body{font:14px Consolas,monospace;background:#0e1117;color:#e6e6e6;padding:16px} .ok{color:#7ee787} .ko{color:#ff7b72} .nota{color:#9aa4b2}</style>
+</head>
+<body>
+<h2>device.js — la lettura del firmware del Pico, con un Pico FINTO</h2>
+<p class="nota">Il Pico finto risponde (o no) a GetFirmwareInfo (0x0F) come il firmware Celio
+(control.hpp: 4 byte 0x0F, maggiore, minore, patch, sull'endpoint dati). Niente hardware.</p>
+<pre id="out"></pre>
+<script src="js/sio.js"></script>
+<script src="js/device.js"></script>
+<script>
+(async function () {
+  var out = [], ok = 0, ko = 0;
+  function scrivi() { document.getElementById("out").innerHTML = out.join("\n") +
+    "\n\n" + (ko ? "<span class=ko>FALLITO: " + ko + " KO su " + (ok + ko) + "</span>" : "<span class=ok>TUTTO PASSATO: " + ok + " su " + ok + "</span>");
+    window.RISULTATO = { ok: ok, ko: ko, righe: out.slice() }; }
+  function t(nome, cond, info) {
+    if (cond) { ok++; out.push("<span class=ok>OK </span>" + nome); }
+    else { ko++; out.push("<span class=ko>KO </span>" + nome + (info !== undefined ? " -> " + JSON.stringify(info) : "")); }
+  }
+  function attesa(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  /* Un Pico finto che parla WebUSB. opz.risposta: i 4 byte da mandare a 0x0F
+   * (null = non risponde, come il firmware di fabbrica del GB-Link);
+   * opz.avanzi: pacchetti gia' in coda sull'endpoint dati PRIMA della risposta
+   * (una sessione di prima). Le letture pendenti si servono in ordine (FIFO),
+   * come fa il browser. */
+  function FintoPico(opz) {
+    this.opz = opz || {};
+    this.coda = (this.opz.avanzi || []).slice();
+    this.attese = [];
+    this.comandi = [];
+    this.productName = "Finto"; this.manufacturerName = "banco"; this.serialNumber = "0";
+  }
+  FintoPico.prototype.open = function () { return Promise.resolve(); };
+  FintoPico.prototype.selectConfiguration = function () { return Promise.resolve(); };
+  FintoPico.prototype.claimInterface = function () { return Promise.resolve(); };
+  FintoPico.prototype.close = function () { this.chiuso = true; return Promise.resolve(); };
+  FintoPico.prototype._consegna = function () {
+    while (this.coda.length && this.attese.length) {
+      var p = this.coda.shift(); var r = this.attese.shift();
+      r({ status: "ok", data: new DataView(p.buffer, p.byteOffset, p.byteLength) });
+    }
+  };
+  FintoPico.prototype.spingi = function (u8) { this.coda.push(u8); this._consegna(); };
+  FintoPico.prototype.transferOut = function (ep, data) {
+    var b = Array.from(data); this.comandi.push(b);
+    var self = this;
+    if (b[0] === 0x0F && this.opz.risposta) {
+      setTimeout(function () { self.spingi(new Uint8Array(self.opz.risposta)); }, this.opz.ritardo || 5);
+    }
+    return Promise.resolve({ status: "ok", bytesWritten: b.length });
+  };
+  FintoPico.prototype.transferIn = function (ep, len) {
+    var self = this;
+    if (ep === 1) {   // stato: uno ogni 200 ms, finche' non si chiude
+      return attesa(200).then(function () {
+        if (self.chiuso) return new Promise(function () {});
+        var dv = new DataView(new ArrayBuffer(2)); dv.setUint16(0, 0, true);
+        return { status: "ok", data: dv };
+      });
+    }
+    return new Promise(function (r) { self.attese.push(r); self._consegna(); });
+  };
+
+  async function apri(opz) {
+    var righe = [];
+    var d = new CelioDevice({ log: function (r) { righe.push(r); } });
+    var ricevuti = [];
+    d._onData = function (u8) { ricevuti.push(Array.from(u8)); };
+    d.device = new FintoPico(opz);
+    var t0 = performance.now();
+    await d.open();
+    return { d: d, righe: righe, ricevuti: ricevuti, ms: performance.now() - t0 };
+  }
+
+  try {
+    // 1. il firmware di questo progetto
+    var a = await apri({ risposta: [0x0F, 2, 0, 5] });
+    t("2.0.5 -> riconosciuto come quello di questo progetto", a.d.firmwareEsito.ok === true && a.d.firmwareEsito.versione === "2.0.5", a.d.firmwareEsito);
+    t("il comando 0x0F parte dopo Cancel e prima di SetMode",
+      JSON.stringify(a.d.device.comandi.slice(0, 3)) === JSON.stringify([[0x01], [0x0F], [0x00, 0x04]]), a.d.device.comandi.slice(0, 3));
+    t("il registro dice la versione", a.righe.some(function (r) { return r.indexOf("firmware del Pico: 2.0.5 (quello di questo progetto)") >= 0; }), a.righe);
+    t("con la risposta, l'attesa non si paga (apertura < 1,8 s: 1,3 s sono le pause di sempre)", a.ms < 1800, Math.round(a.ms));
+    a.d.device.spingi(new Uint8Array([0x10, 0x20, 0x30, 0x40]));
+    await attesa(30);
+    t("il canale dati funziona dopo la lettura", a.ricevuti.length === 1 && a.ricevuti[0][0] === 0x10, a.ricevuti);
+    await a.d.close();
+
+    // 2. il Celio di serie
+    var b = await apri({ risposta: [0x0F, 2, 0, 4] });
+    t("2.0.4 (Celio di serie) -> NON e' quello giusto", b.d.firmwareEsito.ok === false && b.d.firmwareEsito.versione === "2.0.4", b.d.firmwareEsito);
+    t("il testo dice cosa serve", b.d.firmwareEsito.testo.indexOf("celio.uf2") >= 0 && b.d.firmwareEsito.testo.indexOf("2.0.5") >= 0, b.d.firmwareEsito.testo);
+    await b.d.close();
+
+    // 3. nessuna risposta (firmware di fabbrica del GB-Link)
+    var c = await apri({ risposta: null });
+    t("nessuna risposta -> NON e' quello giusto, versione sconosciuta", c.d.firmwareEsito.ok === false && c.d.firmwareEsito.versione === null, c.d.firmwareEsito);
+    t("l'apertura va avanti comunque (non blocca)", c.d.open_ === true);
+    t("si aspetta al massimo ~0,4 s in piu'", c.ms >= 1700 && c.ms < 2300, Math.round(c.ms));
+    c.d.device.spingi(new Uint8Array([0xAB, 1, 2, 3]));
+    c.d.device.spingi(new Uint8Array([0xCD, 4, 5, 6]));
+    await attesa(30);
+    t("la lettura rimasta in volo NON mangia il primo pacchetto vero: arrivano tutti e due, in ordine",
+      c.ricevuti.length === 2 && c.ricevuti[0][0] === 0xAB && c.ricevuti[1][0] === 0xCD, c.ricevuti);
+    await c.d.close();
+
+    // 4. un avanzo di una sessione di prima, poi la risposta
+    var e = await apri({ avanzi: [new Uint8Array([0x55, 0x66, 0x77, 0x88])], risposta: [0x0F, 2, 0, 5] });
+    t("un pacchetto vecchio in coda non inganna: si butta e si trova la risposta", e.d.firmwareEsito.ok === true, e.d.firmwareEsito);
+    await e.d.close();
+
+    // 5. risposta troppo lenta (oltre il tempo): conta come nessuna risposta, e non entra nel canale dati
+    var f = await apri({ risposta: [0x0F, 2, 0, 5], ritardo: 700 });
+    await attesa(800);
+    t("risposta oltre i 400 ms -> esito 'nessuna risposta'", f.d.firmwareEsito.ok === false && f.d.firmwareEsito.versione === null, f.d.firmwareEsito);
+    t("e la risposta tardiva NON finisce nel canale dati del gioco", f.ricevuti.length === 0, f.ricevuti);
+    await f.d.close();
+
+    // 6. il giudizio da solo
+    t("valutaFirmware(null)", CelioDevice.valutaFirmware(null).ok === false);
+    t("valutaFirmware(2.1.0) -> non e' quello giusto", CelioDevice.valutaFirmware({ major: 2, minor: 1, patch: 0 }).ok === false);
+  } catch (err) {
+    ko++; out.push("<span class=ko>KO </span>eccezione: " + err.message);
+  }
+  scrivi();
+})();
+</script>
+</body>
+</html>

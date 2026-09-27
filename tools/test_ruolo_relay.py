@@ -252,6 +252,50 @@ class TestRuoloRelay(unittest.TestCase):
         g.ws.segnoPubblica()
         self.assertEqual(pubblici(), [b"\x01", b"\x01", b"\x00"])
 
+    def test_numero_occupato_cambia_peer_dopo_6_s(self):
+        """T_TAKEN (tipo 9, 2026-09-27): il numero e' di un altro client vivo.
+        Il Lua reagisce solo se DURA 6 s (360 vblank): prima di allora niente;
+        un buco di piu' di 3 s fa ripartire il conto (un rientro passeggero non
+        conta). Poi un peer NUOVO, diverso dal vecchio, salvato nel config.
+        E il codice di sessione sta davvero nei PING e negli HELLO."""
+        src = self.src
+        m = re.search(r"^function ws\.numeroOccupato\(body\).*?^end$", src, re.S | re.M)
+        self.assertIsNotNone(m, "ws.numeroOccupato non trovata in inject_body.lua")
+        self.lua.execute("""
+            ADDR_GMAIN_VBLANK1 = 0
+            VBLANK = 0
+            emu = { read32 = function() return VBLANK end }
+            CAMBIATO = nil
+            SCRITTO = false
+            function peer(n) CAMBIATO = n; RELAY_PEER = n end
+            ws.cfgScrivi = function() SCRITTO = true; return "config.lua" end
+            ws.presoDa = false; ws.presoUltimo = 0; ws.rifiutiNumero = 0
+        """)
+        self.lua.execute(m.group(0))
+        g = self.lua.globals()
+        g.RELAY_PEER = 42
+        self.addCleanup(setattr, g, "RELAY_PEER", 42)
+        for vb in (1000, 1100, 1200, 1300, 1355):
+            g.VBLANK = vb
+            g.ws.numeroOccupato(bytes([0]))
+        self.assertIsNone(g.CAMBIATO, "prima di 6 s non deve cambiare numero")
+        g.VBLANK = 1700                      # buco di 345 vblank (>180): si riparte
+        g.ws.numeroOccupato(bytes([0]))
+        self.assertIsNone(g.CAMBIATO, "dopo un buco il conto deve ripartire")
+        for vb in range(1800, 2161, 60):   # fino a 2160: 460 vblank dalla ripartenza (>= 360)
+            g.VBLANK = vb
+            g.ws.numeroOccupato(bytes([1]))
+        self.assertIsNotNone(g.CAMBIATO, "dopo 6 s di rifiuti il numero doveva cambiare")
+        self.assertNotEqual(g.CAMBIATO, 42)
+        self.assertTrue(1 <= g.CAMBIATO <= 65001)
+        self.assertTrue(g.SCRITTO, "il numero nuovo va salvato nel config")
+        # il codice di sessione nei pacchetti che lo devono portare
+        self.assertRegex(src, r'codiceStr = string\.pack\("<I4"')
+        self.assertIn("owlSend(OWL_PING, ws.codiceStr)", src)
+        self.assertEqual(src.count("owlSend(OWL_HELLO, ws.codiceStr)"), 2)
+        self.assertNotIn('owlSend(OWL_HELLO, "")', src)
+        g.RELAY_PEER = 42          # lo stato Lua e' condiviso fra i test: si rimette com'era
+
     def test_config_in_sandbox_non_esegue_codice(self):
         """La config e' un file che l'utente puo' modificare: si carica in un
         ambiente VUOTO (load con env {}), quindi anche una config maligna o

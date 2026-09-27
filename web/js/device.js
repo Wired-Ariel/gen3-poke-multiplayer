@@ -24,8 +24,16 @@
   var CMD = {
     SET_MODE: 0x00, CANCEL: 0x01, SET_MODE_MASTER: 0x10, SET_MODE_SLAVE: 0x11,
     START_HANDSHAKE: 0x12, CONNECT_LINK: 0x13, SET_RAW_TIMING: 0x14,
-    SET_CABLE_TYPE: 0x15, HW_REBOOT: 0x43
+    SET_CABLE_TYPE: 0x15, HW_REBOOT: 0x43, GET_FIRMWARE_INFO: 0x0F
   };
+  /* La versione del firmware di QUESTO progetto (hw/firmware/celio-f1f2b-f3-f4.patch:
+   * FW_VERSION 2.0.5, il Celio di serie e' 2.0.4). GetFirmwareInfo (0x0F) e'
+   * un comando di controllo del firmware Celio, gestito in qualunque modalita'
+   * (control.hpp: canHandle = nibble alto 0), e risponde sull'endpoint DATI con
+   * 4 byte: 0x0F, maggiore, minore, patch. Chi ha un altro firmware (quello di
+   * fabbrica del GB-Link) non risponde affatto. 2026-09-27. */
+  var FW_ATTESO = [2, 0, 5];
+  var FW_ATTESA_MS = 400;
   var MODE = { PASSTHROUGH: 0x04, ONLINE_LINK: 0x01 };
   var REBOOT_MAGIC = 0xA5;
   var CABLE = { auto: 0, gba: 1, gbc: 2 };
@@ -130,6 +138,7 @@
       .then(function () { return self.device.selectConfiguration(1); })
       .then(function () { return self.device.claimInterface(0); })
       .then(function () { return self.cmd([CMD.CANCEL], 600, "Cancel"); })
+      .then(function () { return self.leggiFirmware(FW_ATTESA_MS); })
       .then(function () { return self.cmd([CMD.SET_MODE, MODE.PASSTHROUGH], 300, "SetMode raw relay (rilevazione cavo ADESSO)"); })
       .then(function () { return self.cmd([CMD.SET_MODE_MASTER], 200, "master"); })
       .then(function () {
@@ -152,6 +161,77 @@
         self._statusLoop();
         return self;
       });
+  };
+
+  /* CHI C'E' SUL PICO? (2026-09-27, dal campo: tre GB-Link col firmware di
+   * fabbrica bloccati al multiboot, mandati a cambiare cavi dal nostro
+   * messaggio). Si chiede la versione PRIMA di SetMode, quando sull'endpoint
+   * dati non scorre ancora niente, e si aspetta al massimo `ms`.
+   *
+   * Una transferIn di WebUSB non si annulla: se scade il tempo resta in volo.
+   * Quando si risolvera' (con il primo pacchetto vero, a canale aperto), NON
+   * va perso: si ridà a _onData, come se l'avesse letto il ciclo dei dati.
+   * Esito in this.firmware: {major, minor, patch} oppure null (nessuna
+   * risposta), e in this.firmwareEsito il giudizio di valutaFirmware. */
+  CelioDevice.prototype.leggiFirmware = function (ms) {
+    var self = this;
+    this.firmware = null;
+    function eRisposta(u8) { return u8 && u8.length >= 4 && u8[0] === CMD.GET_FIRMWARE_INFO; }
+    return this.cmd([CMD.GET_FIRMWARE_INFO], 0, "GetFirmwareInfo").then(function () {
+      var fine = Date.now() + ms;
+      function prova() {
+        var lettura = self.device.transferIn(EP_DATA, 64).then(function (r) {
+          if (r.status !== "ok" || !r.data || !r.data.byteLength) return null;
+          return new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength);
+        }, function () { return null; });
+        var resto = fine - Date.now();
+        if (resto <= 0) resto = 1;
+        var timer = sleep(resto).then(function () { return "scaduto"; });
+        return Promise.race([lettura, timer]).then(function (u8) {
+          if (u8 === "scaduto") {
+            // La lettura rimasta in volo prendera' il PRIMO pacchetto vero.
+            // _dataLoop aspetta questa promessa prima di consegnare il suo,
+            // o l'ordine dei pacchetti si invertirebbe (trovato dal banco
+            // web/device_test.html: 0xCD arrivava prima di 0xAB).
+            self._letturaOrfana = lettura.then(function (tardi) {
+              if (tardi && !eRisposta(tardi) && self.open_) { self.packetsRx++; self._onData(tardi); }
+            });
+            return null;
+          }
+          if (eRisposta(u8)) return { major: u8[1], minor: u8[2], patch: u8[3] };
+          // un avanzo della sessione di prima: si butta e si riprova
+          if (Date.now() < fine) return prova();
+          return null;
+        });
+      }
+      return prova();
+    }).then(function (fw) {
+      self.firmware = fw;
+      self.firmwareEsito = CelioDevice.valutaFirmware(fw);
+      self.log("[usb ] firmware del Pico: " + self.firmwareEsito.testo);
+      return fw;
+    }, function (e) {
+      // il comando non e' partito: non si sa, e non si blocca l'apertura
+      self.firmware = null;
+      self.firmwareEsito = { ok: null, testo: "non letto (" + e.message + ")" };
+      self.log("[usb ] firmware del Pico: " + self.firmwareEsito.testo);
+      return null;
+    });
+  };
+
+  /* Il giudizio, separato dalla lettura perche' si prova senza Pico
+   * (web/bridge_test.html). ok: true = quello di questo progetto; false = un
+   * altro firmware (o nessuna risposta); il sito mostra l'avviso, ma NON
+   * blocca: con un firmware piu' nuovo il multiboot potrebbe funzionare. */
+  CelioDevice.valutaFirmware = function (fw) {
+    var atteso = FW_ATTESO.join(".");
+    if (!fw) return { ok: false, versione: null, atteso: atteso,
+      testo: "nessuna risposta alla richiesta di versione: NON e' il firmware Celio di questo progetto (serve celio.uf2, versione " + atteso + ")" };
+    var v = fw.major + "." + fw.minor + "." + fw.patch;
+    if (fw.major === FW_ATTESO[0] && fw.minor === FW_ATTESO[1] && fw.patch === FW_ATTESO[2])
+      return { ok: true, versione: v, atteso: atteso, testo: v + " (quello di questo progetto)" };
+    return { ok: false, versione: v, atteso: atteso,
+      testo: v + ": NON e' quello di questo progetto (serve celio.uf2, versione " + atteso + ")" };
   };
 
   /* Rifa' la sequenza di setup senza rienumerare il device (fra un tentativo
@@ -236,15 +316,22 @@
 
   CelioDevice.prototype._dataLoop = function () {
     var self = this;
+    // Una lettura della richiesta di versione rimasta in volo (leggiFirmware)
+    // si prende il primo pacchetto: il nostro primo si consegna DOPO il suo.
+    var prima = this._letturaOrfana || null;
+    this._letturaOrfana = null;
     function giro() {
       if (!self.open_ || !self.device) return;
       self.device.transferIn(EP_DATA, 64).then(function (r) {
-        if (r.status === "ok" && r.data && r.data.byteLength) {
-          self.packetsRx++;
-          self._onData(new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength));
+        function consegna() {
+          if (r.status === "ok" && r.data && r.data.byteLength) {
+            self.packetsRx++;
+            self._onData(new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength));
+          }
+          self._errDati = 0;
+          giro();
         }
-        self._errDati = 0;
-        giro();
+        if (prima) { var p = prima; prima = null; p.then(consegna); } else consegna();
       }, function (e) {
         if (!self.open_) return;
         // UNA riga sola, non una ogni 50 ms. Il log alluvionato non era solo
