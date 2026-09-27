@@ -183,6 +183,15 @@
     #riga-club { flex-wrap: wrap; }
     #riga-club .pillola { margin-left: 0; }
   }
+  /* Le stanze aperte (2026-09-27) */
+  .aperte { border: 1px dashed var(--bordo-scuro); border-radius: 10px; padding: 10px 12px; }
+  .aperte label.spunta { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; line-height: 1.5; cursor: pointer; }
+  .aperte label.spunta input { margin-top: 2px; flex: none; }
+  .aperte .testa { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-top: 10px; font-size: 11.5px; font-weight: 600; color: #3b463f; }
+  .aperte ul { list-style: none; margin: 6px 0 0; padding: 0; }
+  .aperte li { display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 6px 0; border-top: 1px solid var(--bordo-scuro); font-size: 13px; }
+  .aperte li:first-child { border-top: 0; }
+  .aperte li button.minore { height: 30px; line-height: 30px; padding: 0 12px; width: auto; }
 </style>
 </head>
 <body>
@@ -296,6 +305,14 @@
           <small class="guida">La «partita»: si vedono solo i giocatori con lo stesso numero.
             Scegline uno qualsiasi fra 1 e 65535 e passalo agli amici. Non è una password:
             chi lo conosce entra.</small></label>
+        <div class="campo larga aperte">
+          <label class="spunta"><input type="checkbox" id="stanza-aperta">
+            <span><b>Stanza aperta</b>: la tua stanza compare nell'elenco qui sotto e <b>chiunque può entrare</b>
+              (fino a 4 giocatori). Resta aperta finché la spunta c'è e tu sei in partita.</span></label>
+          <div class="testa"><span>Stanze aperte adesso</span><button class="minore" id="btn-stanze" type="button">Aggiorna</button></div>
+          <ul id="lista-stanze"></ul>
+          <small class="guida" id="stanze-nota"></small>
+        </div>
         <label class="campo"><span>Il tuo numero (peer)</span>
           <input type="number" id="peer" min="1" max="65534">
           <small class="guida">Il tuo identificativo dentro la stanza: <b>deve essere diverso

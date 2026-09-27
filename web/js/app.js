@@ -104,7 +104,9 @@
       // personale, non una scelta di chi pubblica la pagina.
       peerGioco: salvate.peerGioco || 0,
       timing: salvate.timing || 7400,
-      cavo: salvate.cavo || "auto"
+      cavo: salvate.cavo || "auto",
+      // STANZA APERTA (2026-09-27): opt-in, spenta di serie.
+      aperta: !!salvate.aperta
     };
     if (!salvate.peer) salvaCfg();   // il numero di peer nasce una volta e resta
     applicaCfg();
@@ -114,6 +116,7 @@
     $("relay").value = cfg.relay; $("stanza").value = cfg.stanza; $("peer").value = cfg.peer;
     $("peer-gioco").value = cfg.peerGioco || "";
     $("timing").value = cfg.timing; $("cavo").value = cfg.cavo;
+    $("stanza-aperta").checked = !!cfg.aperta;
   }
   function leggiCfg() {
     var stanza = parseInt($("stanza").value, 10), peer = parseInt($("peer").value, 10), timing = parseInt($("timing").value, 10);
@@ -130,7 +133,7 @@
       return L("il tuo peer di gioco deve essere DIVERSO da quello di questa pagina", "your game peer must be DIFFERENT from this page's peer");
     if (!(timing >= 1000 && timing <= 60000)) return L("il timing va da 1000 a 60000", "the timing must be between 1000 and 60000");
     cfg = { relay: $("relay").value.trim(), stanza: stanza, peer: peer, peerGioco: peerGioco,
-            timing: timing, cavo: $("cavo").value };
+            timing: timing, cavo: $("cavo").value, aperta: $("stanza-aperta").checked };
     salvaCfg();
     return null;
   }
@@ -569,6 +572,61 @@
   }
 
   /* --- la partita ----------------------------------------------------------- */
+  /* --- le stanze aperte (2026-09-27) ---------------------------------------
+   * L'elenco lo tiene il relay e lo serve relay_ws.py su GET /ws?stanze, cioe'
+   * lo stesso indirizzo del WebSocket in https. Compaiono solo le stanze che un
+   * giocatore ha segnato «aperte», finche' lui la tiene aperta. */
+  function urlStanze() {
+    var u = OwlRelay.normalizzaUrl((cfg && cfg.relay) || $("relay").value);
+    if (!u) return "";
+    u = u.split("?")[0].replace(/^wss:\/\//i, "https://").replace(/^ws:\/\//i, "http://");
+    return u + "?stanze";
+  }
+  function disegnaStanze(stanze, nota) {
+    var ul = $("lista-stanze"); ul.innerHTML = "";
+    $("stanze-nota").textContent = nota || "";
+    stanze.forEach(function (st) {
+      var li = document.createElement("li");
+      var t = document.createElement("span");
+      var mia = inPartita && cfg && cfg.stanza === st.stanza;
+      t.textContent = L("Stanza ", "Room ") + st.stanza + " · " + st.giocatori + "/4 " + L("giocatori", "players") +
+        (st.spettatori ? " (+" + st.spettatori + " " + L("spettatori", "spectators") + ")" : "") +
+        (mia ? L(" · ci sei tu", " · you're here") : "");
+      li.appendChild(t);
+      var b = document.createElement("button");
+      b.className = "minore"; b.type = "button";
+      b.textContent = st.giocatori >= 4 ? L("Piena", "Full") : L("Entra", "Join");
+      b.disabled = st.giocatori >= 4 || mia;
+      b.onclick = function () { entraInStanza(st.stanza); };
+      li.appendChild(b);
+      ul.appendChild(li);
+    });
+  }
+  function aggiornaStanze() {
+    var u = urlStanze();
+    if (!u) { disegnaStanze([], L("scrivi prima il relay nelle impostazioni", "enter the relay in the settings first")); return; }
+    fetch(u, { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
+      var stanze = (d && d.stanze) || [];
+      var nota = d && d.errore ? L("il relay non risponde: elenco non disponibile", "the relay isn't answering: list unavailable")
+        : (stanze.length ? "" : L("nessuna stanza aperta in questo momento: apri la tua con la spunta qui sopra",
+                                   "no open rooms right now: open yours with the box above"));
+      disegnaStanze(stanze, nota);
+    }, function () {
+      disegnaStanze([], L("elenco non disponibile (relay spento, o troppo vecchio per le stanze aperte)",
+                          "list unavailable (relay down, or too old for open rooms)"));
+    });
+  }
+  function entraInStanza(n) {
+    $("stanza").value = n;
+    if (inPartita) {
+      esito("esito-config", L("Stanza " + n + " scritta nelle impostazioni: premi Ferma e poi Gioca per entrarci.",
+                              "Room " + n + " set in the settings: press Stop, then Play to join it."), "bene");
+      return;
+    }
+    var err = leggiCfg();
+    esito("esito-config", err || L("Stanza " + n + " impostata: ora premi Gioca.", "Room " + n + " set: now press Play."), err ? "male" : "bene");
+  }
+
   function avviaPartita(soloGuarda) {
     var err = leggiCfg();
     if (err) { errore(err); return; }
@@ -581,7 +639,8 @@
     bridge = new OwlBridge({
       peerId: cfg.peer, room: cfg.stanza, device: dev, log: logDa,
       copies: 2, onStatus: function () { disegnaStato(); },
-      onPos: inviaPosizioniEvento, spettatore: spettatore
+      onPos: inviaPosizioniEvento, spettatore: spettatore,
+      pubblica: cfg.aperta && !spettatore
     });
     link = new OwlRelay.RelayLink(url, {
       onMessage: function (b) { bridge.onRelayMessage(b); },
@@ -796,6 +855,16 @@
   window.addEventListener("load", function () {
     caricaCfg();
     $("btn-salva").onclick = salva;
+    $("btn-stanze").onclick = aggiornaStanze;
+    $("stanza-aperta").onchange = function () {
+      cfg.aperta = this.checked;
+      salvaCfg();
+      if (bridge && inPartita) bridge.setPubblica(cfg.aperta && !spettatore);
+      setTimeout(aggiornaStanze, 1500);
+    };
+    aggiornaStanze();
+    // Si aggiorna solo a pagina visibile: nascosta non la guarda nessuno.
+    setInterval(function () { if (document.visibilityState === "visible") aggiornaStanze(); }, 10000);
     $("btn-prova-relay").onclick = provaRelay;
     $("btn-riavvia").onclick = riavviaPico;
     $("btn-scollega").onclick = scollegaPico;

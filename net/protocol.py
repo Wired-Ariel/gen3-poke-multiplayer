@@ -42,6 +42,14 @@ T_WATCH = 5   # "voglio GUARDARE questa stanza" (2026-08-26). Come l'HELLO
 T_CLUB = 6    # sessione Cable Club (Consegna D): il relay lo inoltra ai
               # compagni di stanza ESATTAMENTE come un T_EVENT, senza guardare
               # dentro. Il corpo e' affare dei client (vedi club_pack sotto).
+T_PUBLIC = 7  # "la mia stanza e' APERTA" (2026-09-27): corpo [1 byte, 1 = si',
+              # 0 = no]. Lo manda un GIOCATORE della stanza, e va rinnovato:
+              # il relay lo dimentica dopo PUBBLICA_S secondi (relay.py), cosi'
+              # un riavvio del relay o una scheda chiusa non lasciano stanze
+              # fantasma nella lista. Opt-in: nessuna stanza e' pubblica da sola.
+T_LIST = 8    # l'elenco delle stanze aperte. Richiesta SOLO da loopback (e'
+              # relay_ws.py che la fa, per servirla su GET /ws?stanze); la
+              # risposta porta nel corpo un JSON utf-8.
 
 TYPE_NAMES = {
     T_HELLO: "HELLO",
@@ -51,6 +59,8 @@ TYPE_NAMES = {
     T_BYE: "BYE",
     T_WATCH: "WATCH",
     T_CLUB: "CLUB",
+    T_PUBLIC: "PUBLIC",
+    T_LIST: "LIST",
 }
 
 # --- corpo dei T_CLUB --------------------------------------------------------

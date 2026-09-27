@@ -80,6 +80,11 @@
     // scheda in background il browser lo rallenta a un tick al minuto, e la
     // mappa si congelava; onmessage/transfer invece arrivano sempre.
     this.onPos = opts.onPos || null;
+    // STANZA APERTA (2026-09-27): se vero, il bridge dice al relay che la
+    // stanza compare nell'elenco pubblico, e lo ripete a ogni giro di stato
+    // (5 s) perche' il relay lo dimentica dopo 15. Solo da giocatore.
+    this.pubblica = !!opts.pubblica;
+    this._pubblicaDetta = false;
     // SPETTATORE: guarda la stanza senza giocare (niente device, niente
     // eventi). Il bridge lo deve SAPERE perche' cambia il verbo con cui entra
     // in stanza - WATCH invece di HELLO - e quindi se occupa un posto.
@@ -175,6 +180,28 @@
     // L'HELLO iscrive alla stanza ma non porta la posizione, e il relay non
     // conserva niente: se abbiamo gia' una fotografia la si rimanda subito.
     this.rimandaPresenza();
+    this.sendPubblica();
+  };
+
+  /* Il segno "stanza aperta". Acceso: si rinnova a ogni chiamata. Spento dopo
+   * essere stato acceso: UN pacchetto di chiusura, poi silenzio (il relay lo
+   * farebbe scadere comunque, ma cosi' la stanza esce subito dall'elenco). */
+  OwlBridge.prototype.sendPubblica = function () {
+    if (this.spettatore) return;
+    if (this.pubblica) {
+      this.sendRelay(R.pack(R.T.PUBLIC, this.peerId, this.room, 0, new Uint8Array([1])));
+      if (!this._pubblicaDetta) this.log("[rete ] stanza " + this.room + " APERTA: compare nell'elenco delle stanze aperte");
+      this._pubblicaDetta = true;
+    } else if (this._pubblicaDetta) {
+      this.sendRelay(R.pack(R.T.PUBLIC, this.peerId, this.room, 0, new Uint8Array([0])));
+      this.log("[rete ] stanza " + this.room + " di nuovo privata");
+      this._pubblicaDetta = false;
+    }
+  };
+
+  OwlBridge.prototype.setPubblica = function (v) {
+    this.pubblica = !!v;
+    this.sendPubblica();
   };
 
   /* LA PRESENZA DI CHI STA FERMO (2026-08-28).
@@ -781,7 +808,7 @@
     if (this.avviato) return;
     this.avviato = true;
     this.timerPing = T.setInterval(function () { self.sendPing(); }, PING_INTERVAL);
-    this.timerStatus = T.setInterval(function () { self.status(); }, STATUS_INTERVAL);
+    this.timerStatus = T.setInterval(function () { self.status(); if (self.pubblica) self.sendPubblica(); }, STATUS_INTERVAL);
     // Il PING resta anche da spettatore: e' lui a misurare l'RTT, e il WATCH
     // non ha un PONG apposta - due canali, due scopi, nessuna ambiguita'.
     if (this.spettatore) {

@@ -33,6 +33,13 @@ Uso:
 
 GET / (senza Upgrade) risponde un JSON di stato: serve a `curl` e al
 pannello per dire "il relay c'e'" prima di aprire la partita.
+
+GET /ws?stanze (senza Upgrade, 2026-09-27) risponde l'elenco delle STANZE
+APERTE: quelle che un giocatore ha segnato pubbliche (T_PUBLIC). L'elenco lo
+tiene relay.py; qui lo si chiede una volta al secondo su una socket UDP a
+parte (T_LIST, che il relay accetta solo da loopback) e si serve l'ultima
+copia. Se il relay non risponde da STANZE_MAX_ETA secondi, si dice che
+l'elenco non c'e' invece di servire una copia vecchia come fosse buona.
 """
 
 import argparse
@@ -48,13 +55,14 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from protocol import T_BYE, TYPE_NAMES, pack, unpack  # noqa: E402
+from protocol import T_BYE, T_LIST, TYPE_NAMES, pack, unpack  # noqa: E402
 
 WS_GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_HEADER = 8192          # intestazione HTTP oltre questa = non e' un browser
 MAX_FRAME = 65536          # un datagramma nostro e' < 100 byte: oltre e' abuso
 
 OP_CONT, OP_TEXT, OP_BIN, OP_CLOSE, OP_PING, OP_PONG = 0, 1, 2, 8, 9, 10
+STANZE_MAX_ETA = 5.0       # secondi: oltre, l'elenco delle stanze aperte e' vecchio
 
 
 def ws_accept_key(key):
@@ -137,6 +145,13 @@ class RelayWs:
         self.listener.setblocking(False)
         self.sel.register(self.listener, selectors.EVENT_READ, ("listen", None))
         self.port = self.listener.getsockname()[1]
+        # L'elenco delle stanze aperte: una socket UDP sola, verso il relay.
+        self.lista_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.lista_sock.connect(relay_addr)
+        self.lista_sock.setblocking(False)
+        self.sel.register(self.lista_sock, selectors.EVENT_READ, ("lista", None))
+        self.stanze = None           # bytes JSON, l'ultima risposta del relay
+        self.stanze_quando = 0.0
         self.log("in ascolto su TCP %s:%d, relay UDP %s:%d, timeout %ds%s"
                  % (bind, self.port, relay_addr[0], relay_addr[1], timeout,
                     (", origini ammesse: " + ", ".join(sorted(self.origins))) if self.origins else ""))
@@ -165,6 +180,8 @@ class RelayWs:
                             self._tcp_read(conn)
                         if mask & selectors.EVENT_WRITE and conn.sock in self.conns:
                             self._tcp_flush(conn)
+                    elif kind == "lista":
+                        self._lista_read()
                     elif kind == "udp":
                         # La TCP puo' essere caduta in questo stesso giro di
                         # select: l'evento UDP e' stantio e la socket e' chiusa.
@@ -179,6 +196,7 @@ class RelayWs:
             if now >= next_sweep:
                 next_sweep = now + 1.0
                 self._sweep(now)
+                self._lista_chiedi()
         self._shutdown()
 
     def stop(self):
@@ -192,6 +210,35 @@ class RelayWs:
         except Exception:
             pass
         self.listener.close()
+        try:
+            self.sel.unregister(self.lista_sock)
+        except Exception:
+            pass
+        self.lista_sock.close()
+
+    def _lista_chiedi(self):
+        try:
+            self.lista_sock.send(pack(T_LIST, 0, 0, 0))
+        except OSError:
+            pass      # relay spento: l'elenco invecchia e lo si dice alla lettura
+
+    def _lista_read(self):
+        while True:
+            try:
+                data = self.lista_sock.recv(65535)
+            except (BlockingIOError, InterruptedError):
+                return
+            except OSError:
+                return        # su Windows l'ICMP "porta chiusa" arriva cosi'
+            parsed = unpack(data)
+            if parsed and parsed[0] == T_LIST:
+                self.stanze = parsed[4]
+                self.stanze_quando = time.monotonic()
+
+    def _stanze_json(self):
+        if self.stanze is None or time.monotonic() - self.stanze_quando > STANZE_MAX_ETA:
+            return json.dumps({"stanze": [], "errore": "relay muto"}).encode("utf-8")
+        return self.stanze
 
     def _accept(self):
         try:
@@ -249,6 +296,9 @@ class RelayWs:
             self._reply_http(conn, "405 Method Not Allowed", "text/plain", b"solo GET\n")
             return
         if not upgrade or not key:
+            if "?" in path and any(a.split("=")[0] == "stanze" for a in path.split("?", 1)[1].split("&")):
+                self._reply_http(conn, "200 OK", "application/json", self._stanze_json())
+                return
             # Stato in JSON: per curl, per il pannello, per chi vuole sapere
             # se il relay e' vivo prima di aprire la partita.
             body = json.dumps({"relay_ws": True, "connessioni": len(self.conns) - 1,
@@ -274,7 +324,7 @@ class RelayWs:
 
     def _reply_http(self, conn, status, ctype, body):
         conn.out += ("HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n"
-                     "Access-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
+                     "Access-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
                      % (status, ctype, len(body))).encode("ascii") + body
         self._tcp_flush(conn)
         self._drop(conn, "risposta HTTP", quiet=True)

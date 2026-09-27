@@ -18,6 +18,7 @@ Uso:
 """
 
 import argparse
+import json
 import socket
 import sys
 import time
@@ -25,9 +26,21 @@ import time
 sys.path.insert(0, __file__.rsplit("\\", 1)[0].rsplit("/", 1)[0])
 
 from protocol import (  # noqa: E402
-    HEADER_SIZE, T_BYE, T_CLUB, T_EVENT, T_HELLO, T_PING, T_PONG, T_WATCH,
-    TYPE_NAMES, pack, unpack,
+    HEADER_SIZE, T_BYE, T_CLUB, T_EVENT, T_HELLO, T_LIST, T_PING, T_PONG,
+    T_PUBLIC, T_WATCH, TYPE_NAMES, pack, unpack,
 )
+
+# LE STANZE APERTE (2026-09-27). Un giocatore segna la propria stanza come
+# pubblica con T_PUBLIC, e il segno va RINNOVATO: dopo PUBBLICA_S secondi senza
+# rinnovo la stanza sparisce dall'elenco. E' cio' che rende l'elenco onesto da
+# solo - un riavvio del relay, una scheda chiusa, un giocatore che toglie la
+# spunta: nessuno di questi lascia una stanza fantasma. Il pannello rinnova
+# ogni 5 s, quindi 15 s tollerano due rinnovi persi su UDP.
+PUBBLICA_S = 15.0
+# Quante stanze al massimo nell'elenco: la risposta deve stare comoda in un
+# datagramma (~60 byte a stanza).
+ELENCO_MAX = 30
+LOOPBACK = ("127.0.0.1", "::1")
 
 
 class Peer:
@@ -70,6 +83,7 @@ class Relay:
         # Il ping-pong dei peer-id duplicati: vedi _forse_ping_pong.
         self._rientri = {}   # peer_id -> [istanti degli ultimi rientri]
         self._ping_pong_detto = set()
+        self.pubbliche = {}  # room_id -> scadenza (monotonic) del segno T_PUBLIC
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # NIENTE SO_REUSEADDR: su Windows vuol dire "ruba la porta a chi ce l'ha
@@ -258,6 +272,9 @@ class Relay:
             self.broadcast(peer, pack(T_BYE, peer.peer_id, peer.room or 0, 0))
         if not members:
             del self.rooms[peer.room]
+            # Stanza vuota = stanza finita: non resta aperta nell'elenco
+            # nemmeno per i secondi che mancherebbero alla scadenza.
+            self.pubbliche.pop(peer.room, None)
 
     def broadcast(self, sender, datagram):
         """A tutti i membri della stanza tranne il mittente."""
@@ -279,6 +296,16 @@ class Relay:
             return
 
         kind, peer_id, room_id, seq, body = parsed
+
+        if kind == T_LIST:
+            # L'ELENCO DELLE STANZE APERTE: lo chiede relay_ws.py, da loopback.
+            # PRIMA della registrazione del peer: chi chiede l'elenco non e'
+            # un giocatore e non deve comparire fra i peer ne' scadere per
+            # silenzio. Da fuori non si risponde: il relay non deve diventare
+            # un amplificatore UDP (richiesta piccola, risposta grande).
+            if addr[0] in LOOPBACK:
+                self.sock.sendto(pack(T_LIST, 0, 0, seq, self.elenco()), addr)
+            return
 
         peer = self.peers.get(addr)
         if peer is None:
@@ -355,8 +382,45 @@ class Relay:
             self.drop(peer, "ha salutato")
             return
 
+        if kind == T_PUBLIC:
+            # Solo un GIOCATORE gia' in QUELLA stanza puo' aprirla o chiuderla:
+            # uno spettatore guarda e basta, e chi non c'e' non decide per gli
+            # altri. Il resto si ignora in silenzio (arriva ogni 5 s: un rigo
+            # di log a pacchetto sarebbe rumore).
+            if peer.room == room_id and room_id and not peer.observer:
+                aperta = bool(body[:1]) and body[0] == 1
+                prima = room_id in self.pubbliche
+                if aperta:
+                    self.pubbliche[room_id] = time.monotonic() + PUBBLICA_S
+                else:
+                    self.pubbliche.pop(room_id, None)
+                if aperta != prima:
+                    self.log("stanza %d %s (da peer %d)"
+                             % (room_id, "APERTA a tutti" if aperta else "di nuovo privata", peer_id))
+            return
+
         self.log("tipo sconosciuto %s da peer %d"
                  % (TYPE_NAMES.get(kind, kind), peer_id))
+
+    def elenco(self):
+        """Le stanze aperte, come JSON utf-8: solo quelle col segno T_PUBLIC
+        ancora valido e almeno un giocatore dentro. Le scadute si puliscono
+        qui, alla lettura: nessun timer in piu'."""
+        ora = time.monotonic()
+        stanze = []
+        for room_id, scade in list(self.pubbliche.items()):
+            if scade < ora or room_id not in self.rooms:
+                self.pubbliche.pop(room_id, None)
+                self.log("stanza %d non piu' aperta (segno scaduto)" % room_id)
+                continue
+            giocatori = self.giocatori_in(room_id)
+            if giocatori == 0:
+                continue
+            stanze.append({"stanza": room_id, "giocatori": giocatori,
+                           "spettatori": len(self.rooms[room_id]) - giocatori})
+        stanze.sort(key=lambda s: (-s["giocatori"], s["stanza"]))
+        return json.dumps({"stanze": stanze[:ELENCO_MAX], "posti": 4},
+                          separators=(",", ":")).encode("utf-8")
 
     def drop(self, peer, reason):
         self.leave_room(peer, notify=True)

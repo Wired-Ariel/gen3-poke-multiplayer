@@ -30,9 +30,12 @@
   // WATCH (5): "voglio guardare questa stanza" - entra da SPETTATORE, non
   // conta nel tetto dei 4 giocatori. Questa tabella e' la gemella di
   // net/protocol.py: si toccano insieme.
-  var T = { HELLO: 0, EVENT: 1, PING: 2, PONG: 3, BYE: 4, WATCH: 5, CLUB: 6 };
+  // PUBLIC (7, 2026-09-27): "la mia stanza e' aperta", corpo [1|0], da
+  // rinnovare (il relay lo dimentica dopo 15 s). LIST (8) lo usa solo
+  // relay_ws.py da loopback: qui c'e' per completezza della tabella.
+  var T = { HELLO: 0, EVENT: 1, PING: 2, PONG: 3, BYE: 4, WATCH: 5, CLUB: 6, PUBLIC: 7, LIST: 8 };
   var T_NOMI = { 0: "HELLO", 1: "EVENT", 2: "PING", 3: "PONG", 4: "BYE",
-                 5: "WATCH", 6: "CLUB" };
+                 5: "WATCH", 6: "CLUB", 7: "PUBLIC", 8: "LIST" };
 
   function pack(kind, peerId, roomId, seq, body) {
     var n = body ? body.length : 0;

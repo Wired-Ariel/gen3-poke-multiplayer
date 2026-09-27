@@ -1017,6 +1017,26 @@
     return ((a === "ws://127.0.0.1:9001" || a === "wss://127.0.0.1:9001") && b === "wss://relay.esempio.it/ws" && c === "wss://x/y") || [a, b, c];
   });
 
+  // LA STANZA APERTA (2026-09-27): il segno PUBLIC. Acceso = parte con
+  // l'HELLO e a ogni rinnovo; spento dopo essere stato acceso = UN solo
+  // PUBLIC 0; da spettatore mai (il relay lo ignorerebbe, ma non si manda).
+  t("stanza aperta: PUBLIC 1 all'HELLO e al rinnovo, PUBLIC 0 una volta sola, mai da spettatore", function () {
+    function prova(opts) {
+      var pub = [];
+      var b = new OwlBridge(Object.assign({ peerId: 7, room: 42, log: function () {} }, opts));
+      b.link = { send: function (bytes) { var p = OwlRelay.unpack(bytes); if (p && p.kind === OwlRelay.T.PUBLIC) pub.push(p.body[0]); return true; } };
+      return { b: b, pub: pub };
+    }
+    var g = prova({ pubblica: true });
+    g.b.sendHello(); g.b.sendPubblica();          // ingresso + un rinnovo
+    g.b.setPubblica(false); g.b.sendPubblica();   // chiusura, poi un giro di stato a spunta tolta
+    var s = prova({ pubblica: true, spettatore: true });
+    s.b.sendHello(); s.b.setPubblica(true);
+    var n = prova({});
+    n.b.sendHello(); n.b.sendPubblica();
+    return (eq(g.pub, [1, 1, 0]) && eq(s.pub, []) && eq(n.pub, [])) || { giocatore: g.pub, spettatore: s.pub, privata: n.pub };
+  });
+
   function stampa(extra) {
     document.getElementById("out").innerHTML = out.join("\n") + (extra || "") + "\n\nRISULTATO: " + ok + " ok, " + ko + " ko" + (ko ? "  <span class=ko>FALLITO</span>" : "  <span class=ok>TUTTO VERDE</span>");
     window.__risultato = { ok: ok, ko: ko };
