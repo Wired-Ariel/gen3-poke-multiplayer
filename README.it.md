@@ -90,8 +90,8 @@ camminano con l'animazione vera del gioco.
 
 ### Per giocare in emulatore
 - **mGBA 0.10 o successivo** (con scripting Lua) e il **tuo** dump di Pokémon Smeraldo, **italiano o inglese (USA/Europa)**;
-- lo script per mGBA adatto alla tua ROM (lo scarichi dal sito già configurato con la tua stanza, o dalle Releases:
-  `gen3-poke-multiplayer-emulatore.lua` per la ROM italiana, `gen3-poke-multiplayer-emulatore-usa.lua` per quella inglese).
+- lo script per mGBA (lo scarichi dal sito già configurato con la tua stanza, o dalle Releases:
+  `gen3-poke-multiplayer-emulatore.lua`). Dalla v1.6 è **uno solo per tutte e due le lingue**: riconosce da solo la ROM caricata.
 
 ### Per guardare e basta
 - un browser qualsiasi, anche Firefox: modalità **spettatore** + Mappa live.
@@ -103,7 +103,8 @@ camminano con l'animazione vera del gioco.
 Tutti e tre finiscono **nella stessa stanza**: scegliete un numero fra 1 e 65535 e usatelo tutti.
 
 ### A. GBA vero, dal browser (il modo consigliato)
-1. Apri il sito, scegli la **versione del gioco** (italiana o inglese), premi **«Collega il Pico»** e scegli il dispositivo.
+1. Apri il sito, premi **«Collega il Pico»** e scegli il dispositivo. Non c'è una versione del gioco da scegliere:
+   dalla v1.6 il programma riconosce da solo la cartuccia (italiana o inglese).
 2. Accendi il GBA **senza cartuccia**, col cavo collegato. Premi **«Carica il gioco nel GBA»**:
    lo schermo diventa **rosso** (~15 s, il programma viaggia nel cavo).
 3. Quando il sito lo dice, **inserisci la cartuccia a console accesa**: schermo **giallo**, poi
@@ -120,9 +121,9 @@ net\PANNELLO.bat
 Si apre `http://127.0.0.1:7411`: stessi passi del sito (relay, multiboot, partita, sblocco),
 più i log completi. Di default il pannello **ospita un relay sul tuo PC** (ruolo «ospite»): per
 collegarti al relay pubblico scegli il ruolo **«amico»** nelle impostazioni e come relay
-`wss://gbcatrade.wired-ariel.it/ws`. Ripiego a riga di comando: `net\1-multiboot.bat` poi `net\2-gioca-internet.bat`. Il pannello carica lo stub
-italiano: con una **cartuccia inglese** carica `mbstub-usa.gba` (dalle Releases) con
-`python net\mb_multi.py mbstub-usa.gba`, oppure usa il sito.
+`wss://gbcatrade.wired-ariel.it/ws`. Ripiego a riga di comando: `net\1-multiboot.bat` poi `net\2-gioca-internet.bat`. Dalla v1.6 `mbstub.gba`
+funziona sia con la cartuccia italiana sia con quella inglese (`mbstub-usa.gba` resta come copia
+identica per i link vecchi).
 
 ### C. Emulatore mGBA
 1. Sul sito scrivi la stanza, scegli la tua ROM (Smeraldo **italiano** o Emerald **inglese**) e premi
@@ -234,10 +235,12 @@ anche una build di [pokeemerald](https://github.com/pret/pokeemerald) (devkitARM
 ```powershell
 .\build.ps1 -Syms it -WithSio          # payload per GBA vero (ROM italiana + driver SIO)
 .\hw\mbstub\build.ps1                  # stub multiboot: ingloba il payload APPENA costruito
-.\build.ps1 -Syms usa -WithSio         # payload per la cartuccia inglese (USA/Europa)...
-.\hw\mbstub\build.ps1 -Syms usa        # ...e il suo stub, mbstub-usa.gba (rifiuta un payload della versione sbagliata)
-.\build.ps1 -LinkRole relay -Syms it -OutName emulatore   # script per mGBA, ROM italiana
-.\build.ps1 -LinkRole relay -Syms usa -OutName emulatore-usa   # script per mGBA, ROM inglese (USA/Europa)
+.\hw\mbstub\build.ps1 -Syms tutte      # UNO stub per tutte le lingue: compila da sé i payload italiano e
+                                       # inglese e ci mette la tabella delle 50 parole (mbstub.gba)
+.\build.ps1 -LinkRole relay -Syms it -OutName emulatore         # script per mGBA, ROM italiana...
+.\build.ps1 -LinkRole relay -Syms usa -OutName emulatore-usa    # ...ROM inglese...
+python tools\unisci_script.py mgba\inject.emulatore.lua mgba\inject.emulatore-usa.lua <uscita.lua>
+                                       # ...uniti in UNO script per tutte e due (quello del sito e delle Releases)
 python tools\gen_mappa.py              # dati della Mappa live (dalla decomp + nomi IT dalla ROM)
 .\tools\prepara-sito-web.ps1 -Relay wss://tuo.host/ws -Stanza 0     # assembla il sito
 ```

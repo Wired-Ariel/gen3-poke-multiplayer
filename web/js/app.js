@@ -495,11 +495,13 @@
       var out = configuraLua(testo, r.url, cfg.stanza, peerGioco, !!cfg.aperta);
       var a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([out], { type: "text/plain" }));
-      var nomeFile = "gen3-poke-multiplayer-" + L("stanza", "room") + cfg.stanza + (rom === "usa" ? "-eng" : "-ita") + ".lua";
+      // Dal 2026-09-27 lo script e' UNO per tutte le lingue (tools/unisci_script.py):
+      // niente piu' -ita/-eng nel nome.
+      var nomeFile = "gen3-poke-multiplayer-" + L("stanza", "room") + cfg.stanza + ".lua";
       a.download = nomeFile;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
-      log("[lua  ] scaricato " + nomeFile + " (ROM " + (rom === "usa" ? "inglese" : "italiana") + "): stanza " +
+      log("[lua  ] scaricato " + nomeFile + " (vale per Smeraldo italiano ed Emerald inglese): stanza " +
           cfg.stanza + (cfg.aperta ? " APERTA" : "") + ", relay " + r.url + ", peer " + peerGioco +
           " (segnato anche qui come 'tuo numero di gioco': sulla mappa sarai «tu»)" +
           (r.degradato ? " (relay IN CHIARO: il Lua di mGBA non ha TLS)" : ""), "rete");

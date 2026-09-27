@@ -296,6 +296,47 @@ class TestRuoloRelay(unittest.TestCase):
         self.assertNotIn('owlSend(OWL_HELLO, "")', src)
         g.RELAY_PEER = 42          # lo stato Lua e' condiviso fra i test: si rimette com'era
 
+    def test_script_universale_ricuce_per_la_rom_caricata(self):
+        """LO SCRIPT UNIVERSALE (2026-09-27): con ROM_LINGUE nell'intestazione,
+        romMatches legge il gamecode, prende la riga e ricuce il payload UNA
+        volta (le parole agli offset di ROM_TOPPE_OFF); una ROM che non e' in
+        tabella viene rifiutata col messaggio delle due lingue."""
+        m = re.search(r"^local function romMatches\(\).*?^end$", self.src, re.S | re.M)
+        self.assertIsNotNone(m, "romMatches non trovata in inject_body.lua")
+        lua = __import__("lupa").LuaRuntime(encoding=None, unpack_returned_tuples=True)
+        lua.execute("""
+            ERRORI = {}
+            console = { log = function() end, error = function(_, s) ERRORI[#ERRORI+1] = s end }
+            ROM = {}
+            emu = { read8 = function(_, a) return ROM[a] or 0 end,
+                    read32 = function(_, a) return ROM[a] or 0 end }
+            ADDR_ROM_GAMECODE = 0x080000AC
+            EXPECT_GAMECODE = "BPEI"; ADDR_CB2_OVERWORLD = 0x08085E70
+            EXPECT_CB2_WORD = 0x4809B510; ADDR_CB1_OVERWORLD = 0x08085E19
+            payload = string.rep("\0", 16)
+            ROM_TOPPE_OFF = { 4, 12 }
+            ROM_LINGUE = {
+              BPEI = { cb2 = 0x08085E70, cb2word = 0x4809B510, cb1 = 0x08085E19, toppe = { 0x08000011, 0x08000022 } },
+              BPEE = { cb2 = 0x08085E5C, cb2word = 0x4809B510, cb1 = 0x08085E05, toppe = { 0x080000AA, 0x080000BB } },
+            }
+            function metti(code, cb2)
+                for i = 1, 4 do ROM[0x080000AC + i - 1] = code:byte(i) end
+                ROM[cb2] = 0x4809B510
+            end
+        """)
+        lua.execute(m.group(0).replace("local function", "function", 1))
+        g = lua.globals()
+        g.metti(b"BPEE", 0x08085E5C)
+        self.assertTrue(g.romMatches())
+        p = bytes(g.payload)
+        self.assertEqual(struct.unpack("<4I", p), (0, 0x080000AA, 0, 0x080000BB))
+        self.assertEqual(g.ADDR_CB1_OVERWORLD, 0x08085E05)
+        self.assertTrue(g.romMatches())            # una volta sola: niente doppia ricucitura
+        self.assertEqual(bytes(g.payload), p)
+        g.metti(b"BPRE", 0x08085E70)                # Rosso Fuoco: non e' in tabella
+        self.assertFalse(g.romMatches())
+        self.assertIn(b"Smeraldo ITALIANO e Pokemon Emerald INGLESE", bytes(g.ERRORI[len(g.ERRORI)]))
+
     def test_config_in_sandbox_non_esegue_codice(self):
         """La config e' un file che l'utente puo' modificare: si carica in un
         ambiente VUOTO (load con env {}), quindi anche una config maligna o

@@ -86,9 +86,9 @@ around it with the game's real animation.
 ### To play on an emulator
 - **mGBA 0.10 or later** (with Lua scripting) and **your own** dump of Pokémon Emerald, **English (USA/Europe)
   or Italian**;
-- the mGBA script matching your ROM (download it from the website, already set up with your room, or grab
-  from the Releases `gen3-poke-multiplayer-emulatore-usa.lua` for the English ROM or
-  `gen3-poke-multiplayer-emulatore.lua` for the Italian one).
+- the mGBA script (download it from the website, already set up with your room, or grab
+  `gen3-poke-multiplayer-emulatore.lua` from the Releases). Since v1.6 it is **one script for both
+  languages**: it recognises the loaded ROM by itself.
 
 ### To just watch
 - any browser, Firefox included: **spectator** mode + Live map.
@@ -100,8 +100,8 @@ around it with the game's real animation.
 All three end up **in the same room**: pick a number between 1 and 65535 and everybody uses it.
 
 ### A. Real GBA, from the browser (recommended)
-1. Open the website, choose your **game version** (English or Italian), press **«Connect the Pico»**
-   and pick the device.
+1. Open the website, press **«Connect the Pico»** and pick the device. There is no game version to
+   choose: since v1.6 the program recognises the cartridge (English or Italian) by itself.
 2. Switch on the GBA **with no cartridge**, cable plugged in. Press **«Load the game into the GBA»**:
    the screen turns **red** (~15 s, the program travels through the cable).
 3. When the site tells you, **insert the cartridge with the console on**: **yellow** screen, then
@@ -118,9 +118,9 @@ net\PANNELLO.bat
 It opens `http://127.0.0.1:7411` (Italian UI): same steps as the website (relay, multiboot, game,
 unlock), plus the full logs. By default the panel **hosts a relay on your own PC** (role «ospite»):
 to join the public relay instead, in the settings choose role **«amico»** and set the relay to
-`wss://gbcatrade.wired-ariel.it/ws`. Command-line fallback: `net\1-multiboot.bat` then `net\2-gioca-internet.bat`. The panel loads the Italian
-stub: for an **English cartridge** load `mbstub-usa.gba` (from the Releases) with
-`python net\mb_multi.py mbstub-usa.gba`, or use the website.
+`wss://gbcatrade.wired-ariel.it/ws`. Command-line fallback: `net\1-multiboot.bat` then `net\2-gioca-internet.bat`. Since v1.6 `mbstub.gba`
+works with both the Italian and the English cartridge (`mbstub-usa.gba` is kept as an identical copy
+for old links).
 
 ### C. mGBA emulator
 1. On the website, type the room, pick your ROM (**English** or **Italian** Emerald) and press
@@ -232,10 +232,12 @@ need a build of [pokeemerald](https://github.com/pret/pokeemerald) (devkitARM, i
 ```powershell
 .\build.ps1 -Syms it -WithSio          # payload for real GBA (Italian ROM + SIO driver)
 .\hw\mbstub\build.ps1                  # multiboot stub: embeds the payload JUST built
-.\build.ps1 -Syms usa -WithSio         # payload for an English (USA/Europe) cartridge...
-.\hw\mbstub\build.ps1 -Syms usa        # ...and its stub, mbstub-usa.gba (refuses a payload of the wrong version)
-.\build.ps1 -LinkRole relay -Syms it -OutName emulatore   # mGBA script, Italian ROM
-.\build.ps1 -LinkRole relay -Syms usa -OutName emulatore-usa   # mGBA script, English (USA/Europe) ROM
+.\hw\mbstub\build.ps1 -Syms tutte      # ONE stub for every language: builds the Italian and English
+                                       # payloads itself and embeds the 50-word patch table (mbstub.gba)
+.\build.ps1 -LinkRole relay -Syms it -OutName emulatore         # mGBA script, Italian ROM...
+.\build.ps1 -LinkRole relay -Syms usa -OutName emulatore-usa    # ...English ROM...
+python tools\unisci_script.py mgba\inject.emulatore.lua mgba\inject.emulatore-usa.lua <out.lua>
+                                       # ...merged into ONE script for both (what the site and Releases ship)
 python tools\gen_mappa.py              # Live map data (from the decomp + Italian names from the ROM)
 .\tools\prepara-sito-web.ps1 -Relay wss://your.host/ws -Stanza 0     # assembles the website
 ```

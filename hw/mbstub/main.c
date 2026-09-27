@@ -31,7 +31,17 @@
  */
 
 /* La versione del gioco si sceglie in build (hw/mbstub/build.ps1 -Syms usa):
- * il blocco di boot e' lo stesso, cambiano gamecode e firme del corpo. */
+ * il blocco di boot e' lo stesso, cambiano gamecode e firme del corpo.
+ *
+ * LO STUB UNIVERSALE (2026-09-27, -Syms tutte). Il payload italiano e quello
+ * inglese hanno la stessa dimensione e differiscono in 50 parole su 2740,
+ * TUTTE indirizzi di funzioni in ROM (misurato: nessuna in EWRAM o IWRAM).
+ * Quindi un payload solo (quello italiano, incollato come sempre) e, per ogni
+ * lingua, le parole da rimettere: lo stub legge il gamecode della cartuccia,
+ * sceglie la riga e ricuce il payload DOPO averlo copiato in coda. Il blocco
+ * di boot e' identico fra le lingue (boot_syms_usa.h), quindi handoff.S non
+ * cambia. La tabella la genera build.ps1 in build/lingue.generated.h, dai due
+ * payload veri: niente scritto a mano. */
 #if defined(MBSTUB_SYMS_USA)
 #include "boot_syms_usa.h"
 #else
@@ -41,6 +51,11 @@
 typedef unsigned char  u8;
 typedef unsigned short u16;
 typedef unsigned int   u32;
+
+#if defined(MBSTUB_UNIVERSALE)
+/* kLingue[], kToppaOff[], N_LINGUE, N_TOPPE: vedi la testa del file. */
+#include "lingue.generated.h"
+#endif
 
 #define REG_DISPCNT  (*(volatile u16 *)0x04000000)
 #define REG_VCOUNT   (*(volatile u16 *)0x04000006)
@@ -89,6 +104,20 @@ static void waitFrame(void)
  * hanno nessuna ragione di coincidere con tre costanti scelte: il test vale
  * quindi anche come rilevatore di presenza.
  */
+#if defined(MBSTUB_UNIVERSALE)
+/* Ritorna 1 + l'indice della lingua in kLingue, oppure 0. */
+static int cartIsOurs(void)
+{
+    u32 code = *(volatile u32 *)ADDR_GAMECODE;
+    int i;
+    if (*(volatile u32 *)ADDR_POOL_INTRMAIN != ADDR_INTR_MAIN)         return 0;
+    if (*(volatile u32 *)ADDR_POOL_INTRBUF  != ADDR_INTR_MAIN_BUFFER)  return 0;
+    for (i = 0; i < N_LINGUE; i++)
+        if (code == kLingue[i].gamecode)
+            return i + 1;
+    return 0;
+}
+#else
 static int cartIsOurs(void)
 {
     if (*(volatile u32 *)ADDR_GAMECODE      != GAMECODE_EXPECTED)      return 0;
@@ -96,6 +125,7 @@ static int cartIsOurs(void)
     if (*(volatile u32 *)ADDR_POOL_INTRBUF  != ADDR_INTR_MAIN_BUFFER)  return 0;
     return 1;
 }
+#endif
 
 /* Il CORPO della ROM e' quello per cui il payload e' stato costruito?
  *
@@ -108,6 +138,19 @@ static int cartIsOurs(void)
  * Si controlla DOPO il debounce, a bus stabile: durante l'inserimento a
  * caldo una lettura lontana potrebbe fallire per un contatto che balla, e
  * un BLU detto per sbaglio manderebbe la diagnosi fuori strada. */
+#if defined(MBSTUB_UNIVERSALE)
+/* Le stesse quattro istruzioni in ogni lingua, a indirizzi diversi. */
+static const u32 kValChk[4] = { VAL_CHK_CB2_OVERWORLD, VAL_CHK_SPAWN_OBJEVENT,
+                                VAL_CHK_SET_HELD_MOVE, VAL_CHK_CB2_BAGMENU };
+static int cartMatchesPayloadSyms(int lingua)
+{
+    int k;
+    for (k = 0; k < 4; k++)
+        if (*(volatile u32 *)kLingue[lingua].chk[k] != kValChk[k])
+            return 0;
+    return 1;
+}
+#else
 static int cartMatchesPayloadSyms(void)
 {
     if (*(volatile u32 *)ADDR_CHK_CB2_OVERWORLD  != VAL_CHK_CB2_OVERWORLD)  return 0;
@@ -116,6 +159,7 @@ static int cartMatchesPayloadSyms(void)
     if (*(volatile u32 *)ADDR_CHK_CB2_BAGMENU    != VAL_CHK_CB2_BAGMENU)    return 0;
     return 1;
 }
+#endif
 
 /* Arrotondamento PER ECCESSO, non per difetto: una dimensione non multipla di 4
  * troncata perderebbe fino a 3 byte in coda al payload, e sarebbero gli ultimi -
@@ -141,6 +185,10 @@ int main(void)
     const u32 payloadSize = (u32)(payload_bin_end - payload_bin);
     const u32 handoffSize = (u32)(__handoff_end - __handoff_start);
     u32 stable;
+#if defined(MBSTUB_UNIVERSALE)
+    int lingua = 0;
+    int visto;
+#endif
 
     /* Il payload viene copiato PRIMA di handoff.S, e sotto di esso. Se fosse
      * cresciuto oltre HANDOFF_BASE la copia di handoff gli mangerebbe la coda,
@@ -155,6 +203,23 @@ int main(void)
     /* Debounce lungo, un secondo pieno. L'inserimento a caldo non e' istantaneo:
      * i contatti ballano, e una lettura valida presa a meta' inserimento
      * porterebbe a seminare il payload mentre il bus e' ancora instabile. */
+#if defined(MBSTUB_UNIVERSALE)
+    /* Un secondo di letture UGUALI: stessa lingua per 60 frame di fila. */
+    stable = 0;
+    while (stable < 60) {
+        waitFrame();
+        visto = cartIsOurs();
+        if (visto && visto == lingua) stable++;
+        else { lingua = visto; stable = visto ? 1 : 0; }
+    }
+    lingua -= 1;
+    if (!cartMatchesPayloadSyms(lingua)) {
+        waitFrame();
+        if (!cartMatchesPayloadSyms(lingua)) {
+            for (;;) setColor(COL_BLUE);
+        }
+    }
+#else
     stable = 0;
     while (stable < 60) {
         waitFrame();
@@ -170,6 +235,7 @@ int main(void)
             for (;;) setColor(COL_BLUE);
         }
     }
+#endif
 
     setColor(COL_YELLOW);
 
@@ -177,6 +243,13 @@ int main(void)
      * esattamente come fa zeroRegion() in mgba/inject_body.lua. */
     zero32((volatile u32 *)PAYLOAD_BASE, EWRAM_END - PAYLOAD_BASE);
     copy32((volatile u32 *)PAYLOAD_BASE, (const u32 *)payload_bin, payloadSize);
+#if defined(MBSTUB_UNIVERSALE)
+    /* La ricucitura: le parole che nella lingua della cartuccia valgono
+     * altro (indirizzi di funzioni in ROM). Per la lingua base la riga
+     * contiene gli stessi valori del payload: il giro e' innocuo. */
+    for (stable = 0; stable < N_TOPPE; stable++)
+        ((volatile u32 *)PAYLOAD_BASE)[kToppaOff[stable]] = kLingue[lingua].toppa[stable];
+#endif
     copy32((volatile u32 *)HANDOFF_BASE, (const u32 *)__handoff_lma, handoffSize);
 
     /* Stessa verifica dell'iniettore Lua: il magic 'HOOK' a +0x08 dice che il

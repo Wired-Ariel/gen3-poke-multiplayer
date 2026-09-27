@@ -24,7 +24,7 @@ param(
     # mbstub.gba), "usa" = Emerald inglese USA/Europa (BPEE, mbstub-usa.gba).
     # Il payload inglobato DEVE essere della stessa versione: lo controlla la
     # guardia "versione" qui sotto.
-    [ValidateSet("it", "usa")]
+    [ValidateSet("it", "usa", "tutte")]
     [string]$Syms = "it",
     [string]$LogoFrom = "",
     [string]$Title = "MBSTUB",
@@ -64,6 +64,34 @@ if (-not (Test-Path $build)) { New-Item -ItemType Directory -Path $build | Out-N
 
 Write-Output "toolchain : $gcc"
 
+# --- LO STUB UNIVERSALE (2026-09-27, -Syms tutte) ----------------------------
+# Un payload solo per tutte le lingue, piu' una tabella di ricucitura: vedi la
+# testa di main.c. I payload si compilano QUI, uno per lingua, ognuno in un
+# processo PowerShell a parte (lanciato nella stessa sessione, build.ps1 muore
+# sul warning RWX del linker). L'ultimo e' l'italiano, cosi' build\payload.bin
+# resta quello di sempre per chi viene dopo.
+$lingueTutte = @("usa", "it")
+if ($Syms -eq "tutte") {
+    foreach ($l in $lingueTutte) {
+        Write-Output "payload   : compilo -Syms $l -WithSio ..."
+        $logL = Join-Path $build "build-$l.log"
+        # Start-Process e non "&": in PowerShell 5.1 lo stderr di un processo
+        # nativo reindirizzato diventa un errore, e il warning RWX del linker
+        # fermerebbe tutto. Conta il codice di uscita.
+        $pr = Start-Process -FilePath "powershell" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $owl "build.ps1"), "-Syms", $l, "-WithSio") `
+            -RedirectStandardOutput $logL -RedirectStandardError ($logL + ".err") -NoNewWindow -Wait -PassThru
+        if ($pr.ExitCode -ne 0) { throw "build del payload $l fallita (uscita $($pr.ExitCode)): vedi $logL" }
+        foreach ($ext in @("bin", "map", "elf")) {
+            Copy-Item (Join-Path $owl "build\payload.$ext") (Join-Path $build "payload-$l.$ext") -Force
+        }
+    }
+    # La base e' l'italiano: il resto dello script lo tratta come sempre.
+    foreach ($ext in @("map", "elf")) {
+        Copy-Item (Join-Path $build "payload-it.$ext") (Join-Path $build "payload.$ext") -Force
+    }
+    $PayloadBin = Join-Path $build "payload-it.bin"
+}
+
 # --- il payload --------------------------------------------------------------
 if (-not $PayloadBin) { $PayloadBin = Join-Path $owl "build\payload.bin" }
 if (-not (Test-Path $PayloadBin)) {
@@ -102,19 +130,93 @@ if (Test-Path $payloadMap) {
 $cb2Atteso = if ($Syms -eq "usa") { 0x08085E5C } else { 0x08085E70 }
 $cb2Altro  = if ($Syms -eq "usa") { 0x08085E70 } else { 0x08085E5C }
 $pbytes = [System.IO.File]::ReadAllBytes($PayloadBin)
-$ptext  = [System.Text.Encoding]::GetEncoding(28591).GetString($pbytes)
+$script:ptext  = [System.Text.Encoding]::GetEncoding(28591).GetString($pbytes)
 function Contiene([uint32]$v) {
     foreach ($x in @($v, ($v -bor 1))) {
         $s = [System.Text.Encoding]::GetEncoding(28591).GetString([BitConverter]::GetBytes([uint32]$x))
-        if ($ptext.IndexOf($s, [System.StringComparison]::Ordinal) -ge 0) { return $true }
+        if ($script:ptext.IndexOf($s, [System.StringComparison]::Ordinal) -ge 0) { return $true }
     }
     return $false
 }
+if ($Syms -eq "tutte") {
+    # Ogni payload deve essere della SUA lingua (stesso controllo di sempre,
+    # fatto su ognuno), poi il confronto parola per parola.
+    $cb2Di = @{ it = 0x08085E70; usa = 0x08085E5C }
+    $parole = @{}
+    foreach ($l in $lingueTutte) {
+        $pb = [System.IO.File]::ReadAllBytes((Join-Path $build "payload-$l.bin"))
+        $script:ptext = [System.Text.Encoding]::GetEncoding(28591).GetString($pb)
+        foreach ($altra in $lingueTutte) {
+            $c = Contiene $cb2Di[$altra]
+            if (($altra -eq $l) -ne $c) { throw "il payload $l non e' della sua lingua (CB2_Overworld di ${altra}: $c)" }
+        }
+        $parole[$l] = $pb
+    }
+    $base = $parole["it"]
+    foreach ($l in $lingueTutte) {
+        if ($parole[$l].Length -ne $base.Length) {
+            throw ("i payload hanno dimensioni diverse (it {0}, {1} {2}): lo stub universale vuole lo STESSO codice" -f $base.Length, $l, $parole[$l].Length)
+        }
+    }
+    # Le parole che cambiano fra le lingue: DEVONO essere tutte indirizzi in
+    # ROM (0x08xxxxxx) in ogni lingua. Qualunque altra differenza vuol dire che
+    # il codice non e' piu' lo stesso, e ricucire le parole non basterebbe.
+    $off = New-Object System.Collections.Generic.List[int]
+    for ($i = 0; $i + 3 -lt $base.Length; $i += 4) {
+        $diversa = $false
+        foreach ($l in $lingueTutte) {
+            if ([BitConverter]::ToUInt32($parole[$l], $i) -ne [BitConverter]::ToUInt32($base, $i)) { $diversa = $true }
+        }
+        if (-not $diversa) { continue }
+        foreach ($l in $lingueTutte) {
+            $w = [BitConverter]::ToUInt32($parole[$l], $i)
+            if (($w -shr 24) -ne 0x08) {
+                throw ("a +0x{0:X} il payload {1} vale 0x{2:X8}: non e' un indirizzo ROM, i payload non sono lo stesso codice" -f $i, $l, $w)
+            }
+        }
+        $off.Add($i / 4)
+    }
+    if ($off.Count -eq 0) { throw "i payload delle lingue sono IDENTICI: qualcosa non ha compilato con i simboli giusti" }
+    if ($off.Count -gt 200) { throw "troppe parole diverse ($($off.Count)): la tabella non e' piu' piccola" }
+    # Gamecode e indirizzi della firma, letti dagli header dello stub (le
+    # stesse costanti delle build di una lingua sola): l'ULTIMA #define vince,
+    # come nel preprocessore dopo gli #undef di boot_syms_usa.h.
+    function LeggiDefine([string]$file, [string]$nome) {
+        $m = [regex]::Matches((Get-Content (Join-Path $root $file) -Raw), "#define\s+$nome\s+(0x[0-9A-Fa-f]+)")
+        if ($m.Count -eq 0) { return $null }
+        return [Convert]::ToUInt32($m[$m.Count - 1].Groups[1].Value, 16)
+    }
+    $chkNomi = @("ADDR_CHK_CB2_OVERWORLD", "ADDR_CHK_SPAWN_OBJEVENT", "ADDR_CHK_SET_HELD_MOVE", "ADDR_CHK_CB2_BAGMENU")
+    $hdr = @{ it = "boot_syms_it.h"; usa = "boot_syms_usa.h" }
+    $gc  = @{ it = (LeggiDefine "boot_syms_it.h" "GAMECODE_BPEI"); usa = (LeggiDefine "boot_syms_usa.h" "GAMECODE_BPEE") }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine("/* GENERATO DA hw/mbstub/build.ps1 -Syms tutte - non modificare a mano. */")
+    [void]$sb.AppendLine("#define N_LINGUE $($lingueTutte.Count)")
+    [void]$sb.AppendLine("#define N_TOPPE $($off.Count)")
+    [void]$sb.AppendLine("static const u16 kToppaOff[N_TOPPE] = {")
+    [void]$sb.AppendLine("    " + (($off | ForEach-Object { $_.ToString() }) -join ", "))
+    [void]$sb.AppendLine("};")
+    [void]$sb.AppendLine("static const struct { u32 gamecode; u32 chk[4]; u32 toppa[N_TOPPE]; } kLingue[N_LINGUE] = {")
+    foreach ($l in $lingueTutte) {
+        $chk = foreach ($n in $chkNomi) {
+            $v = LeggiDefine $hdr[$l] $n
+            if ($null -eq $v) { $v = LeggiDefine "boot_syms_it.h" $n }
+            "0x{0:X8}" -f $v
+        }
+        $top = foreach ($o in $off) { "0x{0:X8}" -f [BitConverter]::ToUInt32($parole[$l], $o * 4) }
+        [void]$sb.AppendLine(("    {{ 0x{0:X8}, {{ {1} }},  /* {2} */" -f $gc[$l], ($chk -join ", "), $l))
+        [void]$sb.AppendLine("      { " + ($top -join ", ") + " } },")
+    }
+    [void]$sb.AppendLine("};")
+    $sb.ToString() | Set-Content -Path (Join-Path $build "lingue.generated.h") -Encoding ASCII
+    Write-Output ("versione  : TUTTE ({0}), {1} parole da ricucire, stub -> {2}.gba" -f ($lingueTutte -join ", "), $off.Count, $outName)
+} else {
 if (-not (Contiene $cb2Atteso) -or (Contiene $cb2Altro)) {
     throw ("build\payload.bin non e' della versione $Syms (CB2_Overworld atteso 0x{0:X8}). " -f $cb2Atteso) +
           "Rifai  .\build.ps1 -Syms $Syms -WithSio  e poi questo script con -Syms $Syms."
 }
 Write-Output ("versione  : {0} (payload con CB2_Overworld 0x{1:X8}, stub -> {2}.gba)" -f $Syms, $cb2Atteso, $outName)
+}
 
 $payloadSize = (Get-Item $PayloadBin).Length
 $roomBelowHandoff = $HANDOFF_BASE - $PAYLOAD_BASE
@@ -165,6 +267,7 @@ payload_bin_end:
 $common = @("-mcpu=arm7tdmi", "-mthumb-interwork", "-ffreestanding", "-fno-builtin",
             "-fno-strict-aliasing", "-O2", "-Wall", "-Wextra", "-I", $root)
 if ($Syms -eq "usa") { $common += "-DMBSTUB_SYMS_USA" }
+if ($Syms -eq "tutte") { $common += @("-DMBSTUB_UNIVERSALE", "-I", $build) }
 
 & $gcc @common -marm  -c (Join-Path $root "crt0.S")    -o (Join-Path $build "crt0.o")
 if ($LASTEXITCODE -ne 0) { throw "compilazione di crt0.S fallita" }

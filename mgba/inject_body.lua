@@ -316,6 +316,32 @@ local function romMatches()
     for i = 0, 3 do
         code = code .. string.char(emu:read8(ADDR_ROM_GAMECODE + i))
     end
+    -- LO SCRIPT UNIVERSALE (2026-09-27, tools/unisci_script.py). Se
+    -- l'intestazione ha la tabella delle lingue, la ROM caricata sceglie la
+    -- riga: gli indirizzi che l'iniettore controlla e le parole del payload che
+    -- in quella lingua valgono altro (indirizzi di funzioni in ROM, le stesse
+    -- 50 dello stub universale). La ricucitura si fa UNA volta: `payload` e'
+    -- il local del chunk, lo stesso che legge writePayload.
+    local L = ROM_LINGUE and ROM_LINGUE[code]
+    if L then
+        EXPECT_GAMECODE    = code
+        ADDR_CB2_OVERWORLD = L.cb2
+        EXPECT_CB2_WORD    = L.cb2word
+        ADDR_CB1_OVERWORLD = L.cb1
+        if ROM_LINGUA_RICUCITA ~= code then
+            local pezzi, dopo = {}, 1
+            for i, off in ipairs(ROM_TOPPE_OFF) do
+                pezzi[#pezzi + 1] = string.sub(payload, dopo, off)
+                pezzi[#pezzi + 1] = string.pack("<I4", L.toppe[i])
+                dopo = off + 5
+            end
+            pezzi[#pezzi + 1] = string.sub(payload, dopo)
+            payload = table.concat(pezzi)
+            ROM_LINGUA_RICUCITA = code
+            console:log("[inject] ROM " .. code .. ": payload ricucito per questa lingua ("
+                .. #ROM_TOPPE_OFF .. " parole)")
+        end
+    end
     local cb2 = emu:read32(ADDR_CB2_OVERWORLD)
 
     if code == EXPECT_GAMECODE and cb2 == EXPECT_CB2_WORD then
@@ -329,6 +355,12 @@ local function romMatches()
     -- decomp: dal 2026-09 falso, e sul campo (27/09) ha detto a chi aveva lo
     -- script italiano su una ROM inglese l'esatto contrario del vero.
     local NOMI = { BPEI = "Pokemon Smeraldo ITALIANO", BPEE = "Pokemon Emerald INGLESE (USA/Europa)" }
+    if ROM_LINGUE then
+        console:error("[inject] questo script vale per Pokemon Smeraldo ITALIANO e Pokemon Emerald INGLESE; "
+            .. "la ROM caricata e' '" .. tostring(code) .. "', che non e' nessuna delle due. / This script works "
+            .. "with Italian Smeraldo and English Emerald; the loaded ROM is neither.")
+        return false
+    end
     console:error("[inject] questo script e' fatto per " .. (NOMI[EXPECT_GAMECODE] or EXPECT_GAMECODE)
         .. ", ma la ROM caricata e' " .. (NOMI[code] or ("'" .. tostring(code) .. "'")) .. ". "
         .. "Scarica dal sito lo script per la tua versione (menu 'Versione del gioco') "
