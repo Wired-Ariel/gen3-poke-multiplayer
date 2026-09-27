@@ -16,6 +16,14 @@
 (function (root) {
   "use strict";
 
+  // Il riaggancio passa da Battito (js/battito.js): con la scheda nascosta un
+  // setTimeout della pagina puo' partire con un minuto di ritardo. Senza
+  // battito.js si ricade sul timer normale.
+  var T = root.Battito || {
+    setTimeout: function (f, ms) { return root.setTimeout(f, ms); },
+    clear: function (h) { if (h) root.clearTimeout(h); }
+  };
+
   var MAGIC = [0x4F, 0x57, 0x4C, 0x31];   // "OWL1"
   var VERSION = 1;
   var HEADER_SIZE = 11;
@@ -122,13 +130,13 @@
       var attesa = Math.min(10000, 1000 * Math.pow(2, Math.min(self.tentativi - 1, 4)));
       self.log("[rete ] relay " + (eraAperta ? "CADUTO" : "NON RAGGIUNGIBILE") + " (" + (motivo || self.url) + "): riprovo fra " + (attesa / 1000) + " s");
       self.onClose(eraAperta ? "caduto" : "non raggiungibile");
-      self.timerRiconn = setTimeout(function () { self.timerRiconn = null; if (self.voluta) self.connect(); }, attesa);
+      self.timerRiconn = T.setTimeout(function () { self.timerRiconn = null; if (self.voluta) self.connect(); }, attesa);
     };
   };
 
   RelayLink.prototype.close = function () {
     this.voluta = false;
-    if (this.timerRiconn) { clearTimeout(this.timerRiconn); this.timerRiconn = null; }
+    if (this.timerRiconn) { T.clear(this.timerRiconn); this.timerRiconn = null; }
     var ws = this.ws;
     this.ws = null;
     this.aperta = false;

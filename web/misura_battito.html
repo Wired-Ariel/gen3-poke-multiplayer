@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>misura battito</title>
+<!-- Banco (2026-09-27): tre timer da 100 ms affiancati - quello della pagina,
+     un Worker nudo e Battito - per vedere chi rallenta a scheda nascosta.
+     Lo guida tools/misura_battito.mjs via DevTools Protocol. -->
+<script src="js/battito.js"></script>
+<script>
+  window.__m = { win: [], wrk: [], bat: [], vis: [], batAttivo: Battito.attivo() };
+  setInterval(function () { __m.win.push(performance.now()); }, 100);
+  var w = new Worker(URL.createObjectURL(new Blob(["setInterval(function(){postMessage(0)},100)"], { type: "text/javascript" })));
+  w.onmessage = function () { __m.wrk.push(performance.now()); };
+  Battito.setInterval(function () { __m.bat.push(performance.now()); }, 100);
+  document.addEventListener("visibilitychange", function () { __m.vis.push([performance.now(), document.visibilityState]); });
+  window.__riassunto = function (t0, t1) {
+    function conta(a) {
+      var n = 0, gmax = 0, prev = null;
+      for (var i = 0; i < a.length; i++) {
+        if (a[i] < t0 || a[i] > t1) continue;
+        if (prev !== null) gmax = Math.max(gmax, a[i] - prev);
+        prev = a[i]; n++;
+      }
+      return { tick: n, attesi: Math.round((t1 - t0) / 100), buco_max_ms: Math.round(gmax) };
+    }
+    return { finestra: conta(__m.win), worker_nudo: conta(__m.wrk), battito: conta(__m.bat) };
+  };
+</script>
+<p>misura battito</p>

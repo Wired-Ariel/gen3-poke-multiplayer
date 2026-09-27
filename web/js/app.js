@@ -602,7 +602,12 @@
       esito("esito-azione", L("Spettatore: apri la Mappa live per vedere gli amici camminare.", "Spectator: open the Live map to watch your friends walk."), "bene");
     } else {
       log("[rete ] Cable Club: supportato anche da qui (versione club " + OwlClub.VERSIONE_CLUB +
-          "). Sedetevi al bancone in due e il resto parte da solo; durante lo scambio tieni questa scheda in primo piano.", "rete");
+          "). Sedetevi al bancone in due e il resto parte da solo.", "rete");
+      // Se un giocatore dice di nuovo «si pianta in background», questa e' la
+      // riga da cercare nel suo registro (js/battito.js).
+      log(window.Battito && window.Battito.attivo()
+        ? L("[rete ] timer della partita in un worker: reggono anche con la scheda in background", "[rete ] game timers run in a worker: they keep going with the tab in the background")
+        : L("[rete ] timer della partita NORMALI: con la scheda in background rallentano, tienila in primo piano", "[rete ] game timers are PLAIN: in a background tab they slow down, keep it in the foreground"), "rete");
       esito("esito-azione", L("Partita avviata: cammina all'aperto, gli inviati devono salire.", "Game started: walk around outdoors, the Sent counter must go up."), "bene");
     }
     disegnaTutto();

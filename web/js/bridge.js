@@ -26,6 +26,15 @@
   "use strict";
 
   var R = root.OwlRelay, G = root.GbaSio;
+  // I timer della partita passano da Battito (js/battito.js, 2026-09-27): in
+  // una scheda nascosta i setInterval della pagina scendono fino a un colpo
+  // al MINUTO, quelli del worker no - e il battito del club a un colpo al
+  // minuto uccide la sessione di link. Senza battito.js (bridge_test.html)
+  // si ricade sui timer normali.
+  var T = root.Battito || {
+    setInterval: function (f, ms) { return root.setInterval(f, ms); },
+    clear: function (h) { if (h) root.clearInterval(h); }
+  };
   var EVENT_SIZE = 12;
   var EV = { STEP: 1, SYNC: 2, TURN: 3, LEAVE: 4, STATUS: 5, CARD: 6, CLUB: 7 };
   var HEAL_MAX = 3;
@@ -598,11 +607,11 @@
       if (sess.blocchiTx < C.CLUB_LOG_BLOCCHI) self.log("[club ] GBA>> " + C.proto.blockRiga(b));
       sess.onDeviceBlock(b);
     };
-    // Il battito della sessione (rilanci, riannunci, watchdog). In una scheda
-    // in BACKGROUND il browser rallenta i setInterval: i dati continuano a
-    // fluire (device e rete sono a eventi), ma i rilanci no - da qui l'invito
-    // a tenere la scheda davanti durante uno scambio.
-    this.clubTimer = setInterval(function () {
+    // Il battito della sessione (rilanci, riannunci, watchdog). I dati fluiscono
+    // a eventi (device e rete), i rilanci invece vanno a timer: in una scheda
+    // in BACKGROUND un setInterval della pagina scende a un colpo al minuto, e
+    // la sessione muore. Per questo passa da Battito (T), che batte da un worker.
+    this.clubTimer = T.setInterval(function () {
       if (self.club === sess) { sess.tick(); self._clubDopo(); }
     }, 100);
     dev.clubEnter().then(function (pronto) {
@@ -712,7 +721,7 @@
     if (!sess) return;
     this.club = null;
     this.clubPartner = null;
-    if (this.clubTimer) { clearInterval(this.clubTimer); this.clubTimer = null; }
+    if (this.clubTimer) { T.clear(this.clubTimer); this.clubTimer = null; }
     var esito = sess.abortita ? "ABBANDONATA (" + (sess.motivoFine || "watchdog") + ")" : "conclusa";
     this.log("[club ] sessione " + esito + " | " + sess.riassunto());
     if (this.clubDrop) {
@@ -771,12 +780,12 @@
     var self = this;
     if (this.avviato) return;
     this.avviato = true;
-    this.timerPing = setInterval(function () { self.sendPing(); }, PING_INTERVAL);
-    this.timerStatus = setInterval(function () { self.status(); }, STATUS_INTERVAL);
+    this.timerPing = T.setInterval(function () { self.sendPing(); }, PING_INTERVAL);
+    this.timerStatus = T.setInterval(function () { self.status(); }, STATUS_INTERVAL);
     // Il PING resta anche da spettatore: e' lui a misurare l'RTT, e il WATCH
     // non ha un PONG apposta - due canali, due scopi, nessuna ambiguita'.
     if (this.spettatore) {
-      this.timerWatch = setInterval(function () { self.sendHello(); }, WATCH_INTERVAL);
+      this.timerWatch = T.setInterval(function () { self.sendHello(); }, WATCH_INTERVAL);
     }
   };
 
@@ -790,9 +799,9 @@
       this.club.finita = true;
       this.clubEnd();
     }
-    if (this.timerPing) clearInterval(this.timerPing);
-    if (this.timerStatus) clearInterval(this.timerStatus);
-    if (this.timerWatch) clearInterval(this.timerWatch);
+    T.clear(this.timerPing);
+    T.clear(this.timerStatus);
+    T.clear(this.timerWatch);
     this.timerPing = this.timerStatus = this.timerWatch = null;
   };
 
