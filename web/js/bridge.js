@@ -564,7 +564,7 @@
     this.log("============================================================");
     this.log("[club ] " + motivo);
     this.log("[club ] passo il Pico in modo LINK (Celio) e faccio io da ponte: NON toccare " +
-      "niente, gioca pure - e tieni questa scheda in PRIMO PIANO (in background il browser rallenta i timer)");
+      "niente, gioca pure (la scheda puo' anche stare in background)");
     // La sessione nasce PRIMA del giro sul Pico: cosi' l'ENTER parte subito
     // con l'epoca giusta e i pacchetti dell'amico arrivati nel frattempo
     // finiscono nella sessione, che e' gia' quella vera (come client.py).

@@ -700,7 +700,7 @@
     var alClub = !!(bridge && bridge.club);
     $("st-gba").textContent = alClub ? L("Al Cable Club", "At the Cable Club") : (mappa ? L("In partita", "In game") : (caricato || sondaVista ? L("Programma caricato", "Program loaded") : (dev ? L("Canale aperto", "Channel open") : L("Fermo", "Idle"))));
     $("st-mappa").textContent = alClub
-      ? L("scambio o lotta in corso: non toccare cavo e Pico, tieni la scheda in primo piano", "trade or battle in progress: don't touch cable or Pico, keep this tab in the foreground")
+      ? L("scambio o lotta in corso: non toccare cavo e Pico", "trade or battle in progress: don't touch cable or Pico")
       : (mappa
         ? (L("mappa ", "map ") + mappa + " (" + mia.x + "," + mia.y + ")" + (mia.stato ? " · " + nomeStato(mia.stato) : ""))
         : (sondaVista ? L("il programma risponde: cammina all'aperto", "the program is answering: walk around outdoors") : (caricato ? L("in attesa che dica dove sei", "waiting for it to report where you are") : L("programma non caricato: premi il passo 1", "program not loaded: press step 1"))));

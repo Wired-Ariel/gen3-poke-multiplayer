@@ -300,9 +300,10 @@ At most 4 players per room (the fifth is refused); spectators don't count.
 ## Known limitations
 
 - **Reported by players, under investigation (2026-09-27):** the game crashed on the GBA side after
-  **Record Mixing** and after the **Berry Blender**. Also keep the browser tab **in the foreground** while
-  trading, battling or mixing: in the background the browser slows down its timers and the link session
-  can drop.
+  **Record Mixing** and after the **Berry Blender**.
+- **Background tab:** since 2026-09-27 the page keeps its session timers in a Web Worker, so a hidden tab or a
+  minimized window no longer drops a trade (tested on real hardware). A browser that *suspends* inactive
+  tabs (Edge "sleeping tabs", Chrome "Memory Saver") can still stop it.
 - **Pico firmware:** the adapter needs this project's `celio.uf2`, even a GB-Link. With the stock firmware
   the multiboot never gets an answer from the GBA.
 - A wrong stub never boots the game half-way: it stays red (wrong game code) or turns blue (wrong ROM body).

@@ -301,8 +301,11 @@ Massimo 4 giocatori per stanza (il quinto viene rifiutato); gli spettatori non c
 ## Limiti noti
 
 - **Segnalato dai giocatori, in analisi (2026-09-27):** il gioco si è piantato sul GBA dopo il
-  **mescolamento dei record** e dopo il **Mixer Bacche**. E durante scambi, lotte e mixer tieni la scheda del
-  browser **in primo piano**: in background il browser rallenta i timer e la sessione di link può cadere.
+  **mescolamento dei record** e dopo il **Mixer Bacche**.
+- **Scheda in background:** dal 27/09/2026 la pagina tiene i timer della sessione in un Web Worker, quindi una
+  scheda nascosta o una finestra ridotta a icona non fanno più cadere uno scambio (provato sul fisico). Può
+  ancora fermarla un browser che *sospende* le schede inattive (Edge «schede in sospensione», Chrome
+  «Risparmio memoria»).
 - **Firmware del Pico:** serve `celio.uf2` di questo progetto, anche su un GB-Link. Col firmware di fabbrica
   il multiboot non riceve mai risposta dal GBA.
 - Uno stub sbagliato non avvia mai il gioco a metà: resta rosso (codice del gioco sbagliato) o diventa blu
