@@ -415,7 +415,13 @@
   var CHIAVE_ROM = "gen3pm.romlua";
   function romLua() { var s = $("rom-lua"); return s && s.value === "usa" ? "usa" : "it"; }
 
-  function configuraLua(testo, url, stanza, peer) {
+  function configuraLua(testo, url, stanza, peer, aperta) {
+    // LA STANZA APERTA (2026-09-27): riga facoltativa. Il template la ha dal
+    // 27/09; se manca (template vecchio) e la spunta c'e', la si aggiunge
+    // dopo RELAY_PEER, che e' obbligatoria e viene controllata qui sotto.
+    var rigaAperta = "RELAY_PUBLIC = " + (aperta ? "true" : "false");
+    if (/^RELAY_PUBLIC\s*=.*$/m.test(testo)) testo = testo.replace(/^RELAY_PUBLIC\s*=.*$/m, rigaAperta);
+    else if (aperta) testo = testo.replace(/^(RELAY_PEER\s*=.*)$/m, "$1\n" + rigaAperta);
     var righe = [
       { nome: "RELAY_URL", re: /^RELAY_URL\s*=.*$/m, val: 'RELAY_URL = "' + url + '"' },
       { nome: "RELAY_ROOM", re: /^RELAY_ROOM\s*=.*$/m, val: "RELAY_ROOM = " + stanza },
@@ -468,7 +474,7 @@
         salvaCfg();
         applicaCfg();
       }
-      var out = configuraLua(testo, r.url, cfg.stanza, peerGioco);
+      var out = configuraLua(testo, r.url, cfg.stanza, peerGioco, !!cfg.aperta);
       var a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([out], { type: "text/plain" }));
       var nomeFile = "gen3-poke-multiplayer-" + L("stanza", "room") + cfg.stanza + (rom === "usa" ? "-eng" : "-ita") + ".lua";
@@ -476,7 +482,7 @@
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
       log("[lua  ] scaricato " + nomeFile + " (ROM " + (rom === "usa" ? "inglese" : "italiana") + "): stanza " +
-          cfg.stanza + ", relay " + r.url + ", peer " + peerGioco +
+          cfg.stanza + (cfg.aperta ? " APERTA" : "") + ", relay " + r.url + ", peer " + peerGioco +
           " (segnato anche qui come 'tuo numero di gioco': sulla mappa sarai «tu»)" +
           (r.degradato ? " (relay IN CHIARO: il Lua di mGBA non ha TLS)" : ""), "rete");
       // L'AVVISO CHE EVITA UN'ORA AL TELEFONO. Il Lua parla solo ws:// in

@@ -140,7 +140,11 @@
   // tre righe siano quelle. Se app.js cambiasse formato, il caso "riga
   // mancante" qui sotto resterebbe verde ma il sito fallirebbe rumorosamente
   // da solo, che e' il comportamento voluto.
-  function configuraLuaProva(testo, url, stanza, peer) {
+  function configuraLuaProva(testo, url, stanza, peer, aperta) {
+    // Gemella di app.js: la riga RELAY_PUBLIC e' facoltativa (2026-09-27).
+    var rigaAperta = "RELAY_PUBLIC = " + (aperta ? "true" : "false");
+    if (/^RELAY_PUBLIC\s*=.*$/m.test(testo)) testo = testo.replace(/^RELAY_PUBLIC\s*=.*$/m, rigaAperta);
+    else if (aperta) testo = testo.replace(/^(RELAY_PEER\s*=.*)$/m, "$1\n" + rigaAperta);
     var righe = [
       { nome: "RELAY_URL", re: /^RELAY_URL\s*=.*$/m, val: 'RELAY_URL = "' + url + '"' },
       { nome: "RELAY_ROOM", re: /^RELAY_ROOM\s*=.*$/m, val: "RELAY_ROOM = " + stanza },
@@ -169,6 +173,18 @@
             out.indexOf('PAYLOAD_BASE = 0x0203CF80') === 0 &&
             out.indexOf('ROM_titolo = "POKEMON EMER"') > 0 &&
             out.indexOf("vecchio") < 0) || out;
+  });
+
+  t("script per l'emulatore: la spunta 'stanza aperta' arriva in RELAY_PUBLIC (anche su template vecchio)", function () {
+    var nuovo = TEMPLATE_FINTO.replace("RELAY_PEER = 0\n", "RELAY_PEER = 0\nRELAY_PUBLIC = false\n");
+    var a = configuraLuaProva(nuovo, "ws://h/ws", 7, 0, true);
+    var b = configuraLuaProva(nuovo, "ws://h/ws", 7, 0, false);
+    var c = configuraLuaProva(TEMPLATE_FINTO, "ws://h/ws", 7, 0, true);    // template senza la riga
+    var d = configuraLuaProva(TEMPLATE_FINTO, "ws://h/ws", 7, 0, false);
+    return (/^RELAY_PUBLIC = true$/m.test(a) && (a.match(/RELAY_PUBLIC/g) || []).length === 1 &&
+            /^RELAY_PUBLIC = false$/m.test(b) &&
+            /^RELAY_PEER = 0\nRELAY_PUBLIC = true$/m.test(c) &&
+            d.indexOf("RELAY_PUBLIC") < 0) || [a, b, c, d];
   });
 
   t("script per l'emulatore: template monco -> ERRORE, non un file sbagliato", function () {

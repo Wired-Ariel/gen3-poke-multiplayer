@@ -590,6 +590,9 @@ foreach ($s in @("payload_stack_bottom", "payload_stack_top")) {
 [void]$sb.AppendLine("RELAY_URL = `"$RelayUrl`"")
 [void]$sb.AppendLine("RELAY_ROOM = $RelayRoom")
 [void]$sb.AppendLine("RELAY_PEER = $RelayPeer")
+# La stanza aperta (2026-09-27): spenta di serie; il sito riscrive questa riga
+# quando chi scarica lo script ha la spunta "Stanza aperta".
+[void]$sb.AppendLine("RELAY_PUBLIC = false")
 
 # Impronta della ROM attesa dall'iniettore. Senza questo, con -Syms it il payload
 # avrebbe gli indirizzi italiani ma l'iniettore rifiuterebbe la cartuccia

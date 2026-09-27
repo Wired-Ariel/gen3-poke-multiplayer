@@ -85,6 +85,13 @@ class TestRuoloRelay(unittest.TestCase):
         """)
         for nome in DA_ESTRARRE:
             cls.lua.execute(ritaglia(src, nome).replace("local function", "function", 1))
+        # La stanza aperta (2026-09-27) e' un CAMPO di ws, non un local
+        # function (il chunk principale e' al tetto dei registri): si ritaglia
+        # a parte.
+        m = re.search(r"^ws\.segnoPubblica = function\(\).*?^end$", src, re.S | re.M)
+        if not m:
+            raise AssertionError("ws.segnoPubblica non trovata in inject_body.lua")
+        cls.lua.execute(m.group(0))
         cls.src = src
 
     # --- l'URL ------------------------------------------------------------
@@ -208,12 +215,42 @@ class TestRuoloRelay(unittest.TestCase):
         contratto con se stesso, e si rompe in silenzio (config ignorata =
         stanza sbagliata = 'non ci vediamo')."""
         scritto = ('-- scritto dal ruolo relay di gen3-poke-multiplayer\n'
-                   'return { stanza = 4242, peer = 7, relay = "ws://host/ws" }\n')
+                   'return { stanza = 4242, peer = 7, relay = "ws://host/ws", aperta = true }\n')
         dati = self.lua.execute(
             ('local f = load(%r, "cfg", "t", {}); return f()' % scritto).encode())
         self.assertEqual(dati[b"stanza"], 4242)
         self.assertEqual(dati[b"peer"], 7)
         self.assertEqual(dati[b"relay"], b"ws://host/ws")
+        self.assertIs(dati[b"aperta"], True)
+
+    # --- la stanza aperta (2026-09-27) -----------------------------------
+    def test_stanza_aperta_segno_rinnovato_e_chiusura_una_volta(self):
+        """Acceso: T_PUBLIC 1 a ogni chiamata (e' il rinnovo col PING).
+        Spento dopo acceso: UN T_PUBLIC 0, poi niente. Mai acceso: niente.
+        Il tipo 7 e il corpo di un byte sono il contratto con relay.py."""
+        g = self.lua.globals()
+
+        def pubblici():
+            out = []
+            for i in range(1, len(g.inviati) + 1):
+                p = bytes(g.inviati[i][b"p"])
+                if p[5] == 7:
+                    self.assertEqual(struct.unpack_from("<HH", p, 6), (42, 4242))
+                    out.append(p[11:])
+            return out
+
+        g.inviati = self.lua.table()
+        g.ws.pubblica = False
+        g.ws.pubblicaDetta = False
+        g.ws.segnoPubblica()
+        self.assertEqual(pubblici(), [], "mai accesa: non deve mandare niente")
+        g.ws.pubblica = True
+        g.ws.segnoPubblica()
+        g.ws.segnoPubblica()
+        g.ws.pubblica = False
+        g.ws.segnoPubblica()
+        g.ws.segnoPubblica()
+        self.assertEqual(pubblici(), [b"\x01", b"\x01", b"\x00"])
 
     def test_config_in_sandbox_non_esegue_codice(self):
         """La config e' un file che l'utente puo' modificare: si carica in un
@@ -274,6 +311,7 @@ class TestScriptDalSito(unittest.TestCase):
         (r"^RELAY_URL\s*=.*$", 'RELAY_URL = "ws://host/ws"'),
         (r"^RELAY_ROOM\s*=.*$", "RELAY_ROOM = 4242"),
         (r"^RELAY_PEER\s*=.*$", "RELAY_PEER = 0"),
+        (r"^RELAY_PUBLIC\s*=.*$", "RELAY_PUBLIC = true"),
     )
 
     def test_il_file_scaricato_compila_col_payload_intatto(self):

@@ -325,10 +325,16 @@ local function romMatches()
     console:error(string.format(
         "[inject] ROM SBAGLIATA: codice header '%s' (atteso '%s'), parola a CB2_Overworld "
         .. "0x%08X (attesa 0x%08X).", code, EXPECT_GAMECODE, cb2, EXPECT_CB2_WORD))
-    console:error("[inject] gli indirizzi del payload valgono SOLO per la build matching di "
-        .. "pokeemerald (BPEE, sha1 f3ae0881...). Su Smeraldo italiano o su qualsiasi altra "
-        .. "ROM commerciale non funziona niente: le fasi in emulatore vanno fatte con la ROM "
-        .. "che abbiamo compilato noi, su ENTRAMBE le istanze.")
+    -- Il testo di prima (fasi 1-4) diceva che funzionava SOLO la ROM della
+    -- decomp: dal 2026-09 falso, e sul campo (27/09) ha detto a chi aveva lo
+    -- script italiano su una ROM inglese l'esatto contrario del vero.
+    local NOMI = { BPEI = "Pokemon Smeraldo ITALIANO", BPEE = "Pokemon Emerald INGLESE (USA/Europa)" }
+    console:error("[inject] questo script e' fatto per " .. (NOMI[EXPECT_GAMECODE] or EXPECT_GAMECODE)
+        .. ", ma la ROM caricata e' " .. (NOMI[code] or ("'" .. tostring(code) .. "'")) .. ". "
+        .. "Scarica dal sito lo script per la tua versione (menu 'Versione del gioco') "
+        .. "e caricalo al posto di questo. / This script is for "
+        .. (EXPECT_GAMECODE == "BPEI" and "ITALIAN Smeraldo" or "ENGLISH Emerald")
+        .. ": download the script for your game version from the site.")
     return false
 end
 
@@ -675,6 +681,13 @@ local ws = {
     scartati = 0,       -- eventi di amici SENZA slot (5o giocatore in su)
     arretrati = 0,
     bye = 0,
+    -- LA STANZA APERTA (2026-09-27): se vera, la stanza compare nell'elenco
+    -- delle stanze aperte del sito. Il segno (T_PUBLIC, net/protocol.py) va
+    -- rinnovato: parte con ogni PING (2 s), il relay lo dimentica dopo 15.
+    -- Sta qui e non in un local perche' il chunk principale e' al tetto dei
+    -- 200 registri di Lua (vedi owlSend).
+    pubblica = rawget(_G, "RELAY_PUBLIC") == true,
+    pubblicaDetta = false,
 }
 
 -- ws://host[:porta][/path] -> host, porta, path. Nessun wss: niente TLS qui.
@@ -731,6 +744,24 @@ local function owlSend(tipo, body, peerId, roomId)
                                     peerId or RELAY_PEER, roomId or RELAY_ROOM,
                                     ws.outSeq)
                         .. (body or ""))
+end
+
+-- Il segno "stanza aperta". Acceso: si rinnova a ogni chiamata. Spento dopo
+-- essere stato acceso: UN T_PUBLIC 0, poi silenzio. Campo di `ws` e non local
+-- per il tetto dei registri (vedi sopra).
+ws.segnoPubblica = function()
+    if ws.pubblica then
+        owlSend(7, "\1")
+        if not ws.pubblicaDetta then
+            console:log("[rete ] stanza " .. RELAY_ROOM
+                        .. " APERTA: compare nell'elenco delle stanze aperte del sito")
+        end
+        ws.pubblicaDetta = true
+    elseif ws.pubblicaDetta then
+        owlSend(7, "\0")
+        console:log("[rete ] stanza " .. RELAY_ROOM .. " di nuovo privata")
+        ws.pubblicaDetta = false
+    end
 end
 
 -- Il club (mgba/club_lua.lua, appeso qui davanti da build.ps1) manda i suoi
@@ -917,6 +948,8 @@ local function relayPump()
                             .. (ws.riagganci > 0
                                 and (" (riaggancio n." .. ws.riagganci .. ")") or ""))
                 owlSend(OWL_HELLO, "")
+                ws.pubblicaDetta = false     -- connessione nuova: si ridice
+                ws.segnoPubblica()
                 -- L'HELLO iscrive alla stanza ma non porta la posizione:
                 -- senza questo, dopo un riaggancio l'amico non ci vede
                 -- finche' non facciamo un passo (e da fermi, mai).
@@ -967,6 +1000,7 @@ local function relayPump()
         ws.pingAt = now
         owlSend(OWL_PING, "")
         if ws.lastEvent then owlSend(OWL_EVENT, ws.lastEvent) end
+        if ws.pubblica then ws.segnoPubblica() end
     end
 end
 
@@ -1048,8 +1082,8 @@ local function cfgScrivi()
         if f then
             f:write(string.format(
                 "-- scritto dal ruolo relay di gen3-poke-multiplayer: si puo' modificare a mano\n"
-                .. "return { stanza = %d, peer = %d, relay = %q }\n",
-                RELAY_ROOM, RELAY_PEER, RELAY_URL))
+                .. "return { stanza = %d, peer = %d, relay = %q, aperta = %s }\n",
+                RELAY_ROOM, RELAY_PEER, RELAY_URL, tostring(ws.pubblica)))
             f:close()
             return path
         end
@@ -1081,6 +1115,9 @@ local function relayStart()
         if tonumber(dati.stanza) then RELAY_ROOM = math.floor(tonumber(dati.stanza)) end
         if tonumber(dati.peer) then RELAY_PEER = math.floor(tonumber(dati.peer)) end
         if type(dati.relay) == "string" and dati.relay ~= "" then RELAY_URL = dati.relay end
+        -- Solo se la chiave c'e': un file scritto prima delle stanze aperte
+        -- non deve spegnere lo script scaricato con la spunta.
+        if dati.aperta ~= nil then ws.pubblica = dati.aperta == true end
         cfgOrigine = path
     end
 
@@ -1108,17 +1145,19 @@ local function relayStart()
     end
 
     console:log(string.format(
-        "[rete ] ruolo relay: ws://%s:%d%s stanza %d peer %d (valori da: %s)",
-        ws.host, ws.port, ws.path, RELAY_ROOM, RELAY_PEER, cfgOrigine))
+        "[rete ] ruolo relay: ws://%s:%d%s stanza %d%s peer %d (valori da: %s)",
+        ws.host, ws.port, ws.path, RELAY_ROOM, ws.pubblica and " APERTA" or "",
+        RELAY_PEER, cfgOrigine))
     -- La stessa cosa in evidenza nel file: e' la PRIMA riga da guardare
     -- quando "non ci vediamo piu'", perche' nove volte su dieci la stanza in
     -- uso non e' quella che si crede (il file di configurazione vince sullo
     -- script, e resta li' anche dopo aver riscaricato lo script dal sito).
     LOG.riga(string.format(
-        "\nCONFIGURAZIONE ATTIVA\n  relay   : %s\n  stanza  : %d\n  peer    : %d\n"
-        .. "  origine : %s\n", RELAY_URL, RELAY_ROOM, RELAY_PEER, cfgOrigine))
+        "\nCONFIGURAZIONE ATTIVA\n  relay   : %s\n  stanza  : %d%s\n  peer    : %d\n"
+        .. "  origine : %s\n", RELAY_URL, RELAY_ROOM, ws.pubblica and " (aperta)" or "",
+        RELAY_PEER, cfgOrigine))
     console:log("[rete ] per cambiare al volo:  stanza(4242)   peer(7)   "
-                .. "relay(\"ws://host/ws\")  - resta salvato per la prossima volta")
+                .. "relay(\"ws://host/ws\")   aperta(true)  - resta salvato per la prossima volta")
     wsConnect()
 end
 
@@ -1169,7 +1208,14 @@ local function riaggancia(cosa)
         if ws.activePeer and ws.activeRoom and ws.activePeer ~= RELAY_PEER then
             owlSend(OWL_BYE, "", ws.activePeer, ws.activeRoom)
         end
+        -- La stanza vecchia, se era aperta, si chiude subito (a nome del peer
+        -- e della stanza vecchi: il relay accetta il segno solo da chi c'e').
+        if ws.pubblicaDetta and ws.activePeer and ws.activeRoom then
+            owlSend(7, "\0", ws.activePeer, ws.activeRoom)
+        end
         owlSend(OWL_HELLO, "")
+        ws.pubblicaDetta = false
+        ws.segnoPubblica()
         ws.activeRoom = RELAY_ROOM
         ws.activePeer = RELAY_PEER
         ws.pingAt = emu:read32(ADDR_GMAIN_VBLANK1)
@@ -1210,6 +1256,14 @@ function stanza(n)
     riaggancia("stanza cambiata")
 end
 
+function aperta(v)
+    ws.pubblica = not (v == false or v == 0 or v == nil)
+    local salvato = cfgScrivi()
+    console:log("[rete ] stanza " .. RELAY_ROOM .. (ws.pubblica and " APERTA a tutti" or " privata")
+                .. (salvato and (" (salvato in " .. salvato .. ")") or ""))
+    if ws.sock and ws.handshaken then ws.segnoPubblica() end
+end
+
 function peer(n)
     n = math.floor(tonumber(n) or 0)
     if n < 1 or n > 65534 then
@@ -1237,7 +1291,7 @@ end
 -- lo stesso, e non toglie niente ai comandi  stanza(N) / peer(N) / relay(url).
 --
 --   L+R+B         apre (e richiude, annullando)
---   Su / Giu      sceglie il campo: stanza o peer
+--   Su / Giu      sceglie il campo: stanza, peer o stanza aperta (OPEN)
 --   L / R         passo di modifica: 1, 10, 100, 1000
 --   Sin / Destra  valore -/+
 --   A             salva e riaggancia        B  annulla ed esce
@@ -1290,11 +1344,12 @@ do local function installa()   -- UNA FUNZIONE, non un semplice `do`:
 
     local configUi = {
         open = false,
-        field = 1,                  -- 1 = stanza, 2 = peer
+        field = 1,                  -- 1 = stanza, 2 = peer, 3 = stanza aperta
         stepIndex = 1,
         steps = { 1, 10, 100, 1000 },
         room = 0,
         peer = 0,
+        aperta = false,
         previousKeys = 0,
         comboHeld = false,
         notice = "",
@@ -1470,11 +1525,15 @@ do local function installa()   -- UNA FUNZIONE, non un semplice `do`:
         uiRect(0, 0, 128, 64, 2)
         uiRect(2, 2, 124, 60, 1)
         uiText(25, 3, "GEN3PM CONFIG", 3)
-        uiText(8, 14, "ROOM:" .. tostring(configUi.room),
+        -- Righe ogni 8 pixel (glifi alti 7): la terza, OPEN, e' la stanza
+        -- aperta del 2026-09-27; sinistra/destra la accendono e la spengono.
+        uiText(8, 13, "ROOM:" .. tostring(configUi.room),
                configUi.field == 1 and 4 or 3)
-        uiText(8, 24, "PEER:" .. tostring(configUi.peer),
+        uiText(8, 21, "PEER:" .. tostring(configUi.peer),
                configUi.field == 2 and 4 or 3)
-        uiText(8, 36, "UD FIELD LR STEP", 3)
+        uiText(8, 29, "OPEN:" .. (configUi.aperta and "ON" or "OFF"),
+               configUi.field == 3 and 4 or 3)
+        uiText(8, 38, "UD FIELD LR STEP", 3)
         uiText(8, 46, "LEFT - RIGHT +", 3)
         -- 54: a 55 l'ultima riga toccava il bordo, a 53 si sovrapponeva a
         -- quella sopra. Provato a schermo il 2026-08-27 (build\prova-pannello).
@@ -1490,10 +1549,11 @@ do local function installa()   -- UNA FUNZIONE, non un semplice `do`:
         local rete = link.connected and "CONNESSO"
                      or (ws.handshaken and "COLLEGAMENTO" or "DISCONNESSO")
         console:log(string.format(
-            "[config] rete %s | %s stanza %d | %s peer %d | passo %d | %s",
+            "[config] rete %s | %s stanza %d | %s peer %d | %s aperta %s | passo %d | %s",
             rete,
             configUi.field == 1 and ">" or " ", configUi.room,
             configUi.field == 2 and ">" or " ", configUi.peer,
+            configUi.field == 3 and ">" or " ", configUi.aperta and "si'" or "no",
             configUi.steps[configUi.stepIndex], configUi.notice))
     end
 
@@ -1510,6 +1570,7 @@ do local function installa()   -- UNA FUNZIONE, non un semplice `do`:
         configUi.stepIndex = 1
         configUi.room = RELAY_ROOM
         configUi.peer = RELAY_PEER
+        configUi.aperta = ws.pubblica
         configUi.previousKeys = 0
         configUi.notice = "Modifica e premi A per applicare."
         uiBackup()
@@ -1538,6 +1599,9 @@ do local function installa()   -- UNA FUNZIONE, non un semplice `do`:
         end
         RELAY_ROOM = configUi.room
         RELAY_PEER = configUi.peer
+        -- Prima del riaggancio: e' lui a salvare il file e a mandare il segno
+        -- (chiusura nella stanza vecchia, apertura nella nuova).
+        ws.pubblica = configUi.aperta
         configUiClose("Salvato: riaggancio in corso...")
         riaggancia("pannello dal pad")
     end
@@ -1574,10 +1638,10 @@ do local function installa()   -- UNA FUNZIONE, non un semplice `do`:
         elseif premuto(keys, KEY_A) then
             configUiApply()
         elseif premuto(keys, KEY_UP) then
-            configUi.field = configUi.field == 1 and 2 or configUi.field - 1
+            configUi.field = configUi.field == 1 and 3 or configUi.field - 1
             configUiDraw()
         elseif premuto(keys, KEY_DOWN) then
-            configUi.field = configUi.field == 2 and 1 or configUi.field + 1
+            configUi.field = configUi.field == 3 and 1 or configUi.field + 1
             configUiDraw()
         elseif premuto(keys, KEY_R) then
             -- Sulla mappatura Knulli osservata i due dorsali arrivano invertiti.
@@ -1591,8 +1655,10 @@ do local function installa()   -- UNA FUNZIONE, non un semplice `do`:
             if premuto(keys, KEY_LEFT) then passo = -passo end
             if configUi.field == 1 then
                 configUi.room = configUiWrap(configUi.room, 1, 65535, passo)
-            else
+            elseif configUi.field == 2 then
                 configUi.peer = configUiWrap(configUi.peer, 1, 65534, passo)
+            else
+                configUi.aperta = not configUi.aperta   -- sinistra o destra: si/no
             end
             configUiDraw()
         end
