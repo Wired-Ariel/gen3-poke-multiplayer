@@ -22,8 +22,8 @@ around it with the game's real animation.
 | ![together](docs/img/foto-p3-73.png) | ![club](docs/img/2026-08-27-club-due-emulatori-saletta.png) | ![trade](docs/img/2026-08-27-SCAMBIO-FATTO-p1.png) |
 
 > ⚠️ **Which versions work:** Pokémon Emerald **Italian** and **English (USA/Europe)**, and they play together.
-> In the **emulator** both are tested. On a **real GBA** the Italian cartridge is tested; the **English cartridge
-> is new**: tested in the emulator but not yet on real hardware (see Known limitations). The in-game screenshots are in Italian because that's what we play. Most of the source code comments are in Italian too.
+> Both are tested in the **emulator** and on a **real GBA** (the English cartridge on real hardware since
+> 2026-09-26, by players from the community, several friends on screen at once). The in-game screenshots are in Italian because that's what we play. Most of the source code comments are in Italian too.
 >
 > ⚠️ **Use at your own risk.** The program never writes your save file, but it runs code inside the game on
 > your original cartridge, and it comes with **no warranty** (GPL-3.0). If you can, **back up your save first**
@@ -74,7 +74,7 @@ around it with the game's real animation.
 
 ### To play on a real GBA
 - a **Game Boy Advance** (or GBA SP) and an original **Pokémon Emerald** cartridge, **Italian** or
-  **English (USA/Europe)** *(English: new, see Known limitations)*;
+  **English (USA/Europe)**;
 - a **Raspberry Pi Pico (RP2040)** with a link board (e.g.
   [game-boy-pico-link-board](https://github.com/agtbaskara/game-boy-pico-link-board)) and a
   5-pin **GBA link cable**;
@@ -299,14 +299,14 @@ At most 4 players per room (the fifth is refused); spectators don't count.
 
 ## Known limitations
 
-- **English cartridge on a real GBA: new, not yet tested on hardware.** `mbstub-usa.gba` differs from the
-  hardware-proven Italian stub only in five constants (game code + four ROM signature words, all measured on
-  the English ROM); the boot code is byte-identical. In the emulator the English payload passes the full
-  handoff test (game restarted through the stub's own re-entry code, hook installed, payload running), and
-  Italian and English games see each other on the public relay. What's missing is one run on a real GBA with
-  an English cartridge: if you have one, please report on GitHub Issues. A wrong stub never boots the game
-  half-way: it stays red (wrong game code) or turns blue (wrong ROM body).
-  FireRed/LeafGreen are the natural next step (`pokefirered` is decompiled too).
+- **Reported by players, under investigation (2026-09-27):** the game crashed on the GBA side after
+  **Record Mixing** and after the **Berry Blender**. Also keep the browser tab **in the foreground** while
+  trading, battling or mixing: in the background the browser slows down its timers and the link session
+  can drop.
+- **Pico firmware:** the adapter needs this project's `celio.uf2`, even a GB-Link. With the stock firmware
+  the multiboot never gets an answer from the GBA.
+- A wrong stub never boots the game half-way: it stays red (wrong game code) or turns blue (wrong ROM body).
+- FireRed/LeafGreen are the natural next step (`pokefirered` is decompiled too).
 - **16 object events per map**: a crowded map fits 2-3 friends. From the fourth friend on
   there's no avatar, but they stay on the Live map.
 - **Non-adjacent maps**: your friend is visible on your map and on the strip of the connected map

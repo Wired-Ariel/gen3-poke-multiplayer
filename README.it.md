@@ -26,7 +26,7 @@ camminano con l'animazione vera del gioco.
 > multiboot *before* the cartridge boots, hooks the IRQ vector, and draws remote players as
 > native object events driven by the game's own movement actions. Transport: GBA link cable →
 > Raspberry Pi Pico (patched Celio firmware) → USB/WebUSB → UDP/WebSocket relay. Up to 4
-> players, mixed hardware + mGBA emulator + browser. Italian and English (USA/Europe) Emerald; English cartridge on real GBA not yet hardware-tested.
+> players, mixed hardware + mGBA emulator + browser. Italian and English (USA/Europe) Emerald, both tested on real GBA.
 > The software was written by **Claude (Anthropic)** in guided sessions, with all hardware
 > testing done by Lain.
 
@@ -79,7 +79,7 @@ camminano con l'animazione vera del gioco.
 
 ### Per giocare su GBA vero
 - un **Game Boy Advance** (o GBA SP) e una cartuccia originale di **Pokémon Smeraldo**, **italiana** o
-  **inglese (USA/Europa)** *(inglese: nuova, vedi Limiti noti)*;
+  **inglese (USA/Europa)**;
 - un **Raspberry Pi Pico (RP2040)** con una scheda link (es.
   [game-boy-pico-link-board](https://github.com/agtbaskara/game-boy-pico-link-board)) e un
   **cavo link GBA** a 5 contatti;
@@ -300,13 +300,14 @@ Massimo 4 giocatori per stanza (il quinto viene rifiutato); gli spettatori non c
 
 ## Limiti noti
 
-- **Cartuccia inglese su GBA vero: nuova, non ancora provata sul fisico.** `mbstub-usa.gba` differisce dallo
-  stub italiano (provato sul fisico) solo in cinque costanti (codice del gioco + quattro firme della ROM, tutte
-  misurate sulla ROM inglese); il codice di avvio è identico byte per byte. In emulatore il payload inglese
-  passa il banco di handoff completo, e partite italiane e inglesi si vedono sul relay pubblico. Manca una
-  prova su un GBA vero con cartuccia inglese: se ne hai una, segnalacelo negli Issues. Uno stub sbagliato non
-  avvia mai il gioco a metà: resta rosso (codice del gioco sbagliato) o diventa blu (corpo della ROM diverso).
-  Rosso Fuoco/Verde Foglia sono il prossimo passo naturale (anche `pokefirered` è decompilato).
+- **Segnalato dai giocatori, in analisi (2026-09-27):** il gioco si è piantato sul GBA dopo il
+  **mescolamento dei record** e dopo il **Mixer Bacche**. E durante scambi, lotte e mixer tieni la scheda del
+  browser **in primo piano**: in background il browser rallenta i timer e la sessione di link può cadere.
+- **Firmware del Pico:** serve `celio.uf2` di questo progetto, anche su un GB-Link. Col firmware di fabbrica
+  il multiboot non riceve mai risposta dal GBA.
+- Uno stub sbagliato non avvia mai il gioco a metà: resta rosso (codice del gioco sbagliato) o diventa blu
+  (corpo della ROM diverso).
+- Rosso Fuoco/Verde Foglia sono il prossimo passo naturale (anche `pokefirered` è decompilato).
 - **16 object event per mappa**: su una mappa affollata ci stanno 2-3 amici. Il quarto amico in su
   non ha avatar ma resta sulla Mappa live.
 - **Mappe non adiacenti**: l'amico si vede sulla tua mappa e nella striscia della mappa connessa
