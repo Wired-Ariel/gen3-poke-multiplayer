@@ -78,8 +78,8 @@ around it with the game's real animation.
 - a **Raspberry Pi Pico (RP2040)** with a link board (e.g.
   [game-boy-pico-link-board](https://github.com/agtbaskara/game-boy-pico-link-board)) and a
   5-pin **GBA link cable**;
-- the **Celio firmware extended by this project** (`gen3-poke-multiplayer-pico.uf2` in the Releases — flashed only
-  once: hold BOOTSEL, plug in the Pico, drag the file onto the `RPI-RP2` drive; up to v1.4 the same file was called `celio.uf2`, and a Pico already flashed with it needs nothing);
+- the **Celio firmware extended by this project** (`celio.uf2` in the Releases — flashed only
+  once: hold BOOTSEL, plug in the Pico, drag the file onto the `RPI-RP2` drive);
 - **Chrome or Edge** (WebUSB is required). On **Windows**, once: the **WinUSB** driver for the
   Pico via [Zadig](https://zadig.akeo.ie/).
 
@@ -306,7 +306,7 @@ At most 4 players per room (the fifth is refused); spectators don't count.
 - **Background tab:** since 2026-09-27 the page keeps its session timers in a Web Worker, so a hidden tab or a
   minimized window no longer drops a trade (tested on real hardware). A browser that *suspends* inactive
   tabs (Edge "sleeping tabs", Chrome "Memory Saver") can still stop it.
-- **Pico firmware:** the adapter needs this project's `gen3-poke-multiplayer-pico.uf2`, even a GB-Link. With the stock firmware
+- **Pico firmware:** the adapter needs this project's `celio.uf2`, even a GB-Link. With the stock firmware
   the multiboot never gets an answer from the GBA.
 - A wrong stub never boots the game half-way: it stays red (wrong game code) or turns blue (wrong ROM body).
 - FireRed/LeafGreen are the natural next step (`pokefirered` is decompiled too).
@@ -361,5 +361,5 @@ This repository **contains no** ROMs or save files: you need your own original c
 icons derived from the game's graphics, listed with everything else in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 Code released under **GPL-3.0** (see [`LICENSE`](LICENSE)), like the Celio projects it partly derives from.
-The `gen3-poke-multiplayer-pico.uf2` firmware in the Releases is Celio-Firmware (GPL-3.0) at commit `f67733c` plus the patch in
+The `celio.uf2` firmware in the Releases is Celio-Firmware (GPL-3.0) at commit `f67733c` plus the patch in
 `hw/firmware/`: that is its complete source. Third-party components and licenses: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
