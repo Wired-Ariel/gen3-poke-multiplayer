@@ -25,6 +25,9 @@
   // arrivano dai moduli (bridge, device, multiboot) restano in italiano.
   var EN = document.documentElement.lang === "en";
   function L(it, en) { return EN ? en : it; }
+  // Il firmware del Pico: l'asset della Release piu' recente, cosi' il link
+  // non invecchia a ogni versione (lo stesso che c'e' nelle pagine).
+  var URL_FIRMWARE = "https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2";
   var STATI_EN = { lotta: "battle", dialogo: "dialogue", zaino: "bag", squadra: "party" };
   function nomeStato(v) { var n = GbaSio.nomeStato(v); return EN && STATI_EN[n] ? STATI_EN[n] : n; }
   var DEF = (window.GEN3PM_DEFAULTS || {});
@@ -310,6 +313,7 @@
     if (multibootInCorso) return;
     if (!CelioDevice.supportato()) { errore(L("questo browser non ha WebUSB: serve Chrome o Edge.", "this browser has no WebUSB: you need Chrome or Edge.")); return; }
     if (inPartita) fermaPartita();
+    $("aiuto-firmware").hidden = true;
     multibootInCorso = true;
     disegnaTutto();
     var raw = null;
@@ -349,6 +353,14 @@
       esito("esito-azione", caricato && dev ? L("Programma nel GBA e canale aperto. Inserisci la cartuccia, poi Gioca.", "Program in the GBA and channel open. Insert the cartridge, then Play.") : L("Programma nel GBA. Premi 'Collega il Pico', inserisci la cartuccia, poi Gioca.", "Program in the GBA. Press 'Connect the Pico', insert the cartridge, then Play."), "bene");
     } catch (e) {
       errore("multiboot: " + e.message.split("\n")[0]);
+      // Il GBA non ha mai risposto: la prima cosa da controllare e' il
+      // firmware del Pico (GB-Link di fabbrica, 2026-09-27), e lo si dice
+      // con il link, non solo nel registro in italiano di multiboot.js.
+      if (e.detect) {
+        $("aiuto-firmware").hidden = false;
+        log(L("[mb  ] il GBA non ha risposto: prima di tutto aggiorna il firmware del Pico con celio.uf2 di questo progetto: ",
+              "[mb  ] the GBA never answered: first of all flash the Pico with this project's celio.uf2: ") + URL_FIRMWARE, "mb", true);
+      }
       if (raw) { try { await raw.close(); } catch (e2) { /* niente */ } }
     } finally {
       multibootInCorso = false;

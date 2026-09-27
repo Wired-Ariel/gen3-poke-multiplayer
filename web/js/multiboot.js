@@ -159,7 +159,7 @@
 
   /* 1. 0x6200 ripetuto finche' il child risponde 0x720x. */
   Multiboot.prototype._detect = function () {
-    var self = this, scadenza = Date.now() + this.detectS * 1000, visti = {};
+    var self = this, scadenza = Date.now() + this.detectS * 1000, visti = {}, linea = "";
     function giro() {
       if (Date.now() >= scadenza) {
         var chiavi = Object.keys(visti);
@@ -169,14 +169,22 @@
           var top = chiavi.slice(0, 4);
           self.log("risposte viste al detect: " + top.map(function (k) { return hex(+k) + " x" + visti[k] + " (" + Math.floor(visti[k] * 100 / tot) + "%)"; }).join(", "));
           var dom = +top[0], ndom = visti[top[0]];
-          if ((dom === 0xFFFF || dom === 0x7FFF) && ndom * 10 >= tot * 9) self.log("  -> linea alta e viva: NESSUNO risponde (non e' il pin: e' il GBA che non e' in attesa)");
-          else if (dom === 0 && ndom * 10 >= tot * 9) self.log("  -> linea a massa: SD sul pin sbagliato o filo assente");
+          if ((dom === 0xFFFF || dom === 0x7FFF) && ndom * 10 >= tot * 9) { linea = "alta"; self.log("  -> linea alta e viva: NESSUNO risponde (non e' il pin: e' il GBA che non e' in attesa)"); }
+          // Quasi tutti zeri: sul campo (2026-09-27, GB-Link v2) era
+          // il firmware di fabbrica, che non ha il passthrough: con celio.uf2
+          // di questo progetto lo stesso cavo ha funzionato al primo colpo.
+          // Il pin sbagliato resta possibile, ma viene dopo.
+          else if (dom === 0 && ndom * 10 >= tot * 9) { linea = "massa"; self.log("  -> quasi solo zeri: di solito e' il FIRMWARE del Pico (serve celio.uf2 di questo progetto, anche su un GB-Link); piu' di rado SD sul pin sbagliato o filo assente"); }
         }
-        throw new MultibootError("il GBA non ha mai risposto 0x7202 al detect.\n" +
+        var err = new MultibootError("il GBA non ha mai risposto 0x7202 al detect.\n" +
           "       Le cause, in ordine di probabilita':\n" +
+          "       - il firmware del Pico non e' celio.uf2 di questo progetto (quello di fabbrica, Celio o GB-Link, non basta);\n" +
           "       - il GBA non e' in attesa di multiboot (slot cartuccia VUOTO, e acceso DOPO aver collegato il cavo);\n" +
           "       - il cavo e' nel verso sbagliato (il verso e' marcato);\n" +
           "       - SW1 non e' su 3,3 V.");
+        err.detect = true;   // la pagina ci aggancia il link al firmware
+        err.linea = linea;
+        throw err;
       }
       return self._keepFed(K.CMD_HANDSHAKE).then(function () { return self._pull(3.0, "detect"); }).then(function (w) {
         if ((w & 0xFFF0) === K.ACK_HANDSHAKE && (w & 0xF) === K.CLIENT_BIT) {
@@ -378,7 +386,11 @@
     function corsa() {
       tentativo++;
       if (tentativo > self.maxAttempts) {
-        throw new MultibootError("multiboot fallito dopo " + self.maxAttempts + " tentativi. Ultimo errore: " + (ultimo ? ultimo.message : "?"));
+        var err = new MultibootError("multiboot fallito dopo " + self.maxAttempts + " tentativi. Ultimo errore: " + (ultimo ? ultimo.message : "?"));
+        // La diagnosi dell'ultimo tentativo passa all'errore finale: e' su
+        // questo che la pagina decide se mostrare il link al firmware.
+        if (ultimo) { err.detect = !!ultimo.detect; err.linea = ultimo.linea || ""; }
+        throw err;
       }
       self.resetCounters();
       self.restarts = tentativo - 1;
