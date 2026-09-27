@@ -638,6 +638,17 @@
           self.log("[club ] comando al device FALLITO (" + e.message + ")");
         });
       },
+      // Un comando di PIU' byte (il 0x44 delle coppie, firmware F-5).
+      commandBytes: function (bytes, label) {
+        var me = this;
+        if (typeof dev.clubCommandBytes !== "function") return;
+        dev.clubCommandBytes(bytes, label).then(function () {
+          self.log("[club ] -> device: " + label);
+        }, function (e) {
+          me.errori++;
+          self.log("[club ] comando al device FALLITO (" + e.message + ")");
+        });
+      },
       sendBlock: function (block64) {
         var me = this;
         // Il contenuto va nel log PRIMA dell'invio: se il canale muore qui,
@@ -647,8 +658,15 @@
         dev.clubSendBlock(block64).then(function (ok) { if (!ok) me.errori++; });
       }
     };
+    // Il Pico sa riferire le coppie (modo seguace, firmware 2.0.6)? Se si',
+    // all'inizio di ogni sessione la riferitura si SPEGNE: la accende la
+    // sessione solo se l'amico e' uno script di mGBA che sa seguirle (con un
+    // GBA dall'altra parte le coppie finirebbero nel suo Pico come comandi).
+    var coppiePossibili = typeof dev.sapeCoppie === "function" && dev.sapeCoppie();
+    if (coppiePossibili) devAdapter.commandBytes([C.proto.CMD_COPPIE, 0], "coppie spente (inizio sessione)");
     var sess = new C.ClubSession({
       myPeer: this.peerId,
+      coppiePossibili: coppiePossibili,
       dev: devAdapter,
       sendNet: function (b) { self.sendClub(b); },
       log: function (r) { self.log(r); }
@@ -743,7 +761,7 @@
     this._clubLatch(peerId);
     if (p.sub === P.CLUB_STATUS) {
       this.controllaVersioneClub(p.versione, p.impronta);
-      this.club.onNetStatus(p.epoca, p.sseq, p.status);
+      this.club.onNetStatus(p.epoca, p.sseq, p.status, p.caps);
     } else if (p.sub === P.CLUB_DATA) {
       this.club.onNetBlock(p.epoca, p.seq, p.block);
     } else if (p.sub === P.CLUB_REQ) {

@@ -73,7 +73,7 @@ import struct
 import time
 
 from protocol import (
-    CLUB_DATA, CLUB_REQ, CLUB_STATUS,
+    CAPS_COPPIE, CAPS_DECISO, CAPS_SEGUO, CLUB_DATA, CLUB_REQ, CLUB_STATUS, CMD_COPPIE,
     club_data, club_enter, club_req, club_status,
 )
 from usb_link import (
@@ -201,8 +201,14 @@ class ClubSession:
     con il peer dell'amico, appena si annuncia" (vedi set_master).
     """
 
-    def __init__(self, master, dev, send_net, log, epoca=None):
+    def __init__(self, master, dev, send_net, log, epoca=None,
+                 coppie_possibili=False):
         self.master = master
+        # Il modo seguace (vedi protocol.CAPS_*): il MIO Pico sa riferire le
+        # coppie (firmware >= 2.0.6)? `coppie` resta None finche' non si
+        # decide, una volta per sessione. Specchio di club.js.
+        self.coppie_possibili = bool(coppie_possibili)
+        self.coppie = None
         # Il ruolo: AwaitMode visto ma partner ancora ignoto = comando in
         # attesa. Specchio di _awaitVisto/_ruoloInviato in club.js.
         self._await_mode_visto = False
@@ -299,7 +305,9 @@ class ClubSession:
         self._progresso = time.monotonic()
 
     def _annuncia_stato(self, status):
-        corpo = club_status(self.epoca, self._sseq, status)
+        caps = 0 if self.coppie is None else (
+            CAPS_DECISO | (CAPS_COPPIE if self.coppie else 0))
+        corpo = club_status(self.epoca, self._sseq, status, caps=caps)
         self._sseq = (self._sseq + 1) & 0xFFFF
         for _ in range(COPIE_STATO):
             self.send_net(corpo)
@@ -562,9 +570,13 @@ class ClubSession:
 
     # -- eventi dalla RETE (il partner, via relay) -------------------------
 
-    def on_net_status(self, epoca, sseq, status):
+    def on_net_status(self, epoca, sseq, status, caps=0):
         if self.finita or not self._epoca_ok(epoca):
             return
+        # PRIMA dello stato: la decisione deve arrivare al Pico prima dello
+        # StartHandshake che questo stesso stato potrebbe far partire.
+        if caps:
+            self._decidi_coppie(caps)
         if sseq in self._visti_sseq:
             return                       # copia del triplo invio / riannuncio
         self._visti_sseq.add(sseq)
@@ -745,6 +757,37 @@ class ClubSession:
             self.motivo_fine = "watchdog"
             self.abortita = True
             self.finita = True
+
+    # -- il modo seguace (2026-09-27) ---------------------------------------
+
+    def _decidi_coppie(self, caps):
+        """Una volta per sessione, quando l'amico (lo script di mGBA) dice di
+        saper seguire le coppie. Solo PRIMA dello StartHandshake: il Pico
+        trasferisce subito dopo, e mGBA deve avere le coppie dalla prima.
+        Specchio di ClubSession.prototype._decidiCoppie in club.js."""
+        if self.coppie is not None or not (caps & CAPS_SEGUO):
+            return
+        if self._hs_avviato:
+            self.coppie = False
+            self.log("[club ] l'amico in emulatore sa seguire le coppie, ma la "
+                     "sessione col GBA e' gia' partita: modo di prima per questa volta")
+        elif not self.coppie_possibili:
+            self.coppie = False
+            self.log("[club ] l'amico gioca in emulatore e saprebbe tenere i passi "
+                     "della saletta allineati, ma questo Pico non ha il firmware "
+                     "2.0.6: modo di prima (i passi possono sfasarsi)")
+        else:
+            self.coppie = True
+            comando = getattr(self.dev, "command_bytes", None)
+            if comando:
+                comando(bytes([CMD_COPPIE, 1]),
+                        "coppie ACCESE (F-5): il Pico riferisce ogni trasferimento")
+            self.log("[club ] modo SEGUACE: il Pico riferisce ogni trasferimento "
+                     "col GBA e l'emulatore li rivede identici")
+        if self._ultimo_stato is not None:
+            self._annuncia_stato(self._ultimo_stato)
+        else:
+            self._annuncio_quando = 0.0
 
     # -- i pezzi interni ---------------------------------------------------
 

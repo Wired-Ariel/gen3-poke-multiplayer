@@ -187,6 +187,16 @@
 /* Battendo il tamburo mentre lo stato NON e' overworld si copre anche chi si e'
  * collegato dopo. In overworld non serve: l'assenza di icona e' il default. */
 #define STATUS_HEARTBEAT    120u
+/* ...e chi RICEVE ne tiene conto (2026-09-27, dal campo): uno stato diverso da
+ * overworld che non viene ribadito da STATUS_STALE_FRAMES frame e' scaduto.
+ * Il mittente lo ribadisce ogni STATUS_HEARTBEAT: servono tre battiti persi
+ * di fila per sbagliare. Visto sul fisico: dopo una lotta al Cable Club il
+ * "torno in overworld" di mGBA e' arrivato mentre il sito non poteva ancora
+ * scrivere al GBA (canale in riapertura) ed e' andato perso; l'overworld non
+ * si ribadisce mai, e il fumetto e' rimasto sulla testa dell'amico per 90 s
+ * mentre camminava. La lotta resta fuori: un GBA fisico in lotta molla la
+ * seriale e TACE, il battito non arriva per costruzione. */
+#define STATUS_STALE_FRAMES 420u
 /* Uscire dall'overworld non vuol dire "menu": vuol dire anche warp, porta,
  * transizione di lotta. Un secondo di attesa distingue una pausa vera da un
  * passaggio - ed e' anche il criterio di prova ("menu lampo, nessuna icona"). */
@@ -674,6 +684,11 @@ struct PayloadState
                          * dell'amico visibile, ogni dialogo o MN deve farlo
                          * salire di 1: se resta fermo, il Pokemon della MN
                          * torna a uscire coi colori dell'icona              */
+    u32 statusExpired;  /* +0x1AC stati dell'amico SCADUTI perche' non piu'
+                         * ribaditi (STATUS_STALE_FRAMES): il suo "torno in
+                         * overworld" si era perso. Deve restare 0 in una
+                         * partita pulita; se sale, l'icona sarebbe rimasta
+                         * appesa sulla sua testa                           */
 };
 
 __attribute__((section(".payload_state"), used))
@@ -799,6 +814,7 @@ struct Remote
     u32 gender;
     u32 avatarState;    /* PLAYER_AVATAR_STATE_*                            */
     u32 status;         /* ST_*: l'icona sopra la testa                     */
+    u32 statusAge;      /* frame dall'ultimo EVENT_STATUS (STATUS_STALE)     */
     u32 spawnMapKey;    /* su che mappa NOSTRA l'avatar e' stato messo      */
     u32 settled;        /* rimesso in posa da fermo dopo l'ultimo movimento */
     u32 driftRun;       /* SYNC di fila con lo stesso scostamento mentre
@@ -2711,6 +2727,7 @@ static void DrainMailbox(void)
         if (kind == EVENT_STATUS)
         {
             r->status = g_mailbox.rx[tail].dir;
+            r->statusAge = 0;
             BUMPF(statusRx);
         }
         /* LA SCHEDA DELL'AMICO ARRIVA A PEZZI (Consegna B). Come lo STATO: i
@@ -3470,6 +3487,22 @@ static void IndicatorTickSlot(u32 slot)
 static void IndicatorTick(void)
 {
     u32 i;
+
+    /* Lo stato non ribadito scade (vedi STATUS_STALE_FRAMES). Qui, prima del
+     * ritiro a controlli bloccati: l'eta' corre anche mentre sei TU in un
+     * dialogo (il banco l'ha trovato: una chiamata del PokeNav rimasta aperta
+     * fermava l'orologio, e l'icona scaduta ricompariva alla chiusura). */
+    for (i = 0; i < N_REMOTES; i++)
+    {
+        struct Remote *r = &g_remotes[i];
+
+        if (r->status != ST_OVERWORLD && r->status != ST_BATTLE
+            && ++r->statusAge > STATUS_STALE_FRAMES)
+        {
+            r->status = ST_OVERWORLD;
+            BUMPF(statusExpired);
+        }
+    }
 
     if (g_state.inOverworld
         && (ArePlayerFieldControlsLocked() || gPlayerAvatar_preventStep))
@@ -4839,6 +4872,7 @@ void payload_frame(void)
                     if (sl >= N_REMOTES)
                         sl = N_REMOTES - 1;
                     g_remotes[sl].status = g_mailbox.rx[t].dir;
+                    g_remotes[sl].statusAge = 0;
                     BUMPF(statusRx);
                 }
                 t = WRAP(t, RX_SLOTS);

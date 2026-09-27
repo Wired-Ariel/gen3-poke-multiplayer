@@ -30,7 +30,7 @@ from protocol import (  # noqa: E402
     T_PUBLIC, T_TAKEN, T_WATCH, TYPE_NAMES, pack, unpack,
 )
 
-# IL NUMERO GIA' IN USO (2026-09-27, richiesta di Luca: «verifica che il peer
+# IL NUMERO GIA' IN USO (2026-09-27, richiesta di Lain: «verifica che il peer
 # selezionato sia disponibile e non usato da altri, sia per visitatori che per
 # giocatori»). Un client con lo stesso peer-id di un altro, nella stessa
 # stanza, da un altro indirizzo:

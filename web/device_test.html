@@ -29,12 +29,15 @@
    * opz.avanzi: pacchetti gia' in coda sull'endpoint dati PRIMA della risposta
    * (una sessione di prima). Le letture pendenti si servono in ordine (FIFO),
    * come fa il browser. */
+  // Ogni Pico finto ha il SUO numero di serie (opz.serie per ripeterne uno):
+  // device.js ricorda la versione letta per numero di serie.
+  var serieFinte = 0;
   function FintoPico(opz) {
     this.opz = opz || {};
     this.coda = (this.opz.avanzi || []).slice();
     this.attese = [];
     this.comandi = [];
-    this.productName = "Finto"; this.manufacturerName = "banco"; this.serialNumber = "0";
+    this.productName = "Finto"; this.manufacturerName = "banco"; this.serialNumber = this.opz.serie || ("finto" + (++serieFinte));
   }
   FintoPico.prototype.open = function () { return Promise.resolve(); };
   FintoPico.prototype.selectConfiguration = function () { return Promise.resolve(); };
@@ -120,6 +123,29 @@
     t("risposta oltre i 400 ms -> esito 'nessuna risposta'", f.d.firmwareEsito.ok === false && f.d.firmwareEsito.versione === null, f.d.firmwareEsito);
     t("e la risposta tardiva NON finisce nel canale dati del gioco", f.ricevuti.length === 0, f.ricevuti);
     await f.d.close();
+
+    // 7. LO STESSO Pico che ha gia' detto 2.0.5 e stavolta tace (dal campo,
+    // 27/09: il canale del passthrough appena chiuso per aprire il multiboot)
+    var g1 = await apri({ serie: "P-ripetuto", risposta: [0x0F, 2, 0, 5] });
+    await g1.d.close();
+    var g2 = await apri({ serie: "P-ripetuto", risposta: null });
+    t("stesso Pico, gia' letto 2.0.5, ora tace -> resta riconosciuto (niente falso allarme)",
+      g2.d.firmwareEsito.ok === true && g2.d.firmwareEsito.versione === "2.0.5", g2.d.firmwareEsito);
+    t("e il registro dice che la risposta e' mancata stavolta",
+      g2.righe.some(function (r) { return r.indexOf("nessuna risposta stavolta") >= 0; }), g2.righe);
+    await g2.d.close();
+
+    // 8. un ALTRO Pico che tace resta un avviso (la memoria e' per numero di serie)
+    var h = await apri({ serie: "P-altro", risposta: null });
+    t("un Pico mai letto che tace -> avviso come prima", h.d.firmwareEsito.ok === false && h.d.firmwareEsito.versione === null, h.d.firmwareEsito);
+    await h.d.close();
+
+    // 9. lo stesso Pico che aveva risposto 2.0.4 e ora tace: l'avviso resta
+    var k1 = await apri({ serie: "P-vecchio", risposta: [0x0F, 2, 0, 4] });
+    await k1.d.close();
+    var k2 = await apri({ serie: "P-vecchio", risposta: null });
+    t("gia' letto 2.0.4, ora tace -> resta NON giusto", k2.d.firmwareEsito.ok === false && k2.d.firmwareEsito.versione === "2.0.4", k2.d.firmwareEsito);
+    await k2.d.close();
 
     // 6. il giudizio da solo
     t("valutaFirmware(null)", CelioDevice.valutaFirmware(null).ok === false);

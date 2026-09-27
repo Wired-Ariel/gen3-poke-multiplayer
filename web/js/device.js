@@ -34,6 +34,9 @@
    * fabbrica del GB-Link) non risponde affatto. 2026-09-27. */
   var FW_ATTESO = [2, 0, 5];
   var FW_ATTESA_MS = 400;
+  // Le versioni gia' lette in questa pagina, per numero di serie del Pico
+  // (vedi leggiFirmware: il silenzio subito dopo la chiusura del canale).
+  var FW_VISTI = {};
   var MODE = { PASSTHROUGH: 0x04, ONLINE_LINK: 0x01 };
   var REBOOT_MAGIC = 0xA5;
   var CABLE = { auto: 0, gba: 1, gbc: 2 };
@@ -206,6 +209,24 @@
       }
       return prova();
     }).then(function (fw) {
+      var serie = self.device && self.device.serialNumber;
+      // IL SILENZIO NON SMENTISCE UNA RISPOSTA GIA' AVUTA (2026-09-27, dal
+      // campo). Aprendo il multiboot si chiude il canale del passthrough e lo
+      // si riapre in modo parola grezza: in quel passaggio il Pico ha ancora
+      // in coda i pacchetti della sessione di prima, e la risposta alla
+      // richiesta di versione non arriva entro l'attesa. Sei secondi prima lo
+      // stesso Pico aveva detto 2.0.5, e il sito gridava "firmware sbagliato"
+      // su un multiboot che poi e' andato benissimo. Una versione DIVERSA
+      // resta un avviso: e' solo il "nessuna risposta" che non basta.
+      if (!fw && serie && FW_VISTI[serie]) {
+        fw = FW_VISTI[serie];
+        self.firmware = fw;
+        self.firmwareEsito = CelioDevice.valutaFirmware(fw);
+        self.log("[usb ] firmware del Pico: nessuna risposta stavolta (canale appena riaperto), " +
+          "ma su questo Pico ho gia' letto " + self.firmwareEsito.testo);
+        return fw;
+      }
+      if (fw && serie) FW_VISTI[serie] = fw;
       self.firmware = fw;
       self.firmwareEsito = CelioDevice.valutaFirmware(fw);
       self.log("[usb ] firmware del Pico: " + self.firmwareEsito.testo);
@@ -228,8 +249,11 @@
     if (!fw) return { ok: false, versione: null, atteso: atteso,
       testo: "nessuna risposta alla richiesta di versione: NON e' il firmware Celio di questo progetto (serve celio.uf2, versione " + atteso + ")" };
     var v = fw.major + "." + fw.minor + "." + fw.patch;
-    if (fw.major === FW_ATTESO[0] && fw.minor === FW_ATTESO[1] && fw.patch === FW_ATTESO[2])
-      return { ok: true, versione: v, atteso: atteso, testo: v + " (quello di questo progetto)" };
+    // Dal 2026-09-27 va bene anche il 2.0.6 (F-5, le coppie della saletta):
+    // il 2.0.5 resta buono per tutto il resto.
+    if (fw.major === FW_ATTESO[0] && fw.minor === FW_ATTESO[1] && fw.patch >= FW_ATTESO[2])
+      return { ok: true, versione: v, atteso: atteso, testo: v + " (quello di questo progetto)" +
+        (fw.patch === FW_ATTESO[2] ? ": per i passi allineati nella saletta con chi gioca in emulatore serve il 2.0.6" : "") };
     return { ok: false, versione: v, atteso: atteso,
       testo: v + ": NON e' quello di questo progetto (serve celio.uf2, versione " + atteso + ")" };
   };
@@ -525,6 +549,15 @@
 
   CelioDevice.prototype.clubCommand = function (cmd, label) {
     return this.cmd([cmd], 50, label);
+  };
+  CelioDevice.prototype.clubCommandBytes = function (bytes, label) {
+    return this.cmd(bytes, 50, label);
+  };
+
+  /* Il firmware riferisce le COPPIE (F-5, comando 0x44)? Dal 2.0.6. */
+  CelioDevice.prototype.sapeCoppie = function () {
+    var fw = this.firmware;
+    return !!fw && fw.major === 2 && fw.minor === 0 && fw.patch >= 6;
   };
 
   /* Un blocco dati da 64 byte verso il device (32 parole del link).

@@ -143,8 +143,27 @@ class FintoGba:
     produce stati e blocchi che il ciclo principale travasa nella sessione
     con on_device_status/on_device_block, come fa club_pump col Pico vero."""
 
-    def __init__(self, log):
+    def __init__(self, log, coppie=False):
         self.log = log
+        # IL MODO COPPIE (--coppie, 2026-09-27): il finto fa anche da PICO col
+        # firmware 2.0.6. Un orologio a 59,7275 Hz = un trasferimento per frame
+        # del GBA: il GBA manda il suo comando (o CAFE 0011 in saletta, o zero),
+        # il "Pico" gli risponde col prossimo comando dell'emulatore dalla sua
+        # FIFO (o zero), e la COPPIA esce verso la sessione con marcatore e
+        # contatore, come usbSection.hpp. Alle riaperture la FIFO si purga come
+        # nel firmware (usbLinkCommand init). Il GBA finto, in saletta, fa due
+        # camminate e conta i passi suoi e quelli dell'amico come li vede lui.
+        self.coppie_possibile = coppie
+        self.coppie_on = False
+        self.fifo = []
+        self.fuori = []
+        self.sezione = False
+        self.n = 0
+        self.t_frame = 0.0
+        self.frame = 0
+        self.saletta_frame = None
+        self.passi_miei = self._Mover()
+        self.passi_amico = self._Mover()
         self.stati = []            # verso la sessione (LINK_ST_*)
         self.blocchi = []          # verso la sessione (il "GBA" parla)
         self._coda = []            # (quando, funzione): la recita a tempo
@@ -171,6 +190,25 @@ class FintoGba:
         """La sessione e' nata: il device 'entra in modo link'."""
         self.stati.append(LINK_ST_AWAIT_MODE)
 
+    class _Mover:
+        """Il passo della saletta (overworld.c): parte al tasto se libero,
+        poi 16 frame bloccato."""
+        def __init__(self):
+            self.frozen = 0
+            self.passi = 0
+
+        def frame(self, key):
+            if self.frozen:
+                self.frozen -= 1
+            elif key in (0x12, 0x13, 0x14, 0x15):
+                self.passi += 1
+                self.frozen = 15   # 16 frame di ciclo: il 16 -> 15 avviene nel frame del passo
+
+    def command_bytes(self, b, label):
+        self.log("[finto] <- %s" % label)
+        if b[0] == 0x44:
+            self.coppie_on = bool(b[1])
+
     # -- interfaccia dev per ClubSession -----------------------------------
 
     def command(self, cmd, label):
@@ -191,6 +229,12 @@ class FintoGba:
 
     def send_block(self, block64):
         """Un blocco CONSEGNATO dal partner (il GBA vero, via relay)."""
+        if self.coppie_on and self.sezione:
+            self.fifo.append(bytes(block64[:16]))   # lo trasmettera' il clock
+            return
+        self._ricevi(block64)
+
+    def _ricevi(self, block64):
         w = struct.unpack("<8H", block64[:16])
         self.contatori[w[0]] = self.contatori.get(w[0], 0) + 1
         if w[0] == LINKCMD_INIT_BLOCK:
@@ -244,6 +288,8 @@ class FintoGba:
         se il client non rifa' la scala, da qui in poi il canale e' morto e
         il gioco va in errore dopo "un momento attendi"."""
         self.giri += 1
+        self.sezione = False
+        self.fifo = []                     # la purga del firmware
         self._link_type = LINKTYPE_TRADE
         self._rx_size = 0
         self._rx_pos = 0
@@ -260,6 +306,10 @@ class FintoGba:
 
     def _stabilisci(self):
         self.stati.append(LINK_ST_CONNECTED)
+        if self.coppie_on:
+            self.sezione = True
+            self.n = 0
+            self.t_frame = time.monotonic()
         self._dopo(RITMO_PASSO_S, self._raffica_giocatore)
 
     def _raffica_giocatore(self):
@@ -310,16 +360,65 @@ class FintoGba:
         self._coda = [(q, fn) for (q, fn) in self._coda if q > adesso]
         for fn in pronte:
             fn()
+        if self.coppie_on and self.sezione:
+            self._orologio(adesso)
+            return
         if self._tasti_da and adesso - self._tasti_da >= 0.1:
             self._tasti_da = adesso
             self.blocchi.append(pacchetto(LINKCMD_SEND_HELD_KEYS,
                                           LINK_KEY_CODE_IDLE))
+
+    def _tasto_gba(self):
+        """In saletta il GBA manda il suo tasto a OGNI frame: su 40 frame a
+        4 s (3 passi), giu' 30 frame a 8 s (2 passi), altrimenti "nessun
+        tasto". Prima SU: il GBA entra sulla riga dell'uscita sud, e li' GIU'
+        non e' un passo ma "vuoi uscire?" (PlayerIsAtSouthExit)."""
+        if self.saletta_frame is None:
+            return None
+        f = self.frame - self.saletta_frame
+        if 240 <= f < 280:
+            return 0x13
+        if 480 <= f < 510:
+            return 0x12
+        return 0x11
+
+    def _orologio(self, adesso):
+        while self.t_frame + 1 / 59.7275 <= adesso:
+            self.t_frame += 1 / 59.7275
+            self.frame += 1
+            if self.blocchi:
+                mio = bytes(self.blocchi.pop(0)[:16])
+            else:
+                tasto = self._tasto_gba()
+                mio = (struct.pack("<2H", LINKCMD_SEND_HELD_KEYS, tasto) + bytes(12)
+                       if tasto is not None else bytes(16))
+            tx = self.fifo.pop(0) if self.fifo else bytes(16)
+            wm = struct.unpack("<2H", mio[:4])
+            wt = struct.unpack("<2H", tx[:4])
+            if any(tx):
+                self._ricevi(tx)
+                # Il primo CAFE dell'amico apre la saletta e si CONTA: puo'
+                # essere gia' una freccia (chi entra e cammina subito).
+                if (self.saletta_frame is None and self._tasti_da
+                        and wt[0] == LINKCMD_SEND_HELD_KEYS):
+                    self.saletta_frame = self.frame
+            if self.saletta_frame is not None:
+                self.passi_miei.frame(wm[1] if wm[0] == LINKCMD_SEND_HELD_KEYS else 0)
+                self.passi_amico.frame(wt[1] if wt[0] == LINKCMD_SEND_HELD_KEYS else 0)
+            self.fuori.append(mio + tx + struct.pack("<2H", 0xC0B1, self.n & 0xFFFF)
+                              + bytes(28))
+            self.n += 1
 
     def riepilogo(self):
         from protocol import LINKCMD_NOMI
         voci = ["%s x%d" % (LINKCMD_NOMI.get(k, "0x%04X" % k), v)
                 for k, v in sorted(self.contatori.items())]
         riga = "comandi ricevuti dal TUO GBA: " + (", ".join(voci) or "nessuno")
+        if self.coppie_possibile:
+            riga += (" | COPPIE %s: frame %d, passi del GBA finto %d, passi dell'amico visti "
+                     "dal GBA finto %d" % ("accese" if self.coppie_on else "SPENTE",
+                                           self.frame, self.passi_miei.passi,
+                                           self.passi_amico.passi))
         if self.giri:
             riga += " | riaperture del link %d, riuscite %d" % (
                 self.giri, self.riaperture_ok)
@@ -336,6 +435,9 @@ def main():
                          "collegamento: serve a provare il CONGEDO dell'altro "
                          "lato - chi resta dentro deve uscire dalla porta, non "
                          "andare in errore (campo 2026-08-27)")
+    ap.add_argument("--coppie", action="store_true",
+                    help="fa anche da Pico col firmware 2.0.6: riferisce ogni "
+                         "trasferimento come coppia (modo seguace dell'emulatore)")
     args = ap.parse_args()
 
     host, porta = args.relay.rsplit(":", 1)
@@ -410,9 +512,10 @@ def main():
                     continue
                 log("[finto] " + "=" * 50)
                 log("[finto] il TUO GBA e' al Cable Club: entro in scena")
-                finto = FintoGba(log)
+                finto = FintoGba(log, coppie=args.coppie)
                 sess = ClubSession(master=(args.peer_id == 1), dev=finto,
-                                   send_net=send_club, log=log)
+                                   send_net=send_club, log=log,
+                                   coppie_possibili=args.coppie)
                 blocchi_log[0] = 0
                 finto.avvia()
             if sub == CLUB_ENTER:
@@ -424,7 +527,7 @@ def main():
                     log("[finto] ATTENZIONE: il client dall'altra parte ha "
                         "la versione %d, questo banco la %d"
                         % (payload[2], VERSIONE_CLUB))
-                sess.on_net_status(epoca, payload[0], payload[1])
+                sess.on_net_status(epoca, payload[0], payload[1], payload[4])
             elif sub == CLUB_DATA:
                 if blocchi_log[0] < 40:
                     blocchi_log[0] += 1
@@ -437,8 +540,15 @@ def main():
             finto.tick()
             while finto.stati:
                 sess.on_device_status(finto.stati.pop(0))
-            while finto.blocchi:
-                sess.on_device_block(finto.blocchi.pop(0))
+            if finto.coppie_on and finto.sezione:
+                while finto.fuori:
+                    sess.on_device_block(finto.fuori.pop(0))
+            else:
+                while finto.blocchi:
+                    sess.on_device_block(finto.blocchi.pop(0))
+            if finto.coppie_possibile and int(adesso) % 5 == 0 and adesso - getattr(finto, "_ultimo_rep", 0) > 1:
+                finto._ultimo_rep = adesso
+                log("[finto] %s" % finto.riepilogo())
             sess.tick()
             if sess.finita:
                 log("[finto] sessione finita | %s" % sess.riassunto())

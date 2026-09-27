@@ -1149,7 +1149,7 @@ class Bridge:
                 return
         if sub == CLUB_STATUS:
             self.controlla_versione(payload[2], payload[3])
-            self.club.on_net_status(epoca, payload[0], payload[1])
+            self.club.on_net_status(epoca, payload[0], payload[1], payload[4])
         elif sub == CLUB_DATA:
             self.club.on_net_block(epoca, payload[0], payload[1])
         elif sub == CLUB_REQ:

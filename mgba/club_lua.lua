@@ -83,6 +83,32 @@ local LINKCMD_HELD_KEYS       = 0xCAFE
 local LINKCMD_READY_CLOSE_LINK = 0x5FFF
 local ST_CLOSED       = 0xFF07
 
+-- IL MODO SEGUACE (2026-09-27). Nella saletta ogni gioco muove i due
+-- personaggi dai codici-tasto che riceve, UNA coppia per frame, e un passo
+-- parte solo se il tasto trova il personaggio libero (poi 16 frame bloccato:
+-- overworld.c, FacingHandler_DpadMovement / TryAdvanceScript). Due GBA sul
+-- cavo vero vedono la STESSA sequenza di coppie e fanno gli stessi passi.
+-- Qui no: il GBA vede (se' adesso, mGBA com'era arrivato al Pico), mGBA vedeva
+-- (il GBA com'era arrivato dalla rete, se' adesso) - e dal campo (27/09) il GBA
+-- faceva 10 passi e mGBA gliene vedeva fare meta', mentre sul GBA l'amico ne
+-- faceva di piu'. Simulato in tools/sim_saletta.py: 200 corse su 200 discordi.
+--
+-- La cura: il Pico (firmware 2.0.6, comando 0x44) riferisce OGNI trasferimento
+-- col GBA come coppia (cosa ha mandato il GBA, cosa gli ha mandato il Pico), e
+-- qui il gioco riceve ESATTAMENTE quelle coppie, una per frame, nello stesso
+-- ordine. I nostri tasti non si applicano piu' da soli: arrivano quando il Pico
+-- dice di averli consegnati al GBA, cioe' con un ritardo pari al ping. Lo
+-- accende il sito, e solo se tutti e due lo sanno fare (campo `capacita` in
+-- coda allo stato): con un sito o un pannello vecchi resta il modo di prima.
+local PAIR_MARKER   = 0xC0B1   -- parola 16 del blocco (usbSection.hpp)
+local CAPS_SEGUO    = 0x0001   -- nostro: so seguire le coppie
+local CAPS_COPPIE   = 0x0002   -- del sito: il suo Pico le riferisce
+local CAPS_DECISO   = 0x8000   -- del sito: la decisione e' presa (0/1 sopra)
+local ATTESA_CAPS_FRAME = 240  -- poi si va col modo di prima
+local CUSCINETTO    = 6        -- coppie tenute da parte contro il jitter
+local QUIETE_FRAME  = 17       -- un passo dura 17 frame: dopo, nessuno si muove
+local COMPRIMI_OLTRE = 10      -- arretrato oltre cui si buttano coppie QUIETE
+
 local stato = {
     attivo = false,          -- il gioco e' al bancone (annunciato)
     collegato = false,       -- ... e il link e' stato scritto nel gioco
@@ -127,6 +153,21 @@ local stato = {
     cafeCodice = -1,
     cafeFrame = -1000,
     cafeSoppressi = 0,
+    -- il modo seguace (vedi PAIR_MARKER)
+    coppie = false,          -- deciso al primo collega() della sessione
+    modoDeciso = false,
+    capsDecise = false,      -- il sito ha detto la sua
+    capsCoppie = false,      -- ... e ha acceso le coppie
+    capsAttesaDa = nil,
+    coda = {},               -- coppie in ordine: {g=cmd, t=cmd|nil, s=sezione}
+    innescato = false,       -- il cuscinetto si e' riempito una volta
+    sezioneCoppie = 0,       -- sezioni del Pico viste (il contatore riparte)
+    ultimoN = -1,
+    sezioneGioco = 0,        -- riaperture del NOSTRO gioco in questa sessione
+    sezioneAvanti = 0,       -- frame con la coppia di una sezione futura
+    quiete = 0,              -- coppie consecutive senza tasti
+    coppieGiocate = 0, affamati = 0, affamatiInMoto = 0, compresse = 0, ricariche = 0,
+    vecchieScartate = 0, sezioniAdottate = 0,
     -- IL CONGEDO: l'amico e' uscito dalla porta. Staccare il cavo qui e' la
     -- schermata nera di errore (campo 2026-08-27): il nostro gioco e' ancora
     -- dentro la coreografia d'uscita e resta senza partner. Il firmware fa
@@ -209,8 +250,11 @@ local function mandaStato(status)
     -- Tre copie come fa club_link.py: uno stato perso appende la sessione
     -- dall'altra parte, e costa molto meno rimandarlo che accorgersene.
     for _ = 1, 3 do
-        manda(T_CLUB, string.pack("<BI4I2I2I2I4", CLUB_STATUS, stato.epoca,
-                                  stato.sseq, status, VERSIONE_CLUB, IMPRONTA_LUA))
+        -- `capacita` in CODA (2026-09-27): chi e' vecchio legge 15 byte e il
+        -- resto lo ignora, come per versione e impronta.
+        manda(T_CLUB, string.pack("<BI4I2I2I2I4I2", CLUB_STATUS, stato.epoca,
+                                  stato.sseq, status, VERSIONE_CLUB, IMPRONTA_LUA,
+                                  CAPS_SEGUO))
     end
 end
 
@@ -285,6 +329,11 @@ local function annuncia()
     stato.inRiapertura = false
     stato.congedo = false
     stato.cafeCodice, stato.cafeFrame = -1, -1000
+    stato.coppie, stato.modoDeciso = false, false
+    stato.capsDecise, stato.capsCoppie, stato.capsAttesaDa = false, false, nil
+    stato.coda, stato.innescato = {}, false
+    stato.sezioneCoppie, stato.ultimoN, stato.sezioneGioco = 0, -1, 0
+    stato.sezioneAvanti, stato.quiete = 0, 0
     CLUB_IO_ID, CLUB_PARTNER_ID = 1, 0
 
     manda(T_CLUB, string.pack("<BI4", CLUB_ENTER, stato.epoca))
@@ -392,6 +441,29 @@ local function collega()
     zittisciSio()
     stato.collegato = true
 
+    -- Il modo si decide UNA volta per sessione: alle riaperture resta quello.
+    if not stato.modoDeciso then
+        stato.modoDeciso = true
+        stato.coppie = (not stato.partnerLua) and stato.capsDecise and stato.capsCoppie
+        if stato.coppie then
+            console:log("[club ] modo SEGUACE: i tasti nella saletta arrivano come li "
+                        .. "ha visti il GBA, coppia per coppia (firmware 2.0.6)")
+        else
+            -- Modo di prima: le coppie gia' arrivate valgono per la sola parte
+            -- del GBA, come ogni blocco del modo di prima.
+            for _, c in ipairs(stato.coda) do
+                if c.g[1] ~= 0 then stato.codaPartner[#stato.codaPartner + 1] = c.g end
+            end
+            stato.coda = {}
+        end
+        if not stato.coppie and not stato.partnerLua then
+            console:log("[club ] modo di prima (" .. (stato.capsDecise
+                and "il Pico dell'amico non riferisce le coppie: serve il firmware 2.0.6"
+                or "sito o pannello dell'amico senza modo seguace")
+                .. "): nella saletta i passi possono sfasarsi")
+        end
+    end
+
     mandaStato(ST_CONNECTED)
     console:log(string.format(
         "[club ] collegato: faccio io da cavo, il mio gioco e' %s%s",
@@ -407,6 +479,11 @@ local function riapri()
     stato.collegato = false
     stato.txSessione = 0
     stato.rxSessione = 0
+    -- Modo seguace: le coppie della sezione vecchia non ancora giocate sono
+    -- di un link che il gioco ha chiuso (il GBA le ha gia' consumate prima di
+    -- chiudere); quelle della sezione nuova aspettano il nostro collega().
+    stato.sezioneGioco = stato.sezioneGioco + 1
+    stato.innescato = false
     mandaStato(ST_RECONNECTING)
     console:log("[club ] il gioco ha riaperto il link (macchina/lotta): "
                 .. "la sessione continua, aspetto che torni su")
@@ -459,7 +536,27 @@ local function consegnaOrdinati()
         local b = stato.buffer[stato.attesoRx]
         stato.buffer[stato.attesoRx] = nil
         stato.attesoRx = (stato.attesoRx + 1) & 0xFFFFFFFF
-        stato.codaPartner[#stato.codaPartner + 1] = cmdDaBlocco(b)
+        if string.unpack("<I2", b, 33) == PAIR_MARKER then
+            -- Una COPPIA del Pico. La sezione si riconosce dal contatore che
+            -- riparte (una sezione nuova del firmware = una riapertura).
+            local n = string.unpack("<I2", b, 35)
+            if stato.ultimoN >= 0 and n <= stato.ultimoN and stato.ultimoN ~= 0xFFFF then
+                stato.sezioneCoppie = stato.sezioneCoppie + 1
+            end
+            stato.ultimoN = n
+            local g, t = cmdDaBlocco(b), cmdDaBlocco(string.sub(b, 17, 32))
+            -- Anche PRIMA che il modo sia deciso: il Pico riferisce appena il GBA
+            -- si aggancia, e quelle coppie il GBA le ha viste davvero.
+            if stato.coppie or not stato.modoDeciso then
+                stato.coda[#stato.coda + 1] = { g = g, t = t, s = stato.sezioneCoppie }
+            elseif g[1] ~= 0 then
+                -- Modo di prima con un Pico che riferisce: vale la sola parte del
+                -- GBA, e gli zeri non si consegnano (come faceva il firmware).
+                stato.codaPartner[#stato.codaPartner + 1] = g
+            end
+        else
+            stato.codaPartner[#stato.codaPartner + 1] = cmdDaBlocco(b)
+        end
         stato.rx = stato.rx + 1
         stato.rxSessione = stato.rxSessione + 1
     end
@@ -499,6 +596,13 @@ function Club.riceviCorpo(body, peerId)
         if #body >= 15 then
             local _, _, _, _, _, impronta = string.unpack("<BI4I2I2I2I4", body)
             if impronta == IMPRONTA_LUA then stato.partnerLua = true end
+        end
+        if #body >= 17 and stato.attivo then
+            local caps = string.unpack("<I2", body, 16)
+            if (caps & CAPS_DECISO) ~= 0 and not stato.capsDecise then
+                stato.capsDecise = true
+                stato.capsCoppie = (caps & CAPS_COPPIE) ~= 0
+            end
         end
         if status == ST_CLOSED then congeda("il gioco dell'amico ha chiuso il link") end
         return
@@ -612,6 +716,19 @@ function Club.tick()
         -- stati: trovarsi il link gia' fatto nello stesso frame lo lascia a
         -- meta' del guado (schermo nero, contatori fermi).
         if aspettato < 30 then return true end
+        -- La decisione del sito sul modo seguace arriva con i suoi stati: la si
+        -- aspetta al massimo ATTESA_CAPS_FRAME dal momento in cui l'amico e'
+        -- noto (un sito o un pannello vecchi non la mandano mai). Un altro
+        -- emulatore non ha un Pico: niente da aspettare.
+        if stato.partnerPeer and not stato.partnerLua and not stato.capsDecise
+           and not stato.modoDeciso then
+            local ora = emu:read32(0x030022E0)
+            if not stato.capsAttesaDa then
+                stato.capsAttesaDa = ora
+                mandaStato(ST_HANDSHAKE_RX)   -- le nostre capacita', subito
+            end
+            if ora - stato.capsAttesaDa < ATTESA_CAPS_FRAME then return true end
+        end
         if stato.partnerPeer or aspettato > ATTESA_MAX_FRAME then
             collega()
         elseif aspettato % 180 == 0 then
@@ -673,7 +790,7 @@ function Club.tick()
         local apertura = { LINKCMD_SEND_LINK_TYPE, LINKTYPE_TRADE_SETUP }
         stato.aperture = stato.aperture + 1
         mandaBlocco(bloccoDaCmd(apertura))
-        spingiRecv(nil, apertura)
+        if not stato.coppie then spingiRecv(nil, apertura) end
         console:log("[club ] apro io le danze (SEND_LINK_TYPE): il gioco non "
                     .. "l'ha fatto da solo")
     end
@@ -702,6 +819,17 @@ function Club.tick()
     -- esatto del cavo vero: prima la PORTA, poi l'ECO di READY_CLOSE_LINK
     -- quando il gioco lo chiede. Da li' il gioco chiude il link da solo e la
     -- sessione finisce dalla porta principale (vedi `chiudi`, sopra).
+    -- IL MODO SEGUACE: una coppia del Pico per frame, e il nostro tasto non si
+    -- applica da solo (tornera' nella parte `t` della coppia in cui il Pico
+    -- l'ha consegnato al GBA). Durante il congedo il Pico non c'e' piu' e si
+    -- torna al modo di prima, qui sotto.
+    if stato.coppie and not stato.congedo then
+        if nostro and nostro[1] == 0xCAFE and nostro[2] == LINK_KEY_EXIT_ROOM then
+            stato.exitRoom = true
+        end
+        return Club.giocaCoppia()
+    end
+
     local dellAmico = table.remove(stato.codaPartner, 1)
     if stato.congedo and not dellAmico then
         if not stato.congedoPorta then
@@ -742,6 +870,83 @@ function Club.tick()
     return true
 end
 
+-- Un comando "quieto": niente, oppure il tasto "nessun tasto" (CAFE 0011).
+-- NON e' quieto CAFE 001A (LINK_KEY_CODE_IDLE): rimette un giocatore nello
+-- stato libero (overworld.c, HandleLinkPlayerKeyInput), cioe' cambia qualcosa.
+local function quieto(c)
+    if not c or c[1] == 0 then return true end
+    if c[1] ~= LINKCMD_HELD_KEYS then return false end
+    return c[2] == 0 or c[2] == LINK_KEY_IDLE
+end
+
+-- Una coppia per frame, nell'ordine del Pico.
+--  - Sezioni: una coppia di una sezione GIA' CHIUSA dal nostro gioco si butta;
+--    una di una sezione FUTURA aspetta che anche il nostro gioco riapra (se
+--    aspetta troppo, la si adotta: meglio un salto che un gioco fermo).
+--  - Cuscinetto: si parte solo con CUSCINETTO coppie in mano, contro il jitter.
+--  - Fame: senza coppia il gioco fa un frame senza tasti, che il GBA non ha
+--    fatto. Se nessuno si sta muovendo (QUIETE_FRAME coppie quiete) e' innocuo;
+--    altrimenti si conta a parte (affamatiInMoto): e' il numero da guardare.
+--  - Arretrato: se mGBA va piu' lento del GBA la coda cresce; si buttano coppie
+--    quiete SOLO quando nessuno si muove, che e' l'unico momento in cui un
+--    frame in meno non cambia niente.
+function Club.giocaCoppia()
+    while stato.coda[1] and stato.coda[1].s < stato.sezioneGioco do
+        table.remove(stato.coda, 1)
+        stato.vecchieScartate = stato.vecchieScartate + 1
+    end
+    local testa = stato.coda[1]
+    if testa and testa.s > stato.sezioneGioco then
+        stato.sezioneAvanti = stato.sezioneAvanti + 1
+        if stato.sezioneAvanti > 600 then
+            stato.sezioneGioco = testa.s
+            stato.sezioniAdottate = stato.sezioniAdottate + 1
+            stato.sezioneAvanti = 0
+            console:log("[club ] coppie di una sezione nuova da 10 s senza che il "
+                        .. "gioco riaprisse: le adotto")
+        end
+        return true
+    end
+    stato.sezioneAvanti = 0
+    if not stato.innescato then
+        if #stato.coda < CUSCINETTO then return true end
+        stato.innescato = true
+    end
+    -- mGBA piu' VELOCE del GBA (60 Hz contro 59,73): il cuscinetto si
+    -- consuma. Lo si ricarica solo a bocce ferme, regalando al gioco un frame
+    -- senza coppia quando nessuno si muove da QUIETE_FRAME: innocuo, sono
+    -- liberi tutti e due. In movimento non si aspetta mai.
+    if stato.quiete >= QUIETE_FRAME and #stato.coda < CUSCINETTO then
+        stato.ricariche = stato.ricariche + 1
+        return true
+    end
+    while #stato.coda > COMPRIMI_OLTRE and stato.quiete >= QUIETE_FRAME
+          and quieto(stato.coda[1].g) and quieto(stato.coda[1].t) do
+        table.remove(stato.coda, 1)
+        stato.compresse = stato.compresse + 1
+    end
+    local c = table.remove(stato.coda, 1)
+    if not c then
+        stato.affamati = stato.affamati + 1
+        if stato.quiete < QUIETE_FRAME then
+            stato.affamatiInMoto = stato.affamatiInMoto + 1
+        end
+        return true
+    end
+    stato.coppieGiocate = stato.coppieGiocate + 1
+    if quieto(c.g) and quieto(c.t) then
+        stato.quiete = stato.quiete + 1
+    else
+        stato.quiete = 0
+    end
+    if c.g[1] == 0xCAFE and c.g[2] == LINK_KEY_EXIT_ROOM then stato.exitRoom = true end
+    local g = (c.g[1] ~= 0) and c.g or nil
+    local t = (c.t[1] ~= 0) and c.t or nil
+    -- Tutto zero: il cavo vero non accoda nemmeno (link.c:2272).
+    if g or t then spingiRecv(g, t) end
+    return true
+end
+
 function Club.attivo() return stato.attivo end
 
 function Club.riga()
@@ -759,6 +964,11 @@ function Club.riga()
                    stato.congedi,
                    stato.congedoEsito and (" (" .. stato.congedoEsito .. ")") or "",
                    zittiti)
+        .. (stato.coppie and string.format(
+            " | SEGUACE coppie %d in coda %d affamati %d (in moto %d) compresse %d "
+            .. "ricariche %d vecchie %d sezioni %d/%d", stato.coppieGiocate, #stato.coda,
+            stato.affamati, stato.affamatiInMoto, stato.compresse, stato.ricariche,
+            stato.vecchieScartate, stato.sezioneGioco, stato.sezioneCoppie) or "")
 end
 
 function Club.collega(fnManda, fnPeer, fnCanale)

@@ -111,21 +111,31 @@
   var LINK_KEY_IDLE = 0x11, LINK_KEY_EXIT_ROOM = 0x17;
 
   var CLUB_STATUS = 1, CLUB_DATA = 2, CLUB_REQ = 3, CLUB_ENTER = 4, CLUB_LEAVE = 5;
+  /* IL MODO SEGUACE (2026-09-27): le CAPACITA' in coda allo stato, dopo
+   * versione e impronta (un client vecchio le ignora come quelle).
+   *   CAPS_SEGUO  - lo script di mGBA sa riprodurre le coppie del Pico;
+   *   CAPS_COPPIE - il MIO Pico le riferisce (firmware 2.0.6, comando 0x44);
+   *   CAPS_DECISO - la decisione e' presa: senza, l'altro aspetta.
+   * Perche' serve: vedi mgba/club_lua.lua, PAIR_MARKER. Nella saletta mGBA
+   * vedeva i passi del GBA dimezzati e il GBA quelli di mGBA in piu'. */
+  var CAPS_SEGUO = 0x0001, CAPS_COPPIE = 0x0002, CAPS_DECISO = 0x8000;
+  var CMD_COPPIE = 0x44;   // comando HARDWARE del firmware F-5: [0x44][0|1]
 
   function put16(b, off, v) { b[off] = v & 0xFF; b[off + 1] = (v >> 8) & 0xFF; }
   function put32(b, off, v) { put16(b, off, v); put16(b, off + 2, (v >>> 16)); }
   function get16(b, off) { return b[off] | (b[off + 1] << 8); }
   function get32(b, off) { return (get16(b, off) | (get16(b, off + 2) << 16)) >>> 0; }
 
-  function clubStatus(epoca, sseq, status, versione, impronta) {
+  function clubStatus(epoca, sseq, status, versione, impronta, caps) {
     /* [sub u8][epoca u32][sseq u16][status u16][versione u16][impronta u32]
-     * Versione e impronta in CODA, come in Python: un client vecchio legge i
-     * primi 9 byte come sempre e ignora il resto. */
+     * [caps u16]. Versione, impronta e capacita' in CODA, come in Python: un
+     * client vecchio legge i primi 9 byte come sempre e ignora il resto. */
     if (versione === undefined) versione = VERSIONE_CLUB;
     if (impronta === undefined) impronta = IMPRONTA_WEB;
-    var b = new Uint8Array(15);
+    var b = new Uint8Array(caps === undefined ? 15 : 17);
     b[0] = CLUB_STATUS; put32(b, 1, epoca); put16(b, 5, sseq); put16(b, 7, status);
     put16(b, 9, versione); put32(b, 11, impronta);
+    if (caps !== undefined) put16(b, 15, caps);
     return b;
   }
   function clubData(epoca, seq, block64) {
@@ -149,8 +159,9 @@
     if (b.length < 5) return null;
     var sub = b[0], epoca = get32(b, 1);
     if (sub === CLUB_STATUS && b.length >= 9) {
-      var out = { sub: sub, epoca: epoca, sseq: get16(b, 5), status: get16(b, 7), versione: 0, impronta: 0 };
+      var out = { sub: sub, epoca: epoca, sseq: get16(b, 5), status: get16(b, 7), versione: 0, impronta: 0, caps: 0 };
       if (b.length >= 15) { out.versione = get16(b, 9); out.impronta = get32(b, 11); }
+      if (b.length >= 17) out.caps = get16(b, 15);
       return out;
     }
     if (sub === CLUB_DATA && b.length >= 9 + 64) {
@@ -258,6 +269,10 @@
     this.dev = opts.dev;
     this.sendNet = opts.sendNet;
     this.log = opts.log || function () {};
+    // Il modo seguace: il MIO Pico sa riferire le coppie (firmware >= 2.0.6)?
+    // `coppie` resta null finche' non si decide (una volta per sessione).
+    this.coppiePossibili = !!opts.coppiePossibili;
+    this.coppie = null;
 
     this.finita = false;
     this.abortita = false;
@@ -343,7 +358,8 @@
   ClubSession.prototype._tocca = function () { this._progresso = nowS(); };
 
   ClubSession.prototype._annunciaStato = function (status) {
-    var corpo = clubStatus(this.epoca, this._sseq, status);
+    var caps = this.coppie === null ? 0 : (CAPS_DECISO | (this.coppie ? CAPS_COPPIE : 0));
+    var corpo = clubStatus(this.epoca, this._sseq, status, undefined, undefined, caps);
     this._sseq = (this._sseq + 1) & 0xFFFF;
     for (var i = 0; i < K.COPIE_STATO; i++) this.sendNet(corpo);
   };
@@ -539,8 +555,11 @@
 
   /* -- eventi dalla RETE (il partner, via relay) ---------------------------- */
 
-  ClubSession.prototype.onNetStatus = function (epoca, sseq, status) {
+  ClubSession.prototype.onNetStatus = function (epoca, sseq, status, caps) {
     if (this.finita || !this._epocaOk(epoca)) return;
+    // PRIMA dello stato: la decisione sulle coppie deve arrivare al Pico prima
+    // dello StartHandshake che questo stesso stato potrebbe far partire.
+    if (caps) this._decidiCoppie(caps);
     if (this._vistiSseq[sseq]) return;    // copia del triplo invio / riannuncio
     this._vistiSseq[sseq] = true;
     // PROGRESSO e' uno stato NUOVO, non un riannuncio: i riannunci hanno
@@ -615,6 +634,32 @@
   ClubSession.prototype.onNetLeave = function (epoca) {
     if (this.finita || !this._epocaOk(epoca)) return;
     this._congeda("l'amico e' uscito dalla saletta");
+  };
+
+  /* IL MODO SEGUACE si decide qui, una volta per sessione, quando l'amico
+   * (lo script di mGBA) dice di saper seguire le coppie. Solo PRIMA dello
+   * StartHandshake: il Pico comincia a trasferire subito dopo, e le coppie
+   * devono esserci dalla prima, o mGBA perderebbe l'inizio della sessione. */
+  ClubSession.prototype._decidiCoppie = function (caps) {
+    if (this.coppie !== null || !(caps & CAPS_SEGUO)) return;
+    if (this._hsAvviato) {
+      this.coppie = false;
+      this.log("[club ] l'amico in emulatore sa seguire le coppie, ma la sessione col " +
+        "GBA e' gia' partita: modo di prima per questa volta");
+    } else if (!this.coppiePossibili) {
+      this.coppie = false;
+      this.log("[club ] l'amico gioca in emulatore e saprebbe tenere i passi della saletta " +
+        "allineati, ma questo Pico non ha il firmware 2.0.6: modo di prima (i passi " +
+        "possono sfasarsi). Aggiorna celio.uf2 per averlo.");
+    } else {
+      this.coppie = true;
+      if (this.dev.commandBytes) this.dev.commandBytes([CMD_COPPIE, 1], "coppie ACCESE (F-5): il Pico riferisce ogni trasferimento");
+      this.log("[club ] modo SEGUACE: il Pico riferisce ogni trasferimento col GBA e " +
+        "l'emulatore li rivede identici - i passi nella saletta restano allineati");
+    }
+    // La decisione deve arrivare all'amico subito, non al prossimo riannuncio.
+    if (this._ultimoStato !== null) this._annunciaStato(this._ultimoStato);
+    else this._annuncioQuando = 0;
   };
 
   /* -- il battito ----------------------------------------------------------- */
@@ -804,12 +849,14 @@
   root.OwlClub = {
     K: K, ST: ST, ST_NOMI: ST_NOMI, CMD: CMD,
     VERSIONE_CLUB: VERSIONE_CLUB, IMPRONTA_WEB: IMPRONTA_WEB,
+    CAPS_SEGUO: CAPS_SEGUO, CAPS_COPPIE: CAPS_COPPIE, CAPS_DECISO: CAPS_DECISO, CMD_COPPIE: CMD_COPPIE,
     IMPRONTA_LUA: IMPRONTA_LUA,
     K: K,                       // le costanti, per i test (bridge_test.html)
     CLUB_LOG_BLOCCHI: 80,
     proto: {
       CLUB_STATUS: CLUB_STATUS, CLUB_DATA: CLUB_DATA, CLUB_REQ: CLUB_REQ,
       CLUB_ENTER: CLUB_ENTER, CLUB_LEAVE: CLUB_LEAVE,
+      CAPS_SEGUO: CAPS_SEGUO, CAPS_COPPIE: CAPS_COPPIE, CAPS_DECISO: CAPS_DECISO, CMD_COPPIE: CMD_COPPIE,
       clubStatus: clubStatus, clubData: clubData, clubReq: clubReq,
       clubEnter: clubEnter, clubLeave: clubLeave, clubUnpack: clubUnpack,
       blockRiga: blockRiga

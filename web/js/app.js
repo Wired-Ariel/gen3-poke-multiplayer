@@ -36,6 +36,7 @@
   var dev = null;            // CelioDevice in passthrough (partita)
   var link = null;           // RelayLink
   var bridge = null;         // OwlBridge
+  var relayInUso = null;     // l'URL con cui e' partita la partita in corso
   // SPETTATORE (2026-08-24): partita senza Pico e senza GBA. Serve a due cose
   // vere - guardare gli amici sulla mappa live da un PC che il GBA non ce l'ha,
   // e far funzionare QUALCOSA su Firefox, dove WebUSB non esiste e non
@@ -138,6 +139,7 @@
     return null;
   }
   function salva() {
+    if (inPartita) { cambioImpostazioni(); return; }   // rientra se il numero e' cambiato
     var err = leggiCfg();
     esito("esito-config", err || L("Impostazioni salvate.", "Settings saved."), err ? "male" : "bene");
     if (!err) { disegnaStato(); setTimeout(function () { esito("esito-config", ""); }, 3000); }
@@ -710,6 +712,7 @@
       log: logDa
     });
     bridge.link = link;
+    relayInUso = cfg.relay;
     link.connect();
     bridge.start();
     inPartita = true;
@@ -737,6 +740,32 @@
    * peer in questa stanza (bridge.js, T_TAKEN). Si sceglie un numero nuovo,
    * diverso anche dal «numero di gioco», lo si salva e si rientra da soli:
    * chi gioca non deve sapere cos'e' un peer per risolverlo. */
+  /* IL NUMERO CHE SI VEDE E' QUELLO IN USO (2026-09-27, richiesta di Lain).
+   * Durante una partita il numero vero e' quello del bridge, non quello del
+   * campo: prima si poteva scrivere un numero nuovo nel campo a partita
+   * avviata, lo stato diceva «tu sei il peer <nuovo>» e al relay si parlava
+   * ancora col vecchio. Ora a partita ferma vale il campo, a partita avviata
+   * vale il bridge, e cambiare il campo a partita avviata RIENTRA col numero
+   * nuovo (stessa strada del numero occupato), cosi' le due cose combaciano. */
+  function peerInUso() { return bridge ? bridge.peerId : (cfg ? cfg.peer : null); }
+  function stanzaInUso() { return bridge ? bridge.room : (cfg ? cfg.stanza : null); }
+
+  function cambioImpostazioni() {
+    var err = leggiCfg();
+    if (err) { esito("esito-config", err, "male"); disegnaTutto(); return; }
+    if (inPartita && bridge && (cfg.peer !== bridge.peerId || cfg.stanza !== bridge.room || cfg.relay !== relayInUso)) {
+      var vecchio = bridge.peerId, vecchiaStanza = bridge.room, guarda = spettatore;
+      log(L("[rete ] impostazioni cambiate a partita avviata (peer " + vecchio + " -> " + cfg.peer +
+            ", stanza " + vecchiaStanza + " -> " + cfg.stanza + "): rientro con quelle nuove",
+            "[net  ] settings changed during the game (peer " + vecchio + " -> " + cfg.peer +
+            ", room " + vecchiaStanza + " -> " + cfg.stanza + "): rejoining with the new ones"), "rete");
+      fermaPartita();
+      avviaPartita(guarda);
+      return;
+    }
+    disegnaTutto();
+  }
+
   function numeroOccupato(chi) {
     var vecchio = cfg.peer, nuovo;
     do { nuovo = 1 + Math.floor(Math.random() * 65000); }
@@ -826,7 +855,7 @@
     bottone("riga-multiboot", "1", L("Carica il gioco nel GBA", "Load the game into the GBA"), L("Slot vuoto, GBA acceso dopo il cavo. Schermo rosso ➜ cartuccia ➜ verde.", "Empty slot, GBA switched on after the cable. Red screen ➜ cartridge ➜ green."),
       "", false, multibootInCorso, caricaGioco, function () {}, multibootInCorso);
     bottone("riga-gioca", "2", L("Gioca", "Play"), L("Da premere quando sei in partita, all'aperto. Relay e stanza dalle impostazioni.", "Press it once you're in game, outdoors. Relay and room come from the settings."),
-      (spettatore ? L("spettatore", "spectator") : L("partita in corso", "game running")) + L(": stanza ", ": room ") + (cfg ? cfg.stanza : "—") + ", peer " + (cfg ? cfg.peer : "—"),
+      (spettatore ? L("spettatore", "spectator") : L("partita in corso", "game running")) + L(": stanza ", ": room ") + (stanzaInUso() || "—") + ", peer " + (peerInUso() || "—"),
       inPartita, false, function () { avviaPartita(false); }, fermaPartita, multibootInCorso);
     var bs = $("btn-spettatore");
     if (bs) { bs.disabled = inPartita || multibootInCorso; bs.textContent = inPartita && spettatore ? L("Sei spettatore", "You are a spectator") : L("Guarda soltanto (spettatore)", "Just watch (spectator)"); }
@@ -855,7 +884,11 @@
     // gli amici
     var amici = s ? s.amici : [];
     $("st-amico").textContent = amici.length ? (amici.length === 1 ? L("1 collegato", "1 connected") : amici.length + L(" collegati", " connected")) : L("In attesa", "Waiting");
-    $("st-stanza").textContent = L("stanza ", "room ") + (cfg ? cfg.stanza : "—") + L(" · tu sei il peer ", " · you are peer ") + (cfg ? cfg.peer : "—");
+    $("st-stanza").textContent = L("stanza ", "room ") + (stanzaInUso() || "—") + L(" · tu sei il peer ", " · you are peer ") + (peerInUso() || "—");
+    // E il campo stesso non puo' dire altro: se qualcuno l'ha lasciato a meta'
+    // (o un'altra scheda ha riscritto le impostazioni), a partita avviata si
+    // rimette al numero vero. Non mentre ci stai scrivendo.
+    if (bridge && document.activeElement !== $("peer") && String(bridge.peerId) !== $("peer").value) $("peer").value = bridge.peerId;
     var ul = $("lista-amici"); ul.innerHTML = "";
     amici.forEach(function (a) {
       var li = document.createElement("li");
@@ -981,7 +1014,7 @@
       romScelta = await leggiRom(f);
       log("[mb  ] programma scelto a mano: " + f.name + " (" + romScelta.length + " byte)", "mb");
     };
-    ["relay", "stanza", "peer", "peer-gioco", "timing", "cavo"].forEach(function (id) { $(id).addEventListener("change", function () { leggiCfg(); disegnaStato(); }); });
+    ["relay", "stanza", "peer", "peer-gioco", "timing", "cavo"].forEach(function (id) { $(id).addEventListener("change", cambioImpostazioni); });
 
     var avv = [];
     if (!CelioDevice.supportato()) {

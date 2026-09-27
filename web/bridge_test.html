@@ -434,6 +434,69 @@
       return (primaDiAwait === 0 && conta(d.commands, CC.SET_MODE_SLAVE) === 1 && s.master === false) || d.commands;
     });
 
+    /* IL MODO SEGUACE (2026-09-27): le capacita' in coda allo stato. */
+    function fdevC() {
+      var d = fdev(); d.bytes = [];
+      d.commandBytes = function (b) { this.bytes.push(b.slice()); };
+      return d;
+    }
+    function capsDi(corpo) { var p = C.proto.clubUnpack(corpo); return p && p.sub === 1 ? p.caps : -1; }
+    var P = C.proto;
+
+    t("coppie: lo stato porta le capacita' in coda, e un lettore vecchio ne legge 15 byte come prima", function () {
+      var b = P.clubStatus(7, 1, ST.HANDSHAKE_RX, undefined, undefined, P.CAPS_DECISO | P.CAPS_COPPIE);
+      var p = P.clubUnpack(b);
+      var vecchio = P.clubUnpack(b.subarray(0, 15));
+      return (b.length === 17 && p.caps === (0x8000 | 2) && p.status === ST.HANDSHAKE_RX &&
+              vecchio.caps === 0 && vecchio.status === ST.HANDSHAKE_RX) || [b.length, p, vecchio];
+    });
+
+    t("coppie: amico mGBA che sa seguirle + Pico 2.0.6 -> 0x44 1 PRIMA dello StartHandshake, e lo si dice", function () {
+      var d = fdevC(), inviati = [];
+      var s = new C.ClubSession({ myPeer: 431, coppiePossibili: true, dev: d, sendNet: function (b) { inviati.push(b); }, log: function () {} });
+      s.setPartner(435);
+      s.onDeviceStatus(ST.AWAIT_MODE);
+      s.onDeviceStatus(ST.HANDSHAKE_RX);
+      // lo stato dell'amico: handshake, con CAPS_SEGUO
+      s.onNetStatus(99, 0, ST.HANDSHAKE_RX, P.CAPS_SEGUO);
+      var accese = d.bytes.length === 1 && d.bytes[0][0] === 0x44 && d.bytes[0][1] === 1;
+      var hs = conta(d.commands, CC.START_HANDSHAKE) === 1;
+      var detto = inviati.some(function (b) { return capsDi(b) === (P.CAPS_DECISO | P.CAPS_COPPIE); });
+      return (accese && hs && detto && s.coppie === true) || [d.bytes, d.commands, s.coppie];
+    });
+
+    t("coppie: Pico 2.0.5 -> niente 0x44, e la decisione (spente) si dice lo stesso", function () {
+      var d = fdevC(), inviati = [];
+      var s = new C.ClubSession({ myPeer: 431, coppiePossibili: false, dev: d, sendNet: function (b) { inviati.push(b); }, log: function () {} });
+      s.setPartner(435);
+      s.onDeviceStatus(ST.AWAIT_MODE);
+      s.onNetStatus(99, 0, ST.HANDSHAKE_RX, P.CAPS_SEGUO);
+      var detto = inviati.some(function (b) { return capsDi(b) === P.CAPS_DECISO; });
+      return (d.bytes.length === 0 && s.coppie === false && detto) || [d.bytes, s.coppie];
+    });
+
+    t("coppie: partner senza CAPS_SEGUO (un GBA, un sito, un pannello) -> niente decisione, niente 0x44", function () {
+      var d = fdevC(), inviati = [];
+      var s = new C.ClubSession({ myPeer: 431, coppiePossibili: true, dev: d, sendNet: function (b) { inviati.push(b); }, log: function () {} });
+      s.setPartner(435);
+      s.onDeviceStatus(ST.AWAIT_MODE);
+      s.onDeviceStatus(ST.HANDSHAKE_RX);
+      s.onNetStatus(99, 0, ST.HANDSHAKE_RX, 0);
+      var nessunDeciso = !inviati.some(function (b) { return (capsDi(b) & P.CAPS_DECISO) !== 0; });
+      return (d.bytes.length === 0 && s.coppie === null && nessunDeciso) || [d.bytes, s.coppie];
+    });
+
+    t("coppie: le capacita' arrivano DOPO lo StartHandshake -> modo di prima (niente coppie a meta')", function () {
+      var d = fdevC();
+      var s = new C.ClubSession({ myPeer: 431, coppiePossibili: true, dev: d, sendNet: function () {}, log: function () {} });
+      s.setPartner(435);
+      s.onDeviceStatus(ST.AWAIT_MODE);
+      s.onDeviceStatus(ST.HANDSHAKE_RX);
+      s.onNetStatus(99, 0, ST.HANDSHAKE_RX, 0);          // stato vecchio: parte lo StartHandshake
+      s.onNetStatus(99, 1, ST.HANDSHAKE_RX, P.CAPS_SEGUO); // le capacita' troppo tardi
+      return (d.bytes.length === 0 && s.coppie === false) || [d.bytes, s.coppie];
+    });
+
     t("club: Ready resta locale", function () {
       var cc = coppia();
       cc.a.onDeviceStatus(ST.READY);

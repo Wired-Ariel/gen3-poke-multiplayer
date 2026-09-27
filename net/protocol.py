@@ -147,8 +147,20 @@ CLUB_REQ = 3
 CLUB_ENTER = 4
 CLUB_LEAVE = 5
 
+# IL MODO SEGUACE (2026-09-27): le CAPACITA' in coda allo stato, dopo versione
+# e impronta (un client vecchio le ignora come quelle). Stessi valori in
+# web/js/club.js e mgba/club_lua.lua: si toccano insieme.
+#   CAPS_SEGUO  - lo script di mGBA sa riprodurre le coppie del Pico;
+#   CAPS_COPPIE - il MIO Pico le riferisce (firmware 2.0.6, comando 0x44);
+#   CAPS_DECISO - la decisione e' presa: senza, l'altro aspetta.
+CAPS_SEGUO = 0x0001
+CAPS_COPPIE = 0x0002
+CAPS_DECISO = 0x8000
+CMD_COPPIE = 0x44          # comando HARDWARE del firmware F-5: [0x44][0|1]
+PAIR_MARKER = 0xC0B1       # parola 16 del blocco riferito dal Pico
 
-def club_status(epoca, sseq, status, versione=None, impronta=None):
+
+def club_status(epoca, sseq, status, versione=None, impronta=None, caps=None):
     """Lo stato del device, con in CODA versione e impronta di chi lo manda.
 
     In coda e non in testa apposta: un client vecchio legge i primi 9 byte
@@ -159,9 +171,12 @@ def club_status(epoca, sseq, status, versione=None, impronta=None):
         versione = VERSIONE_CLUB
     if impronta is None:
         impronta = IMPRONTA_SORGENTI
-    return struct.pack("<BIHHHI", CLUB_STATUS, epoca & 0xFFFFFFFF,
-                       sseq & 0xFFFF, status & 0xFFFF,
-                       versione & 0xFFFF, impronta & 0xFFFFFFFF)
+    corpo = struct.pack("<BIHHHI", CLUB_STATUS, epoca & 0xFFFFFFFF,
+                        sseq & 0xFFFF, status & 0xFFFF,
+                        versione & 0xFFFF, impronta & 0xFFFFFFFF)
+    if caps is not None:
+        corpo += struct.pack("<H", caps & 0xFFFF)
+    return corpo
 
 
 def club_data(epoca, seq, block64):
@@ -273,7 +288,8 @@ def club_unpack(body):
             versione, impronta = struct.unpack_from("<HI", body, 9)
         else:
             versione, impronta = 0, 0      # client di una versione vecchia
-        return sub, epoca, (sseq, status, versione, impronta)
+        caps = struct.unpack_from("<H", body, 15)[0] if len(body) >= 17 else 0
+        return sub, epoca, (sseq, status, versione, impronta, caps)
     if sub == CLUB_DATA and len(body) >= 9 + 64:
         seq = struct.unpack_from("<I", body, 5)[0]
         return sub, epoca, (seq, body[9:9 + 64])

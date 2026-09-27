@@ -1988,6 +1988,9 @@ local S = {
     -- 2026-09-27: l'icona restituisce palette e tile quando hai i controlli
     -- bloccati (il Pokemon della MN usciva coi colori dell'icona).
     indicatorYields = 0x1A8,
+    -- 2026-09-27: lo stato dell'amico non ribadito scade (il fumetto rimasto
+    -- appeso dopo una lotta al Cable Club).
+    statusExpired = 0x1AC,
 }
 
 local STATUS_NAMES = {
@@ -2222,12 +2225,13 @@ local function status()
     local indicatorFails = field("indicatorLoadFails")
     console:log(string.format(
         "[stato ] io %s | amico %s | stato inviati %d / ricevuti %d | icone %d "
-        .. "| grafica fallita %d | cedute al gioco %d | pass-through %d | sezioni %d | A nei menu %d",
+        .. "| grafica fallita %d | cedute al gioco %d | pass-through %d | sezioni %d | A nei menu %d "
+        .. "| stati scaduti %d",
         STATUS_NAMES[field("localStatus")] or "?",
         STATUS_NAMES[field("remoteStatus")] or "?",
         field("statusSent"), field("statusRx"), field("indicatorShown"),
         indicatorFails, field("indicatorYields"), field("passThroughs"),
-        field("menuLatches"), field("aFreedInMenu")))
+        field("menuLatches"), field("aFreedInMenu"), field("statusExpired")))
 
     if indicatorFails > 0 then
         console:error(string.format(
