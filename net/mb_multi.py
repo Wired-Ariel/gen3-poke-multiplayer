@@ -343,13 +343,13 @@ class Multiboot:
                           "(non e' il pin: e' il GBA che non e' in attesa)")
             elif dom == 0x0000 and ndom * 10 >= tot * 9:
                 self._log("  -> quasi solo zeri: di solito e' il FIRMWARE "
-                          "del Pico (serve celio.uf2 di questo progetto, "
+                          "del Pico (serve gen3-poke-multiplayer-pico.uf2 di questo progetto, "
                           "anche su un GB-Link); piu' di rado SD sul pin "
                           "sbagliato o filo assente")
         raise MultibootError(
             "il GBA non ha mai risposto 0x7202 al detect.\n"
             "       Le cause, in ordine di probabilita':\n"
-            "       - il firmware del Pico non e' celio.uf2 di questo\n"
+            "       - il firmware del Pico non e' gen3-poke-multiplayer-pico.uf2 di questo\n"
             "         progetto (quello di fabbrica, Celio o GB-Link, non basta);\n"
             "       - il GBA non e' in attesa di multiboot (slot cartuccia\n"
             "         VUOTO, e acceso DOPO aver collegato il cavo);\n"

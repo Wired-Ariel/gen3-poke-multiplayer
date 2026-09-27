@@ -171,14 +171,14 @@
           var dom = +top[0], ndom = visti[top[0]];
           if ((dom === 0xFFFF || dom === 0x7FFF) && ndom * 10 >= tot * 9) { linea = "alta"; self.log("  -> linea alta e viva: NESSUNO risponde (non e' il pin: e' il GBA che non e' in attesa)"); }
           // Quasi tutti zeri: sul campo (2026-09-27, GB-Link v2) era
-          // il firmware di fabbrica, che non ha il passthrough: con celio.uf2
+          // il firmware di fabbrica, che non ha il passthrough: con gen3-poke-multiplayer-pico.uf2
           // di questo progetto lo stesso cavo ha funzionato al primo colpo.
           // Il pin sbagliato resta possibile, ma viene dopo.
-          else if (dom === 0 && ndom * 10 >= tot * 9) { linea = "massa"; self.log("  -> quasi solo zeri: di solito e' il FIRMWARE del Pico (serve celio.uf2 di questo progetto, anche su un GB-Link); piu' di rado SD sul pin sbagliato o filo assente"); }
+          else if (dom === 0 && ndom * 10 >= tot * 9) { linea = "massa"; self.log("  -> quasi solo zeri: di solito e' il FIRMWARE del Pico (serve gen3-poke-multiplayer-pico.uf2 di questo progetto, anche su un GB-Link); piu' di rado SD sul pin sbagliato o filo assente"); }
         }
         var err = new MultibootError("il GBA non ha mai risposto 0x7202 al detect.\n" +
           "       Le cause, in ordine di probabilita':\n" +
-          "       - il firmware del Pico non e' celio.uf2 di questo progetto (quello di fabbrica, Celio o GB-Link, non basta);\n" +
+          "       - il firmware del Pico non e' gen3-poke-multiplayer-pico.uf2 di questo progetto (quello di fabbrica, Celio o GB-Link, non basta);\n" +
           "       - il GBA non e' in attesa di multiboot (slot cartuccia VUOTO, e acceso DOPO aver collegato il cavo);\n" +
           "       - il cavo e' nel verso sbagliato (il verso e' marcato);\n" +
           "       - SW1 non e' su 3,3 V.");

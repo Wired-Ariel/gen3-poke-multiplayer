@@ -27,7 +27,7 @@
   function L(it, en) { return EN ? en : it; }
   // Il firmware del Pico: l'asset della Release piu' recente, cosi' il link
   // non invecchia a ogni versione (lo stesso che c'e' nelle pagine).
-  var URL_FIRMWARE = "https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2";
+  var URL_FIRMWARE = "https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/gen3-poke-multiplayer-pico.uf2";
   var STATI_EN = { lotta: "battle", dialogo: "dialogue", zaino: "bag", squadra: "party" };
   function nomeStato(v) { var n = GbaSio.nomeStato(v); return EN && STATI_EN[n] ? STATI_EN[n] : n; }
   var DEF = (window.GEN3PM_DEFAULTS || {});
@@ -361,8 +361,8 @@
       // con il link, non solo nel registro in italiano di multiboot.js.
       if (e.detect) {
         $("aiuto-firmware").hidden = false;
-        log(L("[mb  ] il GBA non ha risposto: prima di tutto aggiorna il firmware del Pico con celio.uf2 di questo progetto: ",
-              "[mb  ] the GBA never answered: first of all flash the Pico with this project's celio.uf2: ") + URL_FIRMWARE, "mb", true);
+        log(L("[mb  ] il GBA non ha risposto: prima di tutto aggiorna il firmware del Pico con gen3-poke-multiplayer-pico.uf2 di questo progetto: ",
+              "[mb  ] the GBA never answered: first of all flash the Pico with this project's gen3-poke-multiplayer-pico.uf2: ") + URL_FIRMWARE, "mb", true);
       }
       if (raw) { try { await raw.close(); } catch (e2) { /* niente */ } }
     } finally {

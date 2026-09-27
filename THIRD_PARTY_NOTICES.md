@@ -9,7 +9,7 @@ other people's projects, under the licenses below: all compatible with GPL-3.0.
 
 | Where | Origin | License |
 |---|---|---|
-| `hw/firmware/*.patch` (and `celio.uf2` in the Releases) | [Celio-Link/Celio-Firmware](https://github.com/Celio-Link/Celio-Firmware), patch on commit `f67733c` | GPL-3.0 |
+| `hw/firmware/*.patch` (and `gen3-poke-multiplayer-pico.uf2` in the Releases) | [Celio-Link/Celio-Firmware](https://github.com/Celio-Link/Celio-Firmware), patch on commit `f67733c` | GPL-3.0 |
 | `net/club_link.py`, `net/protocol.py`, `net/usb_link.py`, `net/club_mgba.py`, `web/js/club.js`, `web/js/device.js` | session logic and device protocol ported from [Celio-Server](https://github.com/Celio-Link/Celio-Server) and [Celio-Client](https://github.com/Celio-Link/Celio-Client) | GPL-3.0 |
 | `mgba/websocket/` | taken from [Celio-mGBA-Link](https://github.com/Celio-Link/Celio-mGBA-Link) (GPL-3.0), which in turn uses the files below | see below |
 | `mgba/websocket/frame.lua`, `handshake.lua`, `server.lua`, `server_client.lua`, `tools.lua` | [lipp/lua-websockets](https://github.com/lipp/lua-websockets) — Copyright (c) 2012 Gerhard Lipp | MIT |

@@ -12,7 +12,7 @@ al riflash (M-4, provato il 2026-08-01).
 
 | File | Cosa contiene | Stato |
 |---|---|---|
-| `celio-f1f2b-f3-f4.uf2` | tutto il precedente + **F-4 (`0x43 0xA5` Reboot via software)** | ✅ 2026-08-02 sera, **provato sul fisico**: `mb_multi.py` lo riavvia da solo a fine caricamento (criterio «Pico sparito e ricomparso dal bus»), poi 160 eventi in 30 s senza mani sul cavo. sha1 `57b48f80…`, 154624 byte, versione firmware **2.0.5**. È il firmware del **pacchetto per l'amico** (`tools\prepara-pacchetto-amico.ps1`, copiato come `celio.uf2`) |
+| `celio-f1f2b-f3-f4.uf2` | tutto il precedente + **F-4 (`0x43 0xA5` Reboot via software)** | ✅ 2026-08-02 sera, **provato sul fisico**: `mb_multi.py` lo riavvia da solo a fine caricamento (criterio «Pico sparito e ricomparso dal bus»), poi 160 eventi in 30 s senza mani sul cavo. sha1 `57b48f80…`, 154624 byte, versione firmware **2.0.5**. È il firmware del **pacchetto per l'amico** (`tools\prepara-pacchetto-amico.ps1`, copiato come `gen3-poke-multiplayer-pico.uf2`) |
 | `celio-f1f2b-f3.uf2` | F-1 + F-2 + back-pressure + **F-3 (`0x15 SetCableType`)** | 2026-08-02, sha1 `b8057d82…`. ✅ provato sul fisico (sedicesima sessione). Superset di `celio-f1f2b.uf2`: col cavo GBA la F-3 non serve (`auto` sceglie già GP3) ma non fa danno |
 | `celio-f1f2b.uf2` | **F-1 + F-2 + back-pressure su `sendData`** | ✅ l'ultimo **provato sul fisico** (2026-08-02) — col **cavo GBA**. Va bene anche per il multiboot di `mb_multi.py`: quello non usa la F-3 |
 | `celio-f1f2.uf2` | F-1 + F-2, senza back-pressure | ❌ direzione GBA→PC rotta: 0 frame validi |

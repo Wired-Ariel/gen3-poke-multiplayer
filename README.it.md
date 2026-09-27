@@ -83,8 +83,8 @@ camminano con l'animazione vera del gioco.
 - un **Raspberry Pi Pico (RP2040)** con una scheda link (es.
   [game-boy-pico-link-board](https://github.com/agtbaskara/game-boy-pico-link-board)) e un
   **cavo link GBA** a 5 contatti;
-- il firmware **Celio esteso da questo progetto** (`celio.uf2` nelle Releases — si flasha una volta
-  sola: tieni premuto BOOTSEL, collega il Pico, trascina il file sul disco `RPI-RP2`);
+- il firmware **Celio esteso da questo progetto** (`gen3-poke-multiplayer-pico.uf2` nelle Releases — si flasha una volta
+  sola: tieni premuto BOOTSEL, collega il Pico, trascina il file sul disco `RPI-RP2`; fino alla v1.4 lo stesso file si chiamava `celio.uf2`, e un Pico già flashato con quello non ha bisogno di niente);
 - **Chrome o Edge** (serve WebUSB). Su **Windows**, una volta sola, il driver **WinUSB** per il
   Pico con [Zadig](https://zadig.akeo.ie/).
 
@@ -308,7 +308,7 @@ Massimo 4 giocatori per stanza (il quinto viene rifiutato); gli spettatori non c
   scheda nascosta o una finestra ridotta a icona non fanno più cadere uno scambio (provato sul fisico). Può
   ancora fermarla un browser che *sospende* le schede inattive (Edge «schede in sospensione», Chrome
   «Risparmio memoria»).
-- **Firmware del Pico:** serve `celio.uf2` di questo progetto, anche su un GB-Link. Col firmware di fabbrica
+- **Firmware del Pico:** serve `gen3-poke-multiplayer-pico.uf2` di questo progetto, anche su un GB-Link. Col firmware di fabbrica
   il multiboot non riceve mai risposta dal GBA.
 - Uno stub sbagliato non avvia mai il gioco a metà: resta rosso (codice del gioco sbagliato) o diventa blu
   (corpo della ROM diverso).
@@ -363,5 +363,5 @@ Il repository **non contiene** ROM né salvataggi: serve la propria cartuccia or
 icone derivate dalla grafica del gioco, elencate con tutto il resto in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.it.md).
 
 Codice rilasciato sotto **GPL-3.0** (vedi [`LICENSE`](LICENSE)), come i progetti Celio da cui deriva in parte.
-Il firmware `celio.uf2` delle Releases è Celio-Firmware (GPL-3.0) al commit `f67733c` più la patch in
+Il firmware `gen3-poke-multiplayer-pico.uf2` delle Releases è Celio-Firmware (GPL-3.0) al commit `f67733c` più la patch in
 `hw/firmware/`: quello è il suo sorgente completo. Componenti di terze parti e licenze: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.it.md).

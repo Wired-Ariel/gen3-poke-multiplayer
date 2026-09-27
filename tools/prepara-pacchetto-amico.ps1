@@ -108,7 +108,7 @@ if (-not (Test-Path (Join-Path $img "tile-erba-alta.png"))) {
 New-Item -ItemType Directory -Force (Join-Path $out "img") | Out-Null
 Copy-Item (Join-Path $img "*.png") (Join-Path $out "img")
 Copy-Item $mbstub   (Join-Path $out "mbstub.gba")
-Copy-Item $firmware (Join-Path $out "celio.uf2")
+Copy-Item $firmware (Join-Path $out "gen3-poke-multiplayer-pico.uf2")
 
 # --- la mappa live (2026-08-21): i dati generati da tools\gen_mappa.py ------
 # Senza, /mappa.html dice "dati non generati". Se manca qui, si genera
@@ -330,12 +330,12 @@ Va fatto una volta sola. Se un giorno l'adattatore "sparisce", rifai questi
 quattro passi.
 
 ### 3. Firmware dell'adattatore
-Nel pacchetto c'e' `celio.uf2`. Per metterlo sul Pico:
+Nel pacchetto c'e' `gen3-poke-multiplayer-pico.uf2`. Per metterlo sul Pico:
 
 1. Scollega l'adattatore dal PC.
 2. Tieni premuto il **bottone BOOTSEL** sul Pico e, tenendolo premuto,
    ricollega l'USB. Compare un disco chiamato `RPI-RP2`.
-3. Trascina `celio.uf2` dentro quel disco. Si riavvia da solo e il disco
+3. Trascina `gen3-poke-multiplayer-pico.uf2` dentro quel disco. Si riavvia da solo e il disco
    sparisce: fatto.
 
 ### 4. Prova del canale (senza internet)
