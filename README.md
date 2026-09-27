@@ -278,6 +278,8 @@ makes the friend's avatar jump in place 20 times and checks every frame that `gF
 the cause of the glitched / "negative" / MissingNo Pokémon in the HM animation, fixed on 2026-09-26.
 Verdict in `build\prova-in-tre\banco_mn.txt`.
 
+That bench checked a real bug but not the one players saw. `mgba/banco_surf.lua` reproduces the actual symptom: a real Surf on Route 110 (`-Rom` a copy with a save at map 0.25, tile 26,68) with the friend's status icon showing. It logs the 16 sprite palette tags every frame and screenshots the animation. Cause, fixed on 2026-09-27: in the overworld only palette slots 12-15 are free, the weather holds two, ground effects one, and the friend's icon took the last one, so the HM Pokémon got the icon's palette. The icon now hands its palette and tiles back while your controls are locked.
+
 ---
 
 ## Hosting your own relay

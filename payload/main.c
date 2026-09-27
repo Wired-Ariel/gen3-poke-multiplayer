@@ -667,6 +667,12 @@ struct PayloadState
                          * ha rimesso la casella com'era. Se l'amico cammina
                          * nell'erba alta e resta 0, la guardia non morde e
                          * la MN esce di nuovo col Pokemon sbagliato        */
+    u32 indicatorYields;/* +0x1A8 volte in cui l'icona ha RESTITUITO palette e
+                         * tile al gioco perche' il giocatore locale aveva i
+                         * controlli bloccati (IndicatorTick). Con l'icona
+                         * dell'amico visibile, ogni dialogo o MN deve farlo
+                         * salire di 1: se resta fermo, il Pokemon della MN
+                         * torna a uscire coi colori dell'icona              */
 };
 
 __attribute__((section(".payload_state"), used))
@@ -3443,9 +3449,43 @@ static void IndicatorTickSlot(u32 slot)
     IndicatorShow(r, icon, remoteOe);
 }
 
+/* L'ICONA CEDE IL POSTO (2026-09-27, «il Pokemon della MN esce in negativo»,
+ * riprodotto a banco con un Surf vero: mgba/banco_surf.lua).
+ *
+ * In overworld il gioco riserva le palette sprite 0-11 agli NPC
+ * (gReservedSpritePaletteCount = 12, event_object_movement.c:2011) e ne
+ * lascia QUATTRO: due le tiene sempre il meteo (PALTAG_WEATHER 0x1200/0x1201,
+ * field_weather.c:158-162), una la prendono gli effetti a terra (0x1005 per
+ * l'erba). La quarta serve al Pokemon della MN: CreatePicSprite ->
+ * LoadCompressedSpritePalette, che se non trova uno slot libero NON carica
+ * niente, e lo sprite finisce sulla palette 15 (IndexOfSpritePaletteTag = 0xFF
+ * -> 4 bit = 15). Misurato a banco: 1200 1201 1005 4F57 - la quarta era la
+ * NOSTRA icona, e il Lombre del Surf usciva coi colori dell'icona.
+ *
+ * Quindi l'icona e' un ospite: quando il giocatore locale ha i controlli
+ * bloccati (script, domanda SI'/NO, dialogo, posa della MN) oppure
+ * gPlayerAvatar.preventStep e' alto (lo alzano tutte le MN un frame prima di
+ * mostrare il Pokemon, anche il Sub dal menu che blocca i controlli solo nello
+ * stesso frame: field_effect.c:1919/1926), si distrugge e restituisce palette
+ * e tile. Tornati liberi, IndicatorEnsureGfx la ricarica da sola. Si perde
+ * l'icona dell'amico mentre leggi un dialogo: e' il prezzo, ed e' piccolo. */
 static void IndicatorTick(void)
 {
     u32 i;
+
+    if (g_state.inOverworld
+        && (ArePlayerFieldControlsLocked() || gPlayerAvatar_preventStep))
+    {
+        for (i = 0; i < N_REMOTES; i++)
+            IndicatorDestroy(&g_remotes[i]);
+        if (IndexOfSpritePaletteTag(INDICATOR_TAG) != 0xFFu)
+        {
+            FreeSpritePaletteByTag(INDICATOR_TAG);
+            FreeSpriteTilesByTag(INDICATOR_TAG);
+            BUMPF(indicatorYields);
+        }
+        return;
+    }
 
     for (i = 0; i < N_REMOTES; i++)
         IndicatorTickSlot(i);

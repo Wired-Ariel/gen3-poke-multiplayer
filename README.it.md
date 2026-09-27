@@ -279,6 +279,8 @@ fa saltare sul posto l'avatar dell'amico 20 volte e controlla a ogni frame che `
 dell'amico - la causa del Pokémon buggato / «in negativo» / MissingNo nell'animazione delle MN,
 corretta il 2026-09-26. Verdetto in `build\prova-in-tre\banco_mn.txt`.
 
+Quel banco verificava un difetto vero, ma non quello visto dai giocatori. `mgba/banco_surf.lua` riproduce il sintomo reale: un Surf vero sul Percorso 110 (`-Rom` una copia con un salvataggio sulla mappa 0.25, tile 26,68) con l'icona di stato dell'amico visibile. Registra a ogni frame le 16 palette degli sprite e fotografa l'animazione. Causa, corretta il 2026-09-27: in overworld restano liberi solo gli slot palette 12-15, due li tiene il meteo, uno gli effetti a terra, e l'icona dell'amico prendeva l'ultimo, cosi' il Pokémon della MN usava la palette dell'icona. Ora l'icona restituisce palette e tile mentre hai i controlli bloccati.
+
 ---
 
 ## Ospitare il proprio relay

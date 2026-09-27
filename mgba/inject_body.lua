@@ -1912,6 +1912,9 @@ local S = {
     -- 2026-09-26: la casella dei field effect rimessa com'era dopo ogni
     -- passo dell'amico (le MN fuori lotta col Pokemon sbagliato).
     fxArgsKept = 0x1A4,
+    -- 2026-09-27: l'icona restituisce palette e tile quando hai i controlli
+    -- bloccati (il Pokemon della MN usciva coi colori dell'icona).
+    indicatorYields = 0x1A8,
 }
 
 local STATUS_NAMES = {
@@ -2146,11 +2149,11 @@ local function status()
     local indicatorFails = field("indicatorLoadFails")
     console:log(string.format(
         "[stato ] io %s | amico %s | stato inviati %d / ricevuti %d | icone %d "
-        .. "| grafica fallita %d | pass-through %d | sezioni %d | A nei menu %d",
+        .. "| grafica fallita %d | cedute al gioco %d | pass-through %d | sezioni %d | A nei menu %d",
         STATUS_NAMES[field("localStatus")] or "?",
         STATUS_NAMES[field("remoteStatus")] or "?",
         field("statusSent"), field("statusRx"), field("indicatorShown"),
-        indicatorFails, field("passThroughs"),
+        indicatorFails, field("indicatorYields"), field("passThroughs"),
         field("menuLatches"), field("aFreedInMenu")))
 
     if indicatorFails > 0 then

@@ -103,6 +103,12 @@ typedef unsigned char  bool8;
 /* IndexOfSpritePaletteTag @ 0x08008804 (Thumb) */
 #define IndexOfSpritePaletteTag ((u8 (*)(u16 tag))(0x08008805))
 
+/* FreeSpritePaletteByTag @ 0x0800884C (Thumb) */
+#define FreeSpritePaletteByTag ((void (*)(u16 tag))(0x0800884D))
+
+/* FreeSpriteTilesByTag @ 0x08008568 (Thumb) */
+#define FreeSpriteTilesByTag ((void (*)(u16 tag))(0x08008569))
+
 /* ArePlayerFieldControlsLocked @ 0x08098E6C (Thumb) */
 #define ArePlayerFieldControlsLocked ((bool8 (*)(void))(0x08098E6D))
 

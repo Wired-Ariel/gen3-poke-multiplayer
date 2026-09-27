@@ -198,6 +198,9 @@
 /* struct PlayerAvatar */
 #define gPlayerAvatar_flags          GAME_U8(ADDR_gPlayerAvatar + 0x00)
 #define gPlayerAvatar_objectEventId  GAME_U8(ADDR_gPlayerAvatar + 0x05)
+/* preventStep (+0x06, include/global.fieldmap.h:350): lo alzano le MN prima di
+ * mostrare il Pokemon (field_effect.c:1919, 3011, ...). */
+#define gPlayerAvatar_preventStep    GAME_U8(ADDR_gPlayerAvatar + 0x06)
 
 /* struct SaveBlock1 -> pos (struct Coords16 a +0x00), location (WarpData a +0x04).
  * `pos` e' l'angolo in alto a sinistra della finestra di mappa visibile: e' la

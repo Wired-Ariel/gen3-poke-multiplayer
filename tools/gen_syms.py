@@ -176,6 +176,16 @@ FUNCTIONS = {
     # 0xFF se il tag non e' caricato.
     "IndexOfSpritePaletteTag":
         "u8 (*)(u16 tag)",
+    # L'icona CEDE palette e tile quando il giocatore locale ha i controlli
+    # bloccati (2026-09-27, «il Pokemon della MN esce in negativo»): in
+    # overworld restano solo gli slot palette 12-15 (gReservedSpritePaletteCount
+    # = 12), due li tiene il meteo, e il Pokemon della MN ne vuole uno
+    # (CreatePicSprite -> LoadCompressedSpritePalette). Entrambe foglie di
+    # sprite.c:1509/1652, nessuna SWI: si chiamano dal main loop.
+    "FreeSpritePaletteByTag":
+        "void (*)(u16 tag)",
+    "FreeSpriteTilesByTag":
+        "void (*)(u16 tag)",
     # Il flag che dice "il giocatore non ha i controlli": dialogo, script,
     # cutscene. E' sLockFieldControls (script.c:28), che e' static e quindi NON
     # compare nel .map: l'unico modo di leggerlo senza inventarsi un indirizzo
