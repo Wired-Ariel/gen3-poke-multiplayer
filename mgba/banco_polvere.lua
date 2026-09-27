@@ -1,30 +1,25 @@
 -- =============================================================================
--- banco_surf.lua - il Surf VERO, con l'amico accanto (2026-09-27)
+-- banco_polvere.lua - gli effetti a terra trovano la loro palette? (2026-09-27)
 -- =============================================================================
 --
--- PERCHE' ESISTE. Il 26/09 banco_mn.lua ha misurato la casella
--- gFieldEffectArguments e ha dato OK, ma il 27/09 Lain, sul fisico, ha rifatto
--- Surf con l'amico nell'erba e il Pokemon usciva ancora sbagliato. Il banco
--- misurava una causa possibile, non il sintomo. Questo banco guarda il
--- SINTOMO: fa partire un Surf vero e fotografa il Pokemon che esce, e accanto
--- a ogni foto scrive le 16 palette degli sprite (sSpritePaletteTags,
--- 0x03000CF0: .bss di sprite.o nel .map, uguale nella ROM italiana - trovato
--- nel literal pool di IndexOfSpritePaletteTag).
+-- PERCHE'. Dopo banco_surf.lua la domanda di Lain: «succede anche con altro,
+-- tipo la sabbia?». In overworld gli slot palette liberi sono quattro (12-15):
+-- il meteo ne tiene due (0x1200/0x1201), gli effetti a terra gli altri due
+-- (FLDEFF_PAL_TAG_GENERAL_0 0x1004 = sabbia, schizzi, polvere, pozzanghere,
+-- tracce della bici, bolle; GENERAL_1 0x1005 = erba, increspature, cenere).
+-- Se un nostro tag ne occupa uno, uno dei due gruppi non trova posto.
 --
--- L'IPOTESI DA MISURARE. In overworld il gioco riserva le palette 0-11 agli
--- NPC (gReservedSpritePaletteCount = 12, event_object_movement.c:2011) e ne
--- restano 4 per effetti di campo, interfaccia e per il Pokemon della MN
--- (CreatePicSprite -> LoadCompressedSpritePalette). Se sono piene, il Pokemon
--- non ha palette e finisce sulla 15: colori sbagliati, il «negativo».
+-- SCENA: la stessa di banco_surf.lua (Percorso 110, amico nell'erba, quindi
+-- 0x1005 caricata, icona LOTTA sopra di lui). L'amico SALTA sul posto 14 volte
+-- (MOVEMENT_ACTION_JUMP_IN_PLACE_DOWN, scritto come ObjectEventSetHeldMovement):
+-- all'atterraggio il gioco vuole la polvere, palette 0x1004.
 --
--- SCENA: salvataggio sul Percorso 110 (0.25) in (26,68), acqua a nord, erba
--- alta a sud; Lombre ha Surf. Il giocatore 1 (questo) resta fermo, si gira a
--- nord e preme A a impulsi; al giocatore 2 si inietta lo stato LOTTA (tipo 5,
--- dir 1), come quando l'amico e' in una lotta nell'erba, cosi' sopra di lui
--- compare l'icona. BANCO_SENZA_ICONA = true fa la stessa scena senza stato.
+-- CRITERIO: "0x1004 mai caricata: false" (cioe' caricata ai salti) CON l'icona.
+-- Braccio di controllo: BANCO_SENZA_ICONA = true prima del dofile.
+-- Riga per riga: palette 12-15 e VRAM degli sprite (tile liberi, buco max).
 --
--- USO: .\tools\prova-in-tre.ps1 -Rom <copia con il .sav del Percorso 110> -Giocatori 2 -Syms it -Banco <...>\mgba\banco_surf.lua
--- Uscita: build\prova-in-tre\banco_surf.txt + surf-NN.png
+-- USO: .\tools\prova-in-tre.ps1 -Rom <...>\build\banco-surf\gioco.gba -Giocatori 2 -Syms it -Banco <...>\mgba\banco_polvere.lua
+-- Uscita: build\prova-in-tre\banco_polvere.txt + polvere-NNN.png
 
 local BASE = PAYLOAD_BASE or 0x0203CF80
 local STAT = BASE + 0x10
@@ -57,9 +52,9 @@ do
 end
 
 local DIR = AUTO_DIR or "."
-local out = io.open(DIR .. "/banco_surf.txt", "w")
+local out = io.open(DIR .. "/banco_polvere.txt", "w")
 local function dire(s)
-    console:log("[surf] " .. s)
+    console:log("[polvere] " .. s)
     if out then out:write(s .. "\n"); out:flush() end
 end
 
@@ -132,11 +127,12 @@ local function palette()
 end
 
 local frame, dalSpawn, foto = 0, nil, 0
+local salti, visto1004, ultimoSalto = 0, false, 0
 local ultimaPal = nil
 local finito = false
 local K = C.GBA_KEY
 
-dire("banco Surf caricato" .. (SENZA_ICONA and " (SENZA icona)" or " (con icona LOTTA sull'amico)"))
+dire("banco polvere caricato" .. (SENZA_ICONA and " (SENZA icona)" or " (con icona LOTTA sull'amico)"))
 
 callbacks:add("frame", function()
     if finito then return end
@@ -166,24 +162,38 @@ callbacks:add("frame", function()
     end
 
     -- i tasti: a t=180 si gira a nord (acqua: non cammina), poi A a impulsi
-    if t >= 180 and t < 184 then emu:addKey(K.UP) end
-    if t >= 240 and t < 1500 and (t - 240) % 40 < 4 then emu:addKey(K.A) end
+    -- l'amico salta sul posto (polvere all'atterraggio = FLDEFF_PAL_TAG_GENERAL_0 0x1004)
+    if t >= 240 and t < 1500 and t - (ultimoSalto or 0) >= 90 then
+        local id = emu:read32(STAT + PS_OBJECTID)
+        local o = oe(id)
+        local f0 = emu:read8(o)
+        local spr = emu:read8(o + 0x04)
+        local occupato = (f0 & 0x40) ~= 0 and (f0 & 0x80) == 0
+        if not occupato and spr < 64 then
+            ultimoSalto = t
+            emu:write8(o + 0x1C, 0x46)
+            emu:write8(o, (f0 | 0x40) & 0x7F)
+            emu:write16(A.gSprites + spr * 0x44 + 0x32, 0)
+            salti = (salti or 0) + 1
+        end
+    end
 
     -- le palette: ogni cambiamento, con il frame
     local p = palette()
+    for i = 12, 15 do if emu:read16(PAL_TAGS + i * 2) == 0x1004 then visto1004 = true end end
     if p ~= ultimaPal then
         dire(string.format("t=%4d  %s", t, p))
         ultimaPal = p
     end
 
     -- foto fitte da quando si preme A
-    if t >= 240 and t < 1500 and t % 12 == 0 then
+    if t >= 240 and t < 1500 and t % 6 == 0 then
         foto = foto + 1
-        pcall(function() emu:screenshot(string.format("%s/surf-%03d.png", DIR, foto)) end)
+        pcall(function() emu:screenshot(string.format("%s/polvere-%03d.png", DIR, foto)) end)
     end
     if t == 1500 then
         dire("buco VRAM minimo visto: " .. minBuco .. " tile (servono 64)")
-        dire("fine: " .. foto .. " foto")
+        dire("fine: " .. foto .. " foto, salti " .. tostring(salti) .. ", 0x1004 mai caricata: " .. tostring(not visto1004))
         finito = true
     end
 end)

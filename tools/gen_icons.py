@@ -29,20 +29,29 @@ import re
 import sys
 from pathlib import Path
 
-# Deve restare allineato a sIndicatorPal[] in payload/main.c.
+# GLI INDICI SONO QUELLI DELLA PALETTE DELL'AVATAR DELL'AMICO (2026-09-27).
+# L'icona non ha piu' una palette propria: in overworld gli slot liberi sono
+# quattro, il meteo ne tiene due e gli effetti a terra gli altri due (0x1004
+# sabbia/schizzi/polvere, 0x1005 erba/increspature), e la nostra palette ne
+# rubava uno (misurato: mgba/banco_surf.lua, mgba/banco_polvere.lua). Ora lo
+# sprite usa lo stesso paletteNum dello sprite del remoto, che e' gia' caricato.
+# Il remoto e' sempre Brendan o May (graphics/object_events/palettes/
+# brendan.pal, may.pal): gli indici 12-15 sono IDENTICI nelle due (rosso
+# 255,98,90 - rosso scuro 197,65,65 - bianco - nero), gli altri vicini.
 PAL = {
-    '.': 0,  # trasparente
-    'k': 1,  # nero, contorno
-    'w': 2,  # bianco
-    'r': 3,  # rosso
-    'd': 4,  # rosso scuro
-    'g': 5,  # grigio
-    'G': 6,  # grigio scuro
-    'b': 7,  # marrone
-    'B': 8,  # marrone scuro
-    'y': 9,  # giallo
+    '.': 0,   # trasparente
+    'k': 15,  # nero, contorno        (0,0,0 in entrambe)
+    'w': 14,  # bianco                (255,255,255 in entrambe)
+    'r': 12,  # rosso                 (255,98,90 in entrambe)
+    'd': 13,  # rosso scuro           (197,65,65 in entrambe)
+    'g': 9,   # grigio chiaro         (222,230,238 / 205,205,222)
+    'G': 6,   # grigio scuro          (41,57,98 / 41,57,65)
+    'b': 3,   # marrone -> terracotta (222,148,115 / 205,131,115)
+    'B': 4,   # marrone scuro         (123,65,65 / 123,90,82)
+    'y': 1,   # giallo -> crema       (255,213,180 / 255,222,205): il giallo non c'e'
 }
 CHARS = ".kwrdgGbBy"
+INV = {v: k for k, v in PAL.items()}
 
 # 10x10 invece di 14x14: a tutta tela copriva mezza testa del remoto
 # (richiesta di Lain, 2026-07-30, quarta sessione di Fase 7).
@@ -225,7 +234,7 @@ def decode(data):
                     i += 1
                     grid[ty * 8 + py][tx * 8 + px] = b & 0xF
                     grid[ty * 8 + py][tx * 8 + px + 1] = b >> 4
-    return ["".join(CHARS[v] for v in row) for row in grid]
+    return ["".join(INV.get(v, "?") for v in row) for row in grid]
 
 
 def lz77_gba(data):
@@ -306,6 +315,30 @@ def emit():
         print("    " + ", ".join("0x%02X" % b for b in lz[i:i + 16]) + ",")
 
 
+def preview(out_png):
+    """Le icone come le vedra' il GBA, con la palette di Brendan (sopra) e di May
+    (sotto), ingrandite 4x. Serve solo a guardarle."""
+    from PIL import Image
+    base = Path(__file__).resolve().parent.parent.parent / "repo-studio" / "pokeemerald" / "graphics" / "object_events" / "palettes"
+    pals = []
+    for name in ("brendan.pal", "may.pal"):
+        righe = (base / name).read_text().splitlines()[3:19]
+        pals.append([tuple(int(x) for x in r.split()) for r in righe])
+    img = Image.new("RGB", (16 * len(ICONS) * 4, 32 * 4), (80, 160, 120))
+    for row, pal in enumerate(pals):
+        for n, (_, rows) in enumerate(ICONS):
+            for y, r in enumerate(rows):
+                for x, ch in enumerate(r):
+                    v = PAL[ch]
+                    if v == 0:
+                        continue
+                    for dy in range(4):
+                        for dx in range(4):
+                            img.putpixel(((n * 16 + x) * 4 + dx, (row * 16 + y) * 4 + dy), pal[v])
+    img.save(out_png)
+    print("anteprima:", out_png)
+
+
 def check():
     total = 128 * len(ICONS)
     src = (Path(__file__).resolve().parent.parent / "payload" / "main.c").read_text()
@@ -338,4 +371,6 @@ def check():
 
 
 if __name__ == "__main__":
+    if "--anteprima" in sys.argv:
+        sys.exit(preview(sys.argv[sys.argv.index("--anteprima") + 1]) or 0)
     sys.exit(check() if "--check" in sys.argv else (emit() or 0))
