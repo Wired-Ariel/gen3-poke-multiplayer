@@ -8,6 +8,14 @@ No modified ROM, no save file touched, no in-game tricks:
 plug in the cable, switch on, play — and the other players show up on your map and walk
 around it with the game's real animation.
 
+**Built on [Celio-Link](https://github.com/Celio-Link).** Its
+[firmware](https://github.com/Celio-Link/Celio-Firmware) connects the original GBA over USB;
+this project extends it and adapts parts of
+[Celio-Client](https://github.com/Celio-Link/Celio-Client),
+[Celio-Server](https://github.com/Celio-Link/Celio-Server) and
+[Celio-mGBA-Link](https://github.com/Celio-Link/Celio-mGBA-Link). Celio-Link's work made the
+hardware link and online Cable Club possible. Our addition is the shared overworld.
+
 🌐 **Try it now from your browser:** https://gbcatrade.wired-ariel.it/
 📦 **Ready-made binaries (firmware, multiboot stub, mGBA script):** this repository's *Releases* page
 
@@ -332,8 +340,9 @@ At most 4 players per room (the fifth is refused); spectators don't count.
 **The main source of this project is [Claude](https://www.anthropic.com/claude), by Anthropic.**
 Payload in C/Thumb and assembly, multiboot stub, Pico firmware extensions, SIO driver, network
 protocol, client, relay, WebSocket front end, JavaScript ports of the multiboot and the Cable Club,
-panels, Live map, ROM analysis tools and tests: all the software in this repository was
-written by **Claude (Claude Code)**, over dozens of work sessions guided by Lain.
+panels, Live map, ROM analysis tools and tests: the project-specific code was
+written by **Claude (Claude Code)**, over dozens of work sessions guided by Lain,
+building on the third-party work credited below.
 
 **Lain** had the idea, provided the hardware, set the constraints («no in-game rituals, ever»,
 «Italian cartridge», «the ROM is never touched») and did **all the field testing** — with
@@ -344,7 +353,14 @@ shipped together with a test procedure and a counter that has to go up.
 ### What it builds on
 - **[pret](https://github.com/pret)** — the matching decompilations `pokeemerald` and `pokefirered`:
   the address map without which none of this would have been possible. The Live map data comes from there too.
-- **Celio project** — the RP2040 firmware for the USB-GBA adapter, the base of the whole hardware layer.
+- **[Celio-Link](https://github.com/Celio-Link)** —
+  [Celio-Firmware](https://github.com/Celio-Link/Celio-Firmware) is the RP2040 USB-GBA firmware
+  we extend. Parts of our USB client, online Cable Club session handling and mGBA bridge derive
+  from [Celio-Client](https://github.com/Celio-Link/Celio-Client),
+  [Celio-Server](https://github.com/Celio-Link/Celio-Server) and
+  [Celio-mGBA-Link](https://github.com/Celio-Link/Celio-mGBA-Link). Their work is the foundation
+  for the real-hardware link and online play; see [third-party notices](THIRD_PARTY_NOTICES.md)
+  for the files and licenses.
 - **smashstacking** — the GBA-USB adapter project Celio is tuned for.
 - **agtbaskara** — [game-boy-pico-link-board](https://github.com/agtbaskara/game-boy-pico-link-board).
 - **weimanc** — game-boy-zero-link-board.
