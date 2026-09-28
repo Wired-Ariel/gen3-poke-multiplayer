@@ -451,7 +451,19 @@
               vecchio.caps === 0 && vecchio.status === ST.HANDSHAKE_RX) || [b.length, p, vecchio];
     });
 
+    t("coppie: SOSPESE (v1.7.1) -> anche con amico che sa e Pico 2.0.6, niente 0x44 e decisione 'spente'", function () {
+      var d = fdevC(), inviati = [];
+      var s = new C.ClubSession({ myPeer: 431, coppiePossibili: true, dev: d, sendNet: function (b) { inviati.push(b); }, log: function () {} });
+      s.setPartner(435);
+      s.onDeviceStatus(ST.AWAIT_MODE);
+      s.onNetStatus(99, 0, ST.HANDSHAKE_RX, P.CAPS_SEGUO);
+      var detto = inviati.some(function (b) { return capsDi(b) === P.CAPS_DECISO; });
+      return (C.K.SEGUACE_ATTIVO === false && d.bytes.length === 0 && s.coppie === false && detto) || [C.K.SEGUACE_ATTIVO, d.bytes, s.coppie];
+    });
+
     t("coppie: amico mGBA che sa seguirle + Pico 2.0.6 -> 0x44 1 PRIMA dello StartHandshake, e lo si dice", function () {
+      var prima = C.K.SEGUACE_ATTIVO; C.K.SEGUACE_ATTIVO = true;
+      try {
       var d = fdevC(), inviati = [];
       var s = new C.ClubSession({ myPeer: 431, coppiePossibili: true, dev: d, sendNet: function (b) { inviati.push(b); }, log: function () {} });
       s.setPartner(435);
@@ -463,6 +475,7 @@
       var hs = conta(d.commands, CC.START_HANDSHAKE) === 1;
       var detto = inviati.some(function (b) { return capsDi(b) === (P.CAPS_DECISO | P.CAPS_COPPIE); });
       return (accese && hs && detto && s.coppie === true) || [d.bytes, d.commands, s.coppie];
+      } finally { C.K.SEGUACE_ATTIVO = prima; }
     });
 
     t("coppie: Pico 2.0.5 -> niente 0x44, e la decisione (spente) si dice lo stesso", function () {
@@ -487,6 +500,8 @@
     });
 
     t("coppie: le capacita' arrivano DOPO lo StartHandshake -> modo di prima (niente coppie a meta')", function () {
+      var prima = C.K.SEGUACE_ATTIVO; C.K.SEGUACE_ATTIVO = true;
+      try {
       var d = fdevC();
       var s = new C.ClubSession({ myPeer: 431, coppiePossibili: true, dev: d, sendNet: function () {}, log: function () {} });
       s.setPartner(435);
@@ -495,6 +510,7 @@
       s.onNetStatus(99, 0, ST.HANDSHAKE_RX, 0);          // stato vecchio: parte lo StartHandshake
       s.onNetStatus(99, 1, ST.HANDSHAKE_RX, P.CAPS_SEGUO); // le capacita' troppo tardi
       return (d.bytes.length === 0 && s.coppie === false) || [d.bytes, s.coppie];
+      } finally { C.K.SEGUACE_ATTIVO = prima; }
     });
 
     t("club: Ready resta locale", function () {

@@ -192,6 +192,11 @@ def ruolo_master(mio, suo):
     return mio < suo
 
 
+# IL MODO SEGUACE E' SOSPESO (v1.7.1, 2026-09-28): vedi K.SEGUACE_ATTIVO in
+# web/js/club.js. Acceso per tutta la sessione rallentava le lotte fino a bloccarle.
+SEGUACE_ATTIVO = False
+
+
 class ClubSession:
     """Una sessione di Cable Club. dev: oggetto con command(cmd, label) e
     send_block(bytes64). send_net: callable che spedisce un corpo T_CLUB al
@@ -767,7 +772,12 @@ class ClubSession:
         Specchio di ClubSession.prototype._decidiCoppie in club.js."""
         if self.coppie is not None or not (caps & CAPS_SEGUO):
             return
-        if self._hs_avviato:
+        if not SEGUACE_ATTIVO:
+            # v1.7.1: SOSPESO, come in club.js (rallentava le lotte).
+            self.coppie = False
+            self.log("[club ] modo seguace SOSPESO in questa versione (rallentava le "
+                     "lotte): nella saletta si usa il modo di prima")
+        elif self._hs_avviato:
             self.coppie = False
             self.log("[club ] l'amico in emulatore sa seguire le coppie, ma la "
                      "sessione col GBA e' gia' partita: modo di prima per questa volta")

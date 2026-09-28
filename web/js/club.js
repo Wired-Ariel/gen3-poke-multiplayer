@@ -72,7 +72,13 @@
     // riavvio). 30 s = 3 volte la pazienza del gioco: meglio larghi.
     RIAPERTURA_S: 30.0,
     EPOCHE_MORTE_MAX: 8,     // epoche abbandonate da ricordare
-    ATTESA_DEV_MAX: 64       // blocchi tenuti da parte fra due sezioni
+    ATTESA_DEV_MAX: 64,      // blocchi tenuti da parte fra due sezioni
+    /* IL MODO SEGUACE E' SOSPESO (v1.7.1, 2026-09-28, dal campo). Acceso per
+     * tutta la sessione, rallentava le lotte fino a bloccarle: nel link della
+     * Gen 3 ogni gioco rilegge anche i PROPRI comandi dall'eco, e in modo
+     * seguace l'eco di mGBA torna dopo un giro intero di rete. Con false la
+     * decisione e' sempre "spente" e tutto torna come nella v1.6. */
+    SEGUACE_ATTIVO: false
   };
 
   /* Gli stati che il firmware emette in modo onlineLink (usb_link.py). */
@@ -642,7 +648,11 @@
    * devono esserci dalla prima, o mGBA perderebbe l'inizio della sessione. */
   ClubSession.prototype._decidiCoppie = function (caps) {
     if (this.coppie !== null || !(caps & CAPS_SEGUO)) return;
-    if (this._hsAvviato) {
+    if (!K.SEGUACE_ATTIVO) {
+      this.coppie = false;
+      this.log("[club ] modo seguace SOSPESO in questa versione (rallentava le lotte): " +
+        "nella saletta si usa il modo di prima");
+    } else if (this._hsAvviato) {
       this.coppie = false;
       this.log("[club ] l'amico in emulatore sa seguire le coppie, ma la sessione col " +
         "GBA e' gia' partita: modo di prima per questa volta");

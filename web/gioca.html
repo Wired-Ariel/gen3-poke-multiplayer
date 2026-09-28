@@ -197,14 +197,14 @@
 <body>
 <!-- BANNER DELLA VERSIONE (2026-09-27): si cambia VERSIONE e testo a ogni rilascio. -->
 <div id="banner-versione" style="background:#1f4d36;color:#f2f7f3;font:14px/1.45 system-ui,-apple-system,'Segoe UI',sans-serif;padding:10px 16px;display:flex;gap:12px;align-items:flex-start;justify-content:center;flex-wrap:wrap;position:relative;z-index:50">
-  <span style="background:#f2c14e;color:#1f2a22;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap">Aggiornato alla versione 1.7</span>
-  <span style="max-width:760px;flex:1 1 320px">27 settembre 2026: nella saletta del Cable Club i passi restano allineati anche con chi gioca in emulatore
-    (serve il <a href="https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2" style="color:#f2c14e">firmware 2.0.6 del Pico</a>
-    e lo script dell'emulatore riscaricato); l'icona «dialogo» non resta più appesa sopra l'amico; niente più falso avviso sul firmware durante il caricamento;
-    il numero di peer mostrato è sempre quello in uso.</span>
-  <button type="button" aria-label="Chiudi" onclick="try{localStorage.setItem('banner-versione','1.7')}catch(e){};this.parentNode.hidden=true" style="background:none;border:1px solid rgba(242,247,243,.5);color:inherit;border-radius:6px;padding:2px 9px;cursor:pointer;font:inherit">×</button>
+  <span style="background:#f2c14e;color:#1f2a22;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap">Aggiornato alla versione 1.7.1</span>
+  <span style="max-width:760px;flex:1 1 320px">28 settembre 2026: il nuovo modo che allineava i passi nella saletta del Cable Club con chi gioca in emulatore
+    è <b>sospeso</b>, perché rallentava le lotte fino a bloccarle: scambi e lotte tornano a funzionare come prima (nella saletta i passi possono ancora sfasarsi).
+    Il firmware 2.0.6 del Pico può restare. Restano attive le altre novità della 1.7: l'icona «dialogo» non resta più appesa sopra l'amico, niente falso avviso sul firmware
+    durante il caricamento, il numero di peer mostrato è sempre quello in uso.</span>
+  <button type="button" aria-label="Chiudi" onclick="try{localStorage.setItem('banner-versione','1.7.1')}catch(e){};this.parentNode.hidden=true" style="background:none;border:1px solid rgba(242,247,243,.5);color:inherit;border-radius:6px;padding:2px 9px;cursor:pointer;font:inherit">×</button>
 </div>
-<script>try{if(localStorage.getItem('banner-versione')==='1.7')document.getElementById('banner-versione').hidden=true}catch(e){}</script>
+<script>try{if(localStorage.getItem('banner-versione')==='1.7.1')document.getElementById('banner-versione').hidden=true}catch(e){}</script>
 
 <header>
   <div class="erba"></div>
