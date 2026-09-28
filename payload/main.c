@@ -689,6 +689,11 @@ struct PayloadState
                          * overworld" si era perso. Deve restare 0 in una
                          * partita pulita; se sale, l'icona sarebbe rimasta
                          * appesa sulla sua testa                           */
+    u32 spawnRealigns;  /* +0x1B0 avatar CREATI a camera in movimento e subito
+                         * ripiazzati sulla loro casella (TrySpawnRemote).
+                         * Sale uscendo dalla saletta e ogni volta che l'amico
+                         * compare mentre stai camminando; se resta 0 in quei
+                         * casi, la cura del pixel di lato e' codice morto  */
 };
 
 __attribute__((section(".payload_state"), used))
@@ -1951,6 +1956,24 @@ static void TrySpawnRemote(struct Remote *r, s16 x, s16 y)
          * fallisce di solito continuera' a fallire (slot pieni, o duplicato). */
         r->spawnCooldown = SPAWN_RETRY_FRAMES;
         return;
+    }
+
+    /* CREATO A CAMERA IN MOVIMENTO = FUORI GRIGLIA (2026-09-28, dal campo).
+     * La foto del 27/09 al Centro Pokemon: sul GBA l'amico era disegnato
+     * qualche pixel di lato. Uscendo dalla saletta il payload ricrea l'avatar
+     * mentre il gioco ci fa fare il passo giu' dal bancone, cioe' a camera in
+     * movimento, e lo spawn del gioco corregge di UN TILE nel verso della
+     * camera (GetObjectEventMovingCameraOffset), non dei pixel a meta'
+     * scorrimento: lo sprite nasce fuori griglia e se lo porta dietro, perche'
+     * poi si muove a passi interi da 16 px. Misurato col banco
+     * mgba/banco_spawn.lua PRIMA di questa riga. La cura e' ripiazzarlo
+     * subito con MoveObjectEventToMapCoords, che invece e' giusta anche a
+     * camera in movimento (banco_subpixel.lua, 28/08: 5 su 5). Diretta e non
+     * TeleportRemote, che conta come correzione di rete. */
+    if ((GAME_U32(ADDR_gFieldCamera + 0x10) | GAME_U32(ADDR_gFieldCamera + 0x14)) != 0)
+    {
+        MoveObjectEventToMapCoords((void *)ObjectEvent(id), x, y);
+        BUMPF(spawnRealigns);
     }
 
     r->objectId = id;

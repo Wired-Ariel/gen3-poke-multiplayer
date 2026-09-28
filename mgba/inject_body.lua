@@ -1991,6 +1991,9 @@ local S = {
     -- 2026-09-27: lo stato dell'amico non ribadito scade (il fumetto rimasto
     -- appeso dopo una lotta al Cable Club).
     statusExpired = 0x1AC,
+    -- 2026-09-28: l'avatar creato a camera in movimento, ripiazzato subito
+    -- (il personaggio disegnato qualche pixel di lato al Centro Pokemon).
+    spawnRealigns = 0x1B0,
 }
 
 local STATUS_NAMES = {
@@ -2325,9 +2328,10 @@ local function status()
     local animNum = field("remoteAnimNum")
     local remoteState = field("remoteState")
     console:log(string.format(
-        "[sprite] gfxId %d | animNum %d | girate %d | ricreato per dimensione %d | spawn saltati %d",
+        "[sprite] gfxId %d | animNum %d | girate %d | ricreato per dimensione %d | spawn saltati %d "
+        .. "| creati a camera in moto e ripiazzati %d",
         field("remoteGfxId"), animNum, field("rxTurns"),
-        field("gfxResizes"), field("spawnSkipped")))
+        field("gfxResizes"), field("spawnSkipped"), field("spawnRealigns")))
 
     console:log(string.format(
         "[posa  ] pose da fermo %d | riallineamenti da fermo %d | blob surf creati %d / distrutti %d",
