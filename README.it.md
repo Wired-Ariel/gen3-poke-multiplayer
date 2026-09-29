@@ -8,7 +8,8 @@ Nessuna ROM modificata, nessun salvataggio toccato, nessun trucco da fare in par
 colleghi il cavo, accendi, giochi — e gli altri giocatori compaiono nella tua mappa e ci
 camminano con l'animazione vera del gioco.
 
-**Questo progetto si basa su [Celio-Link](https://github.com/Celio-Link).** Il suo
+**Questo progetto si basa su [Celio-Link](https://github.com/Celio-Link), creato da
+[Essometer](https://www.youtube.com/@Essometer).** Il suo
 [firmware](https://github.com/Celio-Link/Celio-Firmware) collega il GBA originale via USB;
 qui lo estendiamo e adattiamo parti di
 [Celio-Client](https://github.com/Celio-Link/Celio-Client),
@@ -357,14 +358,16 @@ correzione, con ogni modifica accompagnata da una procedura di test e un contato
 ### Su cosa si appoggia
 - **[pret](https://github.com/pret)** — le decompilazioni combacianti `pokeemerald` e `pokefirered`:
   la mappa degli indirizzi senza cui niente di questo sarebbe stato possibile. Anche i dati della Mappa live vengono da lì.
-- **[Celio-Link](https://github.com/Celio-Link)** —
+- **[Essometer](https://www.youtube.com/@Essometer), autore di [Celio-Link](https://github.com/Celio-Link)** —
   [Celio-Firmware](https://github.com/Celio-Link/Celio-Firmware) è il firmware RP2040 per USB-GBA
   che estendiamo. Parti del client USB, della gestione del Cable Club online e del ponte mGBA
   derivano da [Celio-Client](https://github.com/Celio-Link/Celio-Client),
   [Celio-Server](https://github.com/Celio-Link/Celio-Server) e
   [Celio-mGBA-Link](https://github.com/Celio-Link/Celio-mGBA-Link). Il loro lavoro è la base del
   collegamento su hardware originale e del gioco online; file e licenze sono nei
-  [riconoscimenti di terze parti](THIRD_PARTY_NOTICES.it.md).
+  [riconoscimenti di terze parti](THIRD_PARTY_NOTICES.it.md). Su YouTube trovi le sue demo dello
+  [scambio online](https://www.youtube.com/watch?v=pNdXG88-810) e dello
+  [scambio emulato](https://www.youtube.com/watch?v=VG4h6XtFpLk).
 - **smashstacking** — il progetto dell'adattatore GBA-USB su cui Celio è tarato.
 - **agtbaskara** — [game-boy-pico-link-board](https://github.com/agtbaskara/game-boy-pico-link-board).
 - **weimanc** — game-boy-zero-link-board.

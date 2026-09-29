@@ -8,7 +8,8 @@ No modified ROM, no save file touched, no in-game tricks:
 plug in the cable, switch on, play — and the other players show up on your map and walk
 around it with the game's real animation.
 
-**Built on [Celio-Link](https://github.com/Celio-Link).** Its
+**Built on [Celio-Link](https://github.com/Celio-Link), created by
+[Essometer](https://www.youtube.com/@Essometer).** Its
 [firmware](https://github.com/Celio-Link/Celio-Firmware) connects the original GBA over USB;
 this project extends it and adapts parts of
 [Celio-Client](https://github.com/Celio-Link/Celio-Client),
@@ -353,14 +354,15 @@ shipped together with a test procedure and a counter that has to go up.
 ### What it builds on
 - **[pret](https://github.com/pret)** — the matching decompilations `pokeemerald` and `pokefirered`:
   the address map without which none of this would have been possible. The Live map data comes from there too.
-- **[Celio-Link](https://github.com/Celio-Link)** —
+- **[Essometer](https://www.youtube.com/@Essometer), creator of [Celio-Link](https://github.com/Celio-Link)** —
   [Celio-Firmware](https://github.com/Celio-Link/Celio-Firmware) is the RP2040 USB-GBA firmware
   we extend. Parts of our USB client, online Cable Club session handling and mGBA bridge derive
   from [Celio-Client](https://github.com/Celio-Link/Celio-Client),
   [Celio-Server](https://github.com/Celio-Link/Celio-Server) and
   [Celio-mGBA-Link](https://github.com/Celio-Link/Celio-mGBA-Link). Their work is the foundation
   for the real-hardware link and online play; see [third-party notices](THIRD_PARTY_NOTICES.md)
-  for the files and licenses.
+  for the files and licenses. Watch his [online trade showcase](https://www.youtube.com/watch?v=pNdXG88-810)
+  and [trade emulation showcase](https://www.youtube.com/watch?v=VG4h6XtFpLk) on YouTube.
 - **smashstacking** — the GBA-USB adapter project Celio is tuned for.
 - **agtbaskara** — [game-boy-pico-link-board](https://github.com/agtbaskara/game-boy-pico-link-board).
 - **weimanc** — game-boy-zero-link-board.
