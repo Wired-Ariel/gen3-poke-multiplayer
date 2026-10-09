@@ -58,7 +58,11 @@ local REG_SIOCNT      = 0x04000128
 local SIOCNT_IRQ      = 0x4000
 
 local PAYLOAD_BASE    = 0x0203CF80
-local ST_IRQ          = PAYLOAD_BASE + 0x10 + 0x04
+-- Stato COMPATTO della build -WithSio (struct PayloadStateHw, 2026-10-08):
+-- a +0x04 c'e' vblankCount (un giro di payload_frame per VBlank), controllato
+-- dalla guardia `offset hw` di build.ps1.
+local HW_VBLANKCOUNT = 0x04
+local ST_IRQ          = PAYLOAD_BASE + 0x10 + HW_VBLANKCOUNT
 -- g_sio viene da build\payload.map della build che si prova: si sposta a
 -- ogni modifica di sio.c, quindi si passa da fuori se diverso.
 local G_SIO_IESCRUBS  = (BANCO_GSIO or 0x0203FB98) + 0x34

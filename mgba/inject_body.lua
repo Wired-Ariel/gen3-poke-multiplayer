@@ -250,7 +250,9 @@ local EXPECT_CB2_WORD    = ROM_CB2_WORD or 0x4809B510  -- prime 4 byte di CB2_Ov
 -- 8 dati su 8 con delta zero - vedi build/port_report.md).
 local ADDR_GMAIN_CB1     = 0x030022C0
 local ADDR_CB1_OVERWORLD = ROM_CB1_OVERWORLD or 0x08085E05  -- bit Thumb incluso
-local ST_ORIG_CB1        = 0xB8        -- offset di origCallback1 in PayloadState
+-- offset di origCallback1 in PayloadState; nella build -WithSio lo stato e'
+-- compatto (PAYLOAD_STATE_HW, emessa da build.ps1) e il campo sta altrove
+local ST_ORIG_CB1        = (PAYLOAD_STATE_HW and PAYLOAD_STATE_HW.origCallback1) or 0xB8
 
 local base     = PAYLOAD_BASE
 local payload  = PAYLOAD_BYTES
@@ -1995,6 +1997,19 @@ local S = {
     -- (il personaggio disegnato qualche pixel di lato al Centro Pokemon).
     spawnRealigns = 0x1B0,
 }
+
+-- BUILD -WithSio: LO STATO E' COMPATTO (2026-10-08). Sul GBA fisico g_state e'
+-- struct PayloadStateHw (13 campi): build.ps1 ne emette gli offset in
+-- PAYLOAD_STATE_HW. Qui la tabella S viene rimappata su quelli, e ogni nome
+-- che nella compatta non esiste cade su `zero`, un campo che nessuno scrive:
+-- il rapporto continua a girare e stampa 0 per i contatori tolti, invece di
+-- leggere memoria a caso. Nella build per l'emulatore PAYLOAD_STATE_HW e' nil
+-- e non cambia niente.
+if PAYLOAD_STATE_HW then
+    for nome in pairs(S) do
+        S[nome] = PAYLOAD_STATE_HW[nome] or PAYLOAD_STATE_HW.zero
+    end
+end
 
 local STATUS_NAMES = {
     [0] = "overworld",

@@ -42,7 +42,14 @@ local TRAMP = 0x0203FF80
 local TRAMP_BYTES = "\x0c\x00\x9f\xe5\x00\x10\xa0\xe3\xb0\x10\xc0\xe1\x04\x00\x9f\xe5"
                  .. "\x10\xff\x2f\xe1\x08\x02\x00\x04\xc0\x00\x00\x02"
 -- PayloadState: inOverworld e bodyTicks (mgba/inject_body.lua, tabella S)
-local PS_INOVERWORLD, PS_BODYTICKS = 0x10, 0x188
+-- 2026-10-08: lo stato della build fisica e' COMPATTO (struct PayloadStateHw
+-- in main.c): bodyTicks non esiste piu'. Si misura eventsEmitted, che la
+-- sonda tiene. Gli offset qui sotto sono quelli della struct compatta, e li
+-- controlla la guardia `offset hw` di build.ps1.
+local HW_EVENTSEMITTED = 0x08
+local HW_INOVERWORLD = 0x20
+local HW_MAPKEY = 0x28
+local PS_INOVERWORLD, PS_BODYTICKS = HW_INOVERWORLD, HW_EVENTSEMITTED
 
 local out = io.open(DIR .. "/banco_stub.txt", "w")
 local function dire(s)
@@ -142,11 +149,26 @@ callbacks:add("frame", function()
                 local sequenza = table.concat(colori, " > ")
                 local rifiuti = sequenza:find("BLU") or sequenza:find("CIANO") or sequenza:find("MAGENTA")
                 local S1 = (colori[1] == "ROSSO" and colori[#colori] == "VERDE" and not rifiuti)
-                local S4 = (inOw == 1 and dt > 60)
+                -- Prova che il CORPO (main loop) gira: OverworldTick, che sta
+                -- solo nel corpo, scrive la mappa corrente in g_state.mapKey
+                -- (gruppo << 8 | numero). Deve coincidere con quella del
+                -- salvataggio in RAM (gSaveBlock1Ptr->location). Fino al
+                -- 2026-10-08 si guardava la casella copiata da TrackPlayer
+                -- (playerX/Y): nello stato compatto della build fisica quei
+                -- due campi non esistono piu'. eventsEmitted da solo non
+                -- basta: senza partner seriale la coda TX si riempie dopo 8
+                -- eventi. Sulla mappa 0.0 la chiave vale 0 come a riposo: li'
+                -- decide eventsEmitted.
+                local mk = emu:read32(STAT + HW_MAPKEY)
+                local sb1 = emu:read32(0x03005D8C)
+                local attesa = emu:read8(sb1 + 4) * 256 + emu:read8(sb1 + 5)
+                local corpo = (mk == attesa and attesa ~= 0)
+                local S4 = (inOw == 1 and (dt >= 1 or corpo))
+                dire(string.format("    corpo: mapKey del payload 0x%04X, mappa del gioco 0x%04X -> %s", mk, attesa, corpo and "SI" or "NO"))
                 dire("S-1 colori: " .. sequenza .. (S1 and "  OK" or "  NO"))
                 dire("S-2 vettore e STAT: OK")
                 dire("S-3 ricucitura per " .. LINGUA .. ": " .. (S3 and "OK" or "NO"))
-                dire(string.format("S-4 il payload riconosce l'overworld: inOverworld %d, bodyTicks +%d in 2 s  %s",
+                dire(string.format("S-4 il payload riconosce l'overworld: inOverworld %d, eventi emessi +%d in 2 s  %s",
                     inOw, dt, S4 and "OK" or "NO"))
                 dire((S1 and S3 and S4) and "VERDETTO: OK" or "VERDETTO: FALLITO")
                 fase = "FINE"

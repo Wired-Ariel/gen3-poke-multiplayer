@@ -696,11 +696,67 @@ struct PayloadState
                          * casi, la cura del pixel di lato e' codice morto  */
 };
 
+#ifdef PAYLOAD_WITH_SIO
+/* SUL GBA FISICO LO STATO E' COMPATTO (2026-10-08): 13 campi invece di 107,
+ * e con i contatori tolti qui sotto vale ~1400 byte di EWRAM.
+ *
+ * `struct PayloadState` qui sopra esiste per il Lua di mGBA, che la legge dalla
+ * memoria. Sul GBA vero la memoria non la legge nessuno: dal cavo esce solo la
+ * sonda (SioSendSonda), e la logica del payload di tutta la struct rilegge
+ * quattro campi (inOverworld, state, mapKey, origCallback1). Il resto erano
+ * 376 byte di dati e una quarantina di scritture "a specchio" mai rilette.
+ *
+ * Quindi nella build -WithSio g_state e' QUESTA struct: il magic (lo cercano
+ * lo stub e i banchi a +0x10), i sette contatori della sonda, i quattro campi
+ * riletti, e `zero`. La struct piena resta dichiarata e resta il contratto
+ * della build per l'emulatore: qui serve solo a dare un nome ai campi
+ * (BUMP_OFF). Le scritture a specchio passano da ST_MIRROR, che qui non emette
+ * niente.
+ *
+ * `zero` non lo scrive nessuno: e' il campo su cui il Lua fa ricadere tutti i
+ * nomi che qui non esistono (PAYLOAD_STATE_HW, emessa da build.ps1), cosi' una
+ * build -WithSio caricata in emulatore (-AllowSioInEmu, handoff_test) legge 0
+ * per i contatori tolti invece di memoria a caso.
+ *
+ * Chi aggiunge un campo che la LOGICA rilegge lo mette in tutte e due le
+ * struct; chi aggiunge un contatore lo mette solo in quella piena, e sul
+ * fisico sparisce da solo. Se serve vederlo sul fisico, entra nella sonda. */
+struct PayloadStateHw
+{
+    u32 magic;          /* +0x00  'STAT'                                    */
+    u32 vblankCount;    /* +0x04  sonda                                     */
+    u32 eventsEmitted;  /* +0x08  sonda                                     */
+    u32 sioAcquires;    /* +0x0C  sonda                                     */
+    u32 sioReleases;    /* +0x10  sonda                                     */
+    u32 linkYields;     /* +0x14  sonda                                     */
+    u32 linkWakes;      /* +0x18  sonda                                     */
+    u32 menuLatches;    /* +0x1C  sonda                                     */
+    u32 inOverworld;    /* +0x20  riletto dalla logica                      */
+    u32 state;          /* +0x24  riletto dalla sonda                       */
+    u32 mapKey;         /* +0x28  riletto dalla logica                      */
+    u32 origCallback1;  /* +0x2C  riletto dalla logica (e dall'iniettore)   */
+    u32 zero;           /* +0x30  sempre 0: vedi sopra                      */
+};
+
+__attribute__((section(".payload_state"), used))
+volatile struct PayloadStateHw g_state = {
+    .magic = 0x53544154,
+};
+
+/* sizeof non valuta l'argomento: nessun codice, e le variabili che servivano
+ * solo allo specchio non diventano "set but not used". */
+#define ST_MIRROR(f, v)      ((void)sizeof(v))
+#define ST_MIRROR_ADD(f, v)  ((void)sizeof(v))
+#else
 __attribute__((section(".payload_state"), used))
 volatile struct PayloadState g_state = {
     .magic = 0x53544154,
     .objectId = OBJECT_EVENTS_COUNT,   /* 16 = nessuno slot */
 };
+
+#define ST_MIRROR(f, v)      (g_state.f = (v))
+#define ST_MIRROR_ADD(f, v)  (g_state.f += (v))
+#endif
 
 /* UN SOLO INCREMENTO PER TUTTI I CONTATORI, e vale 332 byte di EWRAM.
  *
@@ -738,7 +794,32 @@ static void __attribute__((noinline)) Bump(u32 idx)
     ((volatile u32 *)&g_state)[idx]++;
 }
 
+#ifdef PAYLOAD_WITH_SIO
+/* SUL GBA FISICO I CONTATORI NON LI LEGGE NESSUNO (studio del 2026-09-27,
+ * NOTES "PIU' SPAZIO SENZA TOCCARE IL SALVATAGGIO", misurato +616 byte): sul
+ * cavo esce solo la sonda (SioSendSonda), con questi sette. Gli altri
+ * incrementi spariscono in compilazione SOLO qui; la build per l'emulatore,
+ * dove il Lua li legge, resta com'e'. Il confronto e' fra costanti: GCC lo
+ * risolve e non emette niente per i contatori tolti. */
+#define BUMP_OFF(f)  __builtin_offsetof(struct PayloadState, f)
+#define BUMP_SONDA(o) ((o) == BUMP_OFF(vblankCount) || (o) == BUMP_OFF(eventsEmitted) \
+    || (o) == BUMP_OFF(sioAcquires) || (o) == BUMP_OFF(sioReleases)                  \
+    || (o) == BUMP_OFF(linkYields) || (o) == BUMP_OFF(linkWakes)                     \
+    || (o) == BUMP_OFF(menuLatches))
+/* L'indice di Bump e' quello della struct COMPATTA (PayloadStateHw): si passa
+ * dall'offset nella struct piena, che e' l'unico nome valido per ogni campo,
+ * a quello nella compatta. Confronto fra costanti: GCC lo risolve. */
+#define BUMP_HWOFF(f) __builtin_offsetof(struct PayloadStateHw, f)
+#define BUMP_HW(o) ((o) == BUMP_OFF(vblankCount) ? BUMP_HWOFF(vblankCount)          \
+    : (o) == BUMP_OFF(eventsEmitted) ? BUMP_HWOFF(eventsEmitted)                    \
+    : (o) == BUMP_OFF(sioAcquires) ? BUMP_HWOFF(sioAcquires)                        \
+    : (o) == BUMP_OFF(sioReleases) ? BUMP_HWOFF(sioReleases)                        \
+    : (o) == BUMP_OFF(linkYields) ? BUMP_HWOFF(linkYields)                          \
+    : (o) == BUMP_OFF(linkWakes) ? BUMP_HWOFF(linkWakes) : BUMP_HWOFF(menuLatches))
+#define BUMPF(f) do { if (BUMP_SONDA(BUMP_OFF(f))) Bump(BUMP_HW(BUMP_OFF(f)) / 4u); } while (0)
+#else
 #define BUMPF(f) Bump(__builtin_offsetof(struct PayloadState, f) / 4u)
+#endif
 
 /* L'INDIRIZZO DI UN OBJECT EVENT E DI UNO SPRITE, CALCOLATO IN UN POSTO SOLO:
  * altri 228 byte di EWRAM, con la stessa idea di Bump qui sopra.
@@ -1230,7 +1311,7 @@ static void SetLocalStatus(u32 status)
         return;
 
     sLocalStatus = status;
-    g_state.localStatus = status;
+    ST_MIRROR(localStatus, status);
     sStatusRepeatsLeft = STATUS_REPEATS;
     sStatusTimer = STATUS_SPACING;
     sStatusHeartbeat = STATUS_HEARTBEAT;
@@ -1306,10 +1387,10 @@ static void TrackPlayer(u32 playerOe)
     u32 speed = PlayerSpeedClass();
     u32 mapKey = g_state.mapKey;
 
-    g_state.playerX = x;
-    g_state.playerY = y;
-    g_state.playerDir = dir;
-    g_state.playerSpeed = speed;
+    ST_MIRROR(playerX, x);
+    ST_MIRROR(playerY, y);
+    ST_MIRROR(playerDir, dir);
+    ST_MIRROR(playerSpeed, speed);
 
     if (!sHavePlayerPos)
     {
@@ -2468,7 +2549,7 @@ static void DoorSetState(u32 state)
 {
     sDoorState = state;
     sDoorTimer = 0;
-    g_state.doorState = state;
+    ST_MIRROR(doorState, state);
 }
 
 /* Si molla tutto. Una porta lasciata aperta ci resta fino al ricaricamento della
@@ -3973,7 +4054,7 @@ static void SettleCommit(u32 playerOe)
     u32 speed = PlayerSpeedClass();
     u32 slot;
 
-    g_state.prevMapKey = sLastMapKey;
+    ST_MIRROR(prevMapKey, sLastMapKey);
     BUMPF(mapChanges);
     sLastMapKey = g_state.mapKey;
     sLastPlayerX = x;
@@ -3983,10 +4064,10 @@ static void SettleCommit(u32 playerOe)
      * "primo campione" di TrackPlayer non deve rifare il lavoro al frame dopo. */
     sHavePlayerPos = 1;
 
-    g_state.playerX = x;
-    g_state.playerY = y;
-    g_state.playerDir = dir;
-    g_state.playerSpeed = speed;
+    ST_MIRROR(playerX, x);
+    ST_MIRROR(playerY, y);
+    ST_MIRROR(playerDir, dir);
+    ST_MIRROR(playerSpeed, speed);
 
     /* Adesso le coordinate sono quelle giuste. E' il SYNC che prima usciva
      * avvelenato: mappa nuova, coordinate vecchie. */
@@ -4269,7 +4350,7 @@ static void OverworldTick(void)
         if (!ready && !late)
         {
             DoorTick();
-            g_state.rxPending = RxPending();
+            ST_MIRROR(rxPending, RxPending());
             return;
         }
 
@@ -4280,12 +4361,12 @@ static void OverworldTick(void)
             BUMPF(settleTimeouts);
 
         sMapSettling = 0;
-        g_state.settleFramesLast = sSettleTimer;
+        ST_MIRROR(settleFramesLast, sSettleTimer);
 
         SettleCommit(playerOe);
 
         DoorTick();
-        g_state.rxPending = RxPending();
+        ST_MIRROR(rxPending, RxPending());
         /* Il resto riprende al frame successivo, con il mondo di nuovo coerente
          * e - per i remoti tenuti oltre il bordo - con carryCheck armato. */
         return;
@@ -4328,8 +4409,8 @@ static void OverworldTick(void)
                 if (dx != 0 || dy != 0)
                 {
                     BUMPF(borderMismatch);
-                    g_state.borderDriftX = dx;
-                    g_state.borderDriftY = dy;
+                    ST_MIRROR(borderDriftX, dx);
+                    ST_MIRROR(borderDriftY, dy);
                 }
             }
         }
@@ -4337,7 +4418,7 @@ static void OverworldTick(void)
 
     DoorTick();
     ConsumeRemoteEvents();
-    g_state.rxPending = RxPending();
+    ST_MIRROR(rxPending, RxPending());
 
     /* IL GIRO DEGLI SLOT: despawn, spazzino, adozione, spawn, posa da fermo.
      * E' il vecchio corpo del singolo remoto, una volta per amico. Lo slot
@@ -4361,13 +4442,13 @@ static void OverworldTick(void)
 
             if (slot == primary)
             {
-                g_state.remoteVia = via;
+                ST_MIRROR(remoteVia, via);
                 if (rep)
                 {
-                    g_state.remoteLocalX = vx;
-                    g_state.remoteLocalY = vy;
+                    ST_MIRROR(remoteLocalX, vx);
+                    ST_MIRROR(remoteLocalY, vy);
                 }
-                g_state.remoteAway = (r->known && !rep) ? 1u : 0u;
+                ST_MIRROR(remoteAway, (r->known && !rep) ? 1u : 0u);
             }
 
             /* L'amico non e' piu' disegnabile qui mentre il suo avatar e'
@@ -4534,10 +4615,10 @@ static void OverworldTick(void)
                  * glitch, vedi SyncRemoteGraphics). */
                 if (slot == primary)
                 {
-                    g_state.remoteX = oe_currentX(oe);
-                    g_state.remoteY = oe_currentY(oe);
-                    g_state.remoteGfxId = oe_graphicsId(oe);
-                    g_state.remoteAnimNum = sprite_animNum(Sprite(oe_spriteId(oe)));
+                    ST_MIRROR(remoteX, oe_currentX(oe));
+                    ST_MIRROR(remoteY, oe_currentY(oe));
+                    ST_MIRROR(remoteGfxId, oe_graphicsId(oe));
+                    ST_MIRROR(remoteAnimNum, sprite_animNum(Sprite(oe_spriteId(oe))));
                 }
             }
         }
@@ -4555,20 +4636,20 @@ static void OverworldTick(void)
                 if (g_remotes[i].state == STATE_SPAWNED)
                     spawned |= (1u << i);
             }
-            g_state.slotsKnown = known;
-            g_state.slotsSpawned = spawned;
+            ST_MIRROR(slotsKnown, known);
+            ST_MIRROR(slotsSpawned, spawned);
 
             g_state.state = pr->state;
-            g_state.objectId = pr->objectId;
-            g_state.remoteKnown = pr->known;
-            g_state.remoteMapKey = pr->mapKey;
-            g_state.remoteTargetX = pr->targetX;
-            g_state.remoteTargetY = pr->targetY;
-            g_state.remoteGender = pr->gender;
-            g_state.remoteState = pr->avatarState;
-            g_state.remoteStatus = pr->status;
-            g_state.spawnMapKey = pr->spawnMapKey;
-            g_state.cardRxBitmap = pr->cardRxBitmap;
+            ST_MIRROR(objectId, pr->objectId);
+            ST_MIRROR(remoteKnown, pr->known);
+            ST_MIRROR(remoteMapKey, pr->mapKey);
+            ST_MIRROR(remoteTargetX, pr->targetX);
+            ST_MIRROR(remoteTargetY, pr->targetY);
+            ST_MIRROR(remoteGender, pr->gender);
+            ST_MIRROR(remoteState, pr->avatarState);
+            ST_MIRROR(remoteStatus, pr->status);
+            ST_MIRROR(spawnMapKey, pr->spawnMapKey);
+            ST_MIRROR(cardRxBitmap, pr->cardRxBitmap);
         }
     }
 }
@@ -4580,7 +4661,7 @@ void payload_frame(void)
     u32 linkBusy;
 
     BUMPF(irqCount);
-    g_state.lastIf = flags;
+    ST_MIRROR(lastIf, flags);
 
 #ifdef PAYLOAD_WITH_SIO
     /* PRIMA del ritorno anticipato sul VBlank: l'IRQ seriale e' un IRQ diverso,
@@ -4900,7 +4981,7 @@ void payload_frame(void)
                 }
                 t = WRAP(t, RX_SLOTS);
             }
-            g_state.rxDrained += RxPending();
+            ST_MIRROR_ADD(rxDrained, RxPending());
             g_mailbox.rxTail = g_mailbox.rxHead;
             /* Anche le code per-slot: il corpo e' fermo e gli eventi la'
              * dentro invecchiano uguale. Il consumatore non gira (fuori

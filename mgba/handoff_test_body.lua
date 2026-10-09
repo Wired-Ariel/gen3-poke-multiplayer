@@ -46,7 +46,11 @@ local OFF_MAGIC    = 0x08
 local MAGIC_HOOK   = 0x4B4F4F48        -- 'HOOK'
 local OFF_STATE    = 0x10
 local MAGIC_STATE  = 0x53544154        -- 'STAT'
-local ST_IRQ       = 0x04
+-- Stato COMPATTO della build -WithSio (struct PayloadStateHw, 2026-10-08):
+-- a +0x04 c'e' vblankCount, un giro di payload_frame per VBlank. La
+-- guardia `offset hw` di build.ps1 controlla questo numero.
+local HW_VBLANKCOUNT = 0x04
+local ST_IRQ       = HW_VBLANKCOUNT
 local EWRAM_END    = 0x02040000
 
 -- Contatore VBlank del gioco (gMain.vblankCounter1), ROM italiana. Stesso

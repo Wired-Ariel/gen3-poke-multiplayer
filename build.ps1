@@ -207,16 +207,37 @@ if ($WithSio) { $mainDefs += "-DPAYLOAD_WITH_SIO" }
 # prende quello che dice. Spegnere o accendere un passo di ottimizzazione non
 # cambia la semantica del programma: entrambe le configurazioni sono supportate
 # da GCC, cambia solo la forma del codice generato.
-$sizeFlags = @("-fno-tree-forwprop", "-fno-reorder-blocks", "-fno-guess-branch-probability",
+# 2026-10-09 (stato compatto + -mno-thumb-interwork): la lista qui sotto e'
+# quella della greedy rifatta sulla build FISICA, che e' quella col margine
+# stretto. Rispetto al 2026-08-28: tolti -fno-tree-vrp e -fno-ipa-reference
+# (diventati dannosi), aggiunti -fsched2-use-superblocks, -fno-tree-slsr,
+# -fno-tree-ccp, -fno-sched-dep-count-heuristic, -frename-registers,
+# -fschedule-fusion. Ricontrollata a convergenza su QUESTO sorgente: restano
+# sul tavolo 8 byte (-flive-range-shrinkage, -fno-early-inlining), lasciati.
+# Scartato -fbranch-probabilities: dipende da file .gcda che non devono
+# esistere.
+$sizeFlags = @("-fno-tree-forwprop", "-fno-reorder-blocks",
                "-fno-move-loop-invariants", "-fno-sched-pressure", "-fno-tree-dominator-opts",
-               "-fno-tree-sink", "-fno-tree-vrp", "-fno-tree-loop-im",
-               "-fno-tree-loop-ivcanon", "-fno-tree-fre", "-fno-ipa-reference",
+               "-fno-tree-sink", "-fno-tree-loop-im", "-fsched2-use-superblocks", "-fno-tree-slsr",
+               "-fno-tree-loop-ivcanon", "-fno-tree-fre",
                "-fno-sched-critical-path-heuristic", "-fno-tree-bit-ccp",
-               # L'unico ACCESO: e' una strategia di allocazione dei registri,
-               # spenta di default a -Os. Vale 12 byte.
-               "-fira-loop-pressure")
+               "-fno-guess-branch-probability", "-fno-tree-ccp", "-fno-sched-dep-count-heuristic",
+               # ACCESI: spenti di default a -Os. -fira-loop-pressure e' una
+               # strategia di allocazione dei registri e vale 12 byte.
+               "-fira-loop-pressure", "-frename-registers", "-fschedule-fusion")
 $stackFlags = @("-fstack-usage", "-fcallgraph-info=su")
-& $gcc @common -Os -fno-jump-tables @sizeFlags @stackFlags @mainDefs -mthumb -include $symsHeader -c (Join-Path $root "payload\main.c") -o (Join-Path $build "main.o")
+# -mno-thumb-interwork (2026-10-08): ~165 byte. Con l'interworking (che per
+# l'EABI e' il default, e $common lo chiede pure) ogni funzione Thumb non
+# foglia ritorna con "pop {r0}; bx r0" invece di "pop {pc}": 4 byte a uscita,
+# 46 uscite. Serve solo a chi puo' essere chiamato da codice ARM, e l'unico
+# chiamante ARM del C e' payload\hook.S, che dal 2026-10-08 passa da un
+# trampolino Thumb (hook_thumb). I chiamanti del gioco sono tutti Thumb.
+# Era sfuggito alle greedy perche' quelle girano sui flag -f di
+# "gcc -Q --help=optimizers": questo e' un flag -m. Gli altri -m provati
+# (-mtune=*, -mno-sched-prolog, -mtpcs-leaf-frame, -mword-relocations) danno
+# 0 o peggio: tabella in NOTES, blocco del 2026-10-08.
+$noInterwork = @("-mno-thumb-interwork")
+& $gcc @common -Os -fno-jump-tables @sizeFlags @stackFlags @mainDefs @noInterwork -mthumb -include $symsHeader -c (Join-Path $root "payload\main.c") -o (Join-Path $build "main.o")
 if ($LASTEXITCODE -ne 0) { throw "compilazione di main.c fallita" }
 
 $objs = @((Join-Path $build "hook.o"), (Join-Path $build "main.o"))
@@ -236,7 +257,7 @@ if ($WithSio) {
     # I DUE QUI SOTTO SI APPLICANO (2026-08-28, ricerca greedy sui 260 flag):
     # 876 -> 868 byte. Otto byte non sono molti, ma a questo punto il margine
     # si compra otto byte alla volta.
-    & $gcc @common -Os -fno-jump-tables -fno-guess-branch-probability -fno-move-loop-invariants @stackFlags -mthumb -c (Join-Path $root "payload\sio.c") -o (Join-Path $build "sio.o")
+    & $gcc @common -Os -fno-jump-tables -fno-guess-branch-probability -fno-move-loop-invariants @stackFlags @noInterwork -mthumb -c (Join-Path $root "payload\sio.c") -o (Join-Path $build "sio.o")
     if ($LASTEXITCODE -ne 0) { throw "compilazione di sio.c fallita" }
     $objs += (Join-Path $build "sio.o")
 }
@@ -375,7 +396,7 @@ function Get-IrqStackDepth([string]$f, [string[]]$trail) {
     }
     return @{ Depth = ($own + $best); Path = $bestPath }
 }
-$HOOK_S_PUSH = 8   # hook.S: stmfd sp!, {r1, lr} sul NOSTRO stack prima di payload_frame
+$HOOK_S_PUSH = 8   # hook.S: hook_thumb fa push {r1, lr} sul NOSTRO stack prima di payload_frame
 $worst = @{ Depth = 0; Path = "" }
 foreach ($rootFn in @("payload_frame", "payload_drain")) {
     $r = Get-IrqStackDepth $rootFn @()
@@ -471,8 +492,27 @@ if ($stateLine) {
         if ($ln -match '^\};') { break }
         if ($ln -match '^\s+(u32|s32)\s+(\w+);') { $stFields += $matches[2] }
     }
-    if ($stFields.Count * 4 -ne $stateSize) {
-        throw ("PayloadState: letti {0} campi in main.c ({1} byte) ma g_state nell'ELF e' di {2} byte. Un campo non e' u32/s32 su una riga sola?" -f $stFields.Count, ($stFields.Count * 4), $stateSize)
+    # La struct COMPATTA della build -WithSio (2026-10-08): sul GBA fisico
+    # g_state e' struct PayloadStateHw, 13 campi. Si legge qui con la stessa
+    # regola (tutti u32/s32 su una riga), e nella build -WithSio e' LEI che
+    # deve tornare con la dimensione di g_state nell'ELF. Ogni suo campo deve
+    # esistere anche nella struct piena, tranne `zero`: e' quello su cui il
+    # Lua fa ricadere i nomi che sul fisico non esistono.
+    $inStruct = $false
+    $hwFields = @()
+    foreach ($ln in $mainLines) {
+        if (-not $inStruct) { if ($ln -match '^struct PayloadStateHw\s*$') { $inStruct = $true }; continue }
+        if ($ln -match '^\};') { break }
+        if ($ln -match '^\s+(u32|s32)\s+(\w+);') { $hwFields += $matches[2] }
+    }
+    if ($hwFields.Count -eq 0) { throw "struct PayloadStateHw non trovata in main.c" }
+    foreach ($h in $hwFields) {
+        if ($h -ne 'zero' -and $stFields -notcontains $h) { throw "PayloadStateHw.$h non esiste in PayloadState: le due struct si toccano insieme." }
+    }
+    if ($hwFields -notcontains 'zero') { throw "PayloadStateHw non ha il campo zero: il Lua non saprebbe dove far ricadere i campi assenti." }
+    $elfFields = if ($WithSio) { $hwFields } else { $stFields }
+    if ($elfFields.Count * 4 -ne $stateSize) {
+        throw ("PayloadState: letti {0} campi in main.c ({1} byte) ma g_state nell'ELF e' di {2} byte. Un campo non e' u32/s32 su una riga sola?" -f $elfFields.Count, ($elfFields.Count * 4), $stateSize)
     }
     $luaText = Get-Content -Raw (Join-Path $root "mgba\inject_body.lua")
     $sMatch = [regex]::Match($luaText, '(?s)\nlocal S = \{(.*?)\n\}')
@@ -533,6 +573,32 @@ if ($stateLine) {
         throw "OFFSET DI PayloadState FUORI POSTO:`n  " + ($offProblemi -join "`n  ") + "`nChi si copia gli offset li aggiorna quando la struct cambia."
     }
     Write-Output ('offset    : {0} PS_* nei banchi Lua, tutti allineati alla struct' -f $nOff)
+
+    # Stessa guardia per i banchi che leggono una build -WithSio (banco_stub,
+    # banco_audio, handoff_test): li' gli offset sono quelli della struct
+    # compatta, e la convenzione e' `local HW_NOMECAMPO = 0x...`.
+    $hwMap = @{}
+    for ($i = 0; $i -lt $hwFields.Count; $i++) { $hwMap[$hwFields[$i].ToUpper()] = 4 * $i }
+    $hwProblemi = @()
+    $nHw = 0
+    foreach ($f in (Get-ChildItem (Join-Path $root 'mgba') -Filter '*.lua')) {
+        foreach ($ln in (Get-Content $f.FullName)) {
+            if ($ln -match '^\s*local HW_(\w+)\s*=\s*0x([0-9A-Fa-f]+)') {
+                $nome = $matches[1].ToUpper()
+                $val  = [Convert]::ToInt32($matches[2], 16)
+                $nHw++
+                if (-not $hwMap.ContainsKey($nome)) {
+                    $hwProblemi += ('{0}: HW_{1} non e'' un campo di PayloadStateHw' -f $f.Name, $matches[1])
+                } elseif ($hwMap[$nome] -ne $val) {
+                    $hwProblemi += ('{0}: HW_{1} dice 0x{2:X}, la struct compatta dice +0x{3:X}' -f $f.Name, $matches[1], $val, $hwMap[$nome])
+                }
+            }
+        }
+    }
+    if ($hwProblemi.Count -gt 0) {
+        throw "OFFSET DI PayloadStateHw FUORI POSTO:`n  " + ($hwProblemi -join "`n  ") + "`nChi si copia gli offset li aggiorna quando la struct cambia."
+    }
+    Write-Output ('offset hw : {0} HW_* nei banchi Lua, tutti allineati alla struct compatta ({1} campi)' -f $nHw, $hwFields.Count)
 }
 
 # --- generazione dello script Lua -------------------------------------------
@@ -557,6 +623,20 @@ $sb = New-Object System.Text.StringBuilder
 # ARTEFATTI di scambiarsi di posto. Questa bandiera chiude il secondo buco:
 # inject_body.lua si rifiuta di iniettare un payload marcato cosi'.
 [void]$sb.AppendLine("PAYLOAD_HAS_SIO = " + $(if ($WithSio) { "true" } else { "false" }))
+
+# Lo stato compatto della build -WithSio: nome Lua -> offset. inject_body.lua
+# rimappa la sua tabella S con questa, e i nomi che qui mancano li fa cadere su
+# `zero`. Emessa SOLO se la build e' -WithSio: altrimenti resta nil e il Lua
+# usa la tabella piena.
+if ($WithSio) {
+    $voci = @()
+    for ($i = 0; $i -lt $hwFields.Count; $i++) {
+        $n = $hwFields[$i]
+        if ($alias.ContainsKey($n)) { $n = $alias[$n] }
+        $voci += ("{0} = 0x{1:X2}" -f $n, (4 * $i))
+    }
+    [void]$sb.AppendLine("PAYLOAD_STATE_HW = { " + ($voci -join ", ") + " }")
+}
 
 # Lo scavalco ESPLICITO della guardia di cui sopra: serve alla prova del
 # prendi/molla della porta seriale in emulatore (vedi il parametro in testa).
