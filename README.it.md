@@ -65,8 +65,10 @@ l'overworld condiviso.
 ## Cosa fa (e cosa no)
 
 **Fa:**
-- mostra **fino a 3 amici** (4 giocatori in tutto) che camminano, corrono, vanno in bici e fanno
-  surf nella tua mappa, con animazione, passi e interpolazione **del motore originale**;
+- mostra **fino a 3 amici** (4 giocatori in tutto) nella tua mappa mentre fanno quello che fanno
+  davvero: camminano, corrono, saltano i gradini, impennano con la bici, pescano, fanno Surf,
+  volano, si immergono e risalgono le cascate, con animazione, passi e interpolazione **del
+  motore originale**;
 - segue i cambi mappa: quando un amico attraversa il confine di una route lo vedi arrivare,
   quando entra in una casa sparisce e ricompare quando esce;
 - si mette a dormire da solo in lotta, nei menu e nelle schermate speciali, e si risveglia al
@@ -74,7 +76,7 @@ l'overworld condiviso.
 - **scambi e lotte via internet** attraverso il Cable Club del gioco (provato sul fisico, dal
   sito e dal pannello per PC);
 - fa giocare insieme, **nella stessa stanza**, GBA veri, emulatori mGBA e spettatori dal browser;
-- ha una **Mappa live** di Hoenn dove vedi dove sono tutti.
+- ha una **Mappa live** di Hoenn dove vedi dove sono tutti, e una **chat della stanza** sul sito.
 
 **Non fa:**
 - non modifica la cartuccia (è ROM a maschera: fisicamente impossibile) e **non scrive il

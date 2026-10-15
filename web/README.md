@@ -1,4 +1,4 @@
-# `web/` — gen3-poke-multiplayer nel browser (stato al 2026-08-23)
+# `web/` — gen3-poke-multiplayer nel browser (stato al 2026-10-11)
 
 Obiettivo (richiesta di Lain): chi vuole provare **apre una pagina**, scrive
 la stanza e fa TUTTO dal browser — multiboot compreso — senza scaricare
@@ -6,7 +6,124 @@ nulla. Quello che resta fisicamente fuori dalla portata di qualunque sito:
 **il firmware sul Pico** (UF2 drag&drop, una volta) e, su Windows, **il
 driver WinUSB** (Zadig, una volta). Tutto il resto ora vive nella pagina.
 
-## Cosa c'e' OGGI
+## Il sito dal 2026-10-11: nuovo disegno, Stanze, chat della stanza
+
+Il riferimento visivo era un disegno unico (pannello, stanze, stanza, mappa,
+come funziona); qui sotto com'e' diventato codice. Le sezioni piu' in basso
+(«Cosa c'e' OGGI» in poi) restano la storia di prima e valgono ancora, con una
+differenza: **il pannello e' `gioca.html`, `index.html` e' la pagina d'ingresso**.
+
+### Le pagine e i file
+
+| File | Cosa | Provato |
+|---|---|---|
+| `css/sito.css` | lo stile comune: intestazione bianca con la navigazione (Pannello · Stanze · Mappa live · Come funziona), schede, riquadro verde scuro con l'erba, bottoni, **tutta la chat**. Punti di rottura di sempre: 900 px una colonna, 640 px bersagli da 44 px e campi a 16 px | a 1280, 1024 e 375 px: nessuno sbordo orizzontale, ordine delle colonne giusto (chat in fondo), campi a 16 px |
+| `css/font.css` + `fonts/*.woff2` | **Figtree** e **JetBrains Mono** locali (OFL 1.1, `fonts/LICENZA.txt`): niente Google Fonts, niente risorse esterne. Ripiego: Segoe UI / Consolas | `document.fonts.check` vero su pannello, stanza e mappa (anche dentro l'iframe); serviti anche da `pannello.py` (`/fonts/`) |
+| `gioca.html` + `js/app.js` | il pannello nel disegno 1a: **stepper verticale** (verde ✓ fatto, arancio con alone adesso, grigio da fare — ogni passo resta un bottone), **riquadro grande** col passo di adesso e UN bottone arancio, stato GBA/canale, fisarmoniche (Impostazioni con «Avanzate», Registro, Attrezzi, Diagnostica: sono `<details>` veri), colonna destra con la stanza e la **chat**. Tutti gli `id` di prima | senza Pico: spettatore, chat, invito, impostazioni, fisarmoniche, riconnessione. **Col Pico NO** (la logica di device/multiboot/club non e' stata toccata) |
+| `stanze.html` + `js/stanze.js` | **nuova**: numero + Entra + Crea stanza nuova, elenco delle **stanze aperte** vero (`GET /ws?stanze`, ogni 5 s, pallini dei posti, Entra/Piena/Guarda), ultima stanza, interruttore «Mostra la mia stanza nell'elenco», `?stanza=N` | con relay vero e due stanze aperte da giocatori finti: elenco, «la tua», conteggi; stanza nuova; a 375 px |
+| `stanza.html` + `js/stanza.js` | **nuova**: giocatori (nome, luogo, cosa fa), spettatori, invito, **chat completa**, scheda **Mappa live** con la **chat piccola** sopra, «Adesso nella stanza», notifiche. Due modi, scelti da sola: OSPITE del pannello aperto in un'altra scheda, oppure SPETTATORE col suo collegamento (`T_WATCH`) | tutti e due i modi e il passaggio dall'uno all'altro nei due versi; mappa incorporata con i giocatori; chat piccola (Blocca, ⇄, –, pillola, stato salvato); «Mappa ↗» su una posizione |
+| `progetto.html` | come funziona e crediti nel disegno 2c: indice a sinistra che segue la lettura, catena fatta di etichette, i 4 passi del multiboot in riquadri, crediti in griglia. Testo di prima; il Cable Club dal browser e' detto | a 1280 e 375 px |
+| `index.html`, `index-en.html` | la pagina d'ingresso: solo font e colori nuovi, banner della versione, link a Stanze | caricata, non ridisegnata |
+| `../net/mappa.html` | la Mappa live (LO STESSO file del pannello Python): intestazione e navigazione nuove, lato a sezioni, **chat in fondo al lato**, nomi dei giocatori e colori per giocatore sulle etichette, `?mappa=g.n&x=&y=` (apre su una posizione condivisa, con un anello che pulsa), `?dentro=1` (solo la mappa, per l'iframe della stanza) | sul sito: da sola (ospite di una scheda collegata) e dentro `stanza.html`. **Dentro il pannello Python: provate le rotte e i dati (`/fonts/`, `chat` in `api/posizioni`), NON guardata a schermo** |
+| `js/sito.js` | le cose comuni: lingua, impostazioni salvate, nomi dei luoghi (`mappa/nomi.json`), elenco delle stanze, appunti, il «bip» delle notifiche (WebAudio, nessun file) | usato da tutte le pagine qui sopra |
+| `js/chat.js` | **la chat, senza DOM**: corpo dei `T_CHAT` (gemello di `protocol.py`), `Store` (200 voci, dedup sull'id, ordine sul `ts` corretto con l'arrivo, sessionStorage per stanza), `Sessione` (nomi, «sta scrivendo», 5 messaggi in 10 s per chi scrive E per chi riceve, schede portanti e ospiti su BroadcastChannel) | `bridge_test.html`: 25 casi nuovi |
+| `js/chat-ui.js` | il disegno: bolle raggruppate per persona, Rispondi con citazione, ◎ Posizione, eventi di gioco nella stessa linea del tempo, filtri, @menzione, frasi rapide, tre stili (piena / stretta / righe). Il testo della rete entra solo con `textContent` | a schermo, fra due browser veri |
+| `../tools/gen_en.py` | **le pagine inglesi si GENERANO**: `gioca`, `stanze`, `stanza`, `progetto` tengono le due lingue nello stesso file (`.l-it`/`.l-en`, `data-en-*`) e la `-en.html` la scrive questo script. `--check` per la guardia | generate e aperte; `prepara-sito-web.ps1` si ferma se sono vecchie |
+| `../tools/servi-sito.py` | il sito in locale senza assemblarlo: serve `web/`, `mappa.html` da `net/`, i dati della mappa da dove gli si dice | e' il server con cui e' stato provato tutto |
+
+### La chat: come viaggia
+
+- **`T_CHAT` = 10** (`net/protocol.py`, `js/relay.js`). Corpo JSON utf-8, al massimo 1200 byte, tre forme:
+  messaggio `{"id","nome","testo","ts","rispondeA"?,"pos"?}` (testo ≤ 280 caratteri), `{"scrive":true,"nome"}`,
+  e `{"ciao":1|0,"nome","ruolo"}`. **Il nome viaggia li' dentro** (in ogni messaggio e nel «ciao» ogni 10 s):
+  non nell'annuncio di presenza, perche' il relay non inoltra gli HELLO e i 12 byte degli eventi sono del gioco.
+  Il «ciao» e' anche l'unico modo in cui uno spettatore si fa vedere dagli altri.
+- **`relay.py`** lo inoltra a tutta la stanza, **spettatori compresi**, e lo accetta **anche da uno spettatore**
+  (gli `T_EVENT` da spettatore restano rifiutati). Non apre il corpo: controlla la lunghezza e un tetto di
+  **10 datagrammi in 10 s per peer** — dieci e non cinque perche' nello stesso tipo passano «ciao» e «sta
+  scrivendo». Il limite dei **5 messaggi in 10 s** lo applicano i client, chi scrive e chi riceve.
+  Non tiene lo storico: chi entra legge da li' in poi.
+- **`relay_ws.py`** non e' cambiato: porta il `T_CHAT` byte per byte come gli altri.
+- **Nel browser**: dedup sull'`id`, ordine sul `ts` del mittente (se e' nel futuro o piu' vecchio di 15 s
+  vale l'ora di arrivo), ultimi 200 in `sessionStorage` per stanza.
+- **Fra le schede dello stesso browser** (BroadcastChannel `gen3pm-stanza`): la scheda col relay collegato e'
+  PORTANTE, le altre sono OSPITI e scrivono attraverso di lei. Cosi' una persona non compare due volte.
+- **Python**: `client.py` li riceve, li scrive nel registro (`[chat ] nome: testo`) e nel file delle
+  posizioni; `pannello.html` e la Mappa del pannello li mostrano **in sola lettura**. Lo script di mGBA li ignora.
+- **Eventi di gioco** nella stessa linea del tempo: generati in locale da cio' che il bridge sa gia'
+  (`onAmico`: entra/esce; `onClub`: il Cable Club nostro o di un amico) e dal «ciao» (spettatore arriva/va).
+
+### Scelte fatte, e perche'
+
+- **La colonna «ultimo messaggio» dell'elenco delle stanze non c'e'.** Il relay dovrebbe aprire i messaggi
+  (oggi non legge il contenuto di niente) e pubblicare a chiunque l'ultima frase di una stanza.
+- **L'interruttore «Mostra la mia stanza» di `stanze.html` scrive l'impostazione, non il pacchetto.** Il
+  `T_PUBLIC` lo accetta solo da un GIOCATORE dentro la stanza: lo manda (e lo rinnova ogni 5 s) il pannello
+  mentre si gioca, che se e' aperto in un'altra scheda vede il cambio subito.
+- **«Entra» non fa giocare.** Giocare vuol dire avere il Pico, e il Pico sta nella scheda del pannello. «Entra»
+  scrive la stanza nelle impostazioni e apre la sua pagina (chat, chi c'e', mappa); «Guarda» apre la stessa
+  pagina senza cambiare la stanza. Per comparire nel gioco: Pannello → Gioca.
+- **Dal pannello le altre pagine si aprono in un'altra scheda** quando c'e' qualcosa di vivo (Pico collegato,
+  partita): cambiare pagina ucciderebbe il collegamento USB.
+- **Su telefono il riquadro col passo di adesso sta in cima**, sopra lo stepper: e' il bottone che serve.
+- **DIFETTO TROVATO E CORRETTO: la riconnessione automatica al relay non partiva** (dal 27/09). In `relay.js`
+  c'erano due `var T` nella stessa funzione (i timer di Battito e la tabella dei tipi): vinceva la seconda,
+  `T.setTimeout` non esisteva e la `onclose` moriva subito dopo aver scritto «riprovo fra N s». Ora i timer
+  si chiamano `Orologio`. Verificato spegnendo e riaccendendo `relay_ws.py`: le pagine rientrano da sole.
+- `test_versione.py` era rosso da prima (aspettava una tupla senza le `caps` del 27/09): allineato.
+
+### Come si prova (procedura CH)
+
+Niente hardware. Tre finestre di terminale dalla radice del repository, poi il browser:
+
+```
+python net/relay.py --port 9000
+python net/relay_ws.py --port 9001 --bind 127.0.0.1
+python tools/servi-sito.py --port 7413 --mappa <cartella con dati.json>
+```
+
+1. **Test automatici.** `python net/test_chat.py` → `REGRESSIONE CHAT: PASSATA` (9 passi: inoltro,
+   spettatore che legge e scrive, altra stanza muta, corpo troppo lungo, 16 in raffica → ne passano 10,
+   dedup, relay_ws nei due versi). `bridge_test.html?relay=ws://127.0.0.1:9001` → **130 ok, 0 ko**
+   (`test.html` 12/12 e `mb_test.html` TUTTO PASSATO come prima). `python tools/gen_en.py --check` → tutte aggiornate.
+2. **Due persone.** Apri il sito da DUE origini diverse, cosi' i due browser non si parlano fra schede:
+   `http://localhost:7413/gioca.html` e `http://127.0.0.1:7413/stanza.html?stanza=4242`. In ognuna: relay
+   `ws://127.0.0.1:9001`, stanza 4242, un nome diverso. Nella prima premi «Guarda soltanto».
+   **Criterio**: in ognuna l'altro compare fra gli spettatori col suo nome; un messaggio scritto in una
+   arriva nell'altra col nome giusto; `@nome` colora la bolla e dice «ti ha menzionato»; «Rispondi» porta
+   la citazione; il sesto messaggio in 10 s viene rifiutato con l'avviso.
+3. **Ospite e portante.** Con il pannello che guarda la stanza, apri `stanza.html?stanza=4242` dalla STESSA
+   origine. **Criterio**: l'intestazione dice lo stato del pannello, tu compari UNA volta sola fra gli
+   spettatori, e un messaggio scritto li' esce col nome del pannello. Ferma il pannello: entro ~3 s la
+   pagina della stanza si collega da sola (la pillola del relay torna verde).
+4. **Riconnessione.** Chiudi `relay_ws.py`: la pillola diventa rossa e la chat si spegne con la spiegazione.
+   Riaprilo: entro 10 s torna verde senza toccare niente.
+5. **Mappa.** In `stanza.html` premi la scheda «Mappa live»: Hoenn, la chat piccola in basso a sinistra a
+   mezza opacita'; Blocca la tiene piena, ⇄ la sposta, – la riduce a «Chat · N messaggi». Ricarica: resta com'era.
+6. **Telefono** (strumenti del browser, 375 px): nessuno scorrimento orizzontale in nessuna pagina; nel
+   pannello il riquadro verde e' in cima e la chat in fondo.
+
+### Cosa NON e' verificato (2026-10-11)
+
+- **Niente con il Pico e il GBA**: il pannello nuovo e' stato provato solo da spettatore. `device.js`,
+  `multiboot.js` e `club.js` non sono stati toccati e `app.js` chiama le stesse funzioni di prima, ma i tre
+  passi veri (collega, carica, gioca) e il Cable Club col disegno nuovo **vanno provati sul fisico**.
+- **«◎ Posizione» con una posizione vera**: provato il rifiuto quando non c'e' («serve il gioco avviato»),
+  e la scheda di una posizione ricevuta da un giocatore finto; non l'invio dal proprio GBA.
+- **La chat con un giocatore vero dentro mGBA o col pannello Python** dall'altra parte: provati il formato
+  (`test_chat.py`, corpo Python letto dal JS) e `client.py` da solo, non una partita mista.
+- **`prepara-sito-web.ps1` per intero**: provato solo nella parte nuova (controllo delle -en, copia di
+  pagine/css/font, guardia sui file mancanti), a secco. Il sito in linea (pubblicato il 2026-10-11 insieme
+  al relay, e verificato da fuori: 130 ok su `bridge_test.html` contro il relay vero) e' stato caricato
+  copiando i file a mano. Il relay va sempre aggiornato **insieme** al sito: con un `relay.py` vecchio i
+  `T_CHAT` finiscono in «tipo sconosciuto» e la chat resta muta (il resto funziona).
+- **Firefox e Safari**: la chat e la pagina della stanza non usano WebUSB e dovrebbero funzionare, ma sono
+  state aperte solo in un browser Chromium.
+- **La Mappa live dentro il pannello Python**, a schermo. E il Worker Cloudflare, come sempre (ha solo
+  l'inoltro dei `T_CHAT`, senza il tetto di frequenza).
+- **Lettori di schermo**: ruoli e nomi ci sono (`role="log"`, `aria-pressed`, `aria-current`), non provati.
+
+## Cosa c'e' OGGI (la storia fino al 2026-09: il pannello era `index.html`)
 
 | File | Cosa | Gemello Python | Provato |
 |---|---|---|---|

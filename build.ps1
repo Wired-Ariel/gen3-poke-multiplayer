@@ -224,7 +224,10 @@ $sizeFlags = @("-fno-tree-forwprop", "-fno-reorder-blocks",
                "-fno-guess-branch-probability", "-fno-tree-ccp", "-fno-sched-dep-count-heuristic",
                # ACCESI: spenti di default a -Os. -fira-loop-pressure e' una
                # strategia di allocazione dei registri e vale 12 byte.
-               "-fira-loop-pressure", "-frename-registers", "-fschedule-fusion")
+               "-fira-loop-pressure", "-frename-registers", "-fschedule-fusion",
+               # 2026-10-10 (tutte le animazioni dell'amico): greedy rifatta sul sorgente
+               # nuovo, due giri: +4 flag, -44 byte. Uno e' ACCESO (live-range-shrinkage).
+               "-fno-ipa-sra", "-flive-range-shrinkage", "-fno-early-inlining", "-fno-tree-reassoc")
 $stackFlags = @("-fstack-usage", "-fcallgraph-info=su")
 # -mno-thumb-interwork (2026-10-08): ~165 byte. Con l'interworking (che per
 # l'EABI e' il default, e $common lo chiede pure) ogni funzione Thumb non

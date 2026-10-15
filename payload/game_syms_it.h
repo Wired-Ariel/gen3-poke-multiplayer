@@ -61,6 +61,21 @@ typedef unsigned char  bool8;
 /* ObjectEventTurn @ 0x0808E558 (Thumb) */
 #define ObjectEventTurn ((void (*)(void *objectEvent, u8 direction))(0x0808E559))
 
+/* StartSpriteAnim @ 0x080081A8 (Thumb) */
+#define StartSpriteAnim ((void (*)(void *sprite, u8 animNum))(0x080081A9))
+
+/* GetPlayerAvatarGraphicsIdByStateId @ 0x0808BDA0 (Thumb) */
+#define GetPlayerAvatarGraphicsIdByStateId ((u8 (*)(u8 state))(0x0808BDA1))
+
+/* FieldEffectActiveListContains @ 0x080B5E54 (Thumb) */
+#define FieldEffectActiveListContains ((bool8 (*)(u8 fldEff))(0x080B5E55))
+
+/* PatchObjectPalette @ 0x0808E930 (Thumb) */
+#define PatchObjectPalette ((void (*)(u16 paletteTag, u8 paletteSlot))(0x0808E931))
+
+/* LoadSpecialObjectReflectionPalette @ 0x0808EA4C (Thumb) */
+#define LoadSpecialObjectReflectionPalette ((void (*)(u16 tag, u8 slot))(0x0808EA4D))
+
 /* GetMapHeaderFromConnection @ 0x08087D58 (Thumb) */
 #define GetMapHeaderFromConnection ((u32 (*)(u32 connection))(0x08087D59))
 

@@ -59,7 +59,9 @@ from protocol import T_BYE, T_LIST, TYPE_NAMES, pack, unpack  # noqa: E402
 
 WS_GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_HEADER = 8192          # intestazione HTTP oltre questa = non e' un browser
-MAX_FRAME = 65536          # un datagramma nostro e' < 100 byte: oltre e' abuso
+MAX_FRAME = 65536          # un datagramma nostro e' < 100 byte (un T_CHAT al
+                           # massimo ~1,2 KB, e passa come gli altri: qui non
+                           # si interpreta niente): oltre e' abuso
 
 OP_CONT, OP_TEXT, OP_BIN, OP_CLOSE, OP_PING, OP_PONG = 0, 1, 2, 8, 9, 10
 STANZE_MAX_ETA = 5.0       # secondi: oltre, l'elenco delle stanze aperte e' vecchio

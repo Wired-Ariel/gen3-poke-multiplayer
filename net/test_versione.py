@@ -42,14 +42,15 @@ class TestImpronta(unittest.TestCase):
         sub, epoca, payload = club_unpack(corpo)
         self.assertEqual(sub, CLUB_STATUS)
         self.assertEqual(epoca, 0x11223344)
-        self.assertEqual(payload, (5, 0xFF03, VERSIONE_CLUB, IMPRONTA_SORGENTI))
+        # il quinto campo sono le capacita' (caps, 2026-09-27): 0 se non dichiarate
+        self.assertEqual(payload, (5, 0xFF03, VERSIONE_CLUB, IMPRONTA_SORGENTI, 0))
 
     def test_uno_stato_vecchio_si_legge_lo_stesso(self):
         """La coda e' IN FONDO apposta: un client vecchio manda 9 byte e va
         letto senza errori - e si riconosce proprio dalla coda mancante."""
         corpo = club_status(0x11223344, 5, 0xFF03)[:9]
         sub, epoca, payload = club_unpack(corpo)
-        self.assertEqual(payload, (5, 0xFF03, 0, 0))
+        self.assertEqual(payload, (5, 0xFF03, 0, 0, 0))
 
     def test_l_impronta_non_e_zero(self):
         # Se il calcolo fallisse (file non trovati) verrebbe fuori un valore

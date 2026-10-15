@@ -31,6 +31,7 @@
   var STATI_EN = { lotta: "battle", dialogo: "dialogue", zaino: "bag", squadra: "party" };
   function nomeStato(v) { var n = GbaSio.nomeStato(v); return EN && STATI_EN[n] ? STATI_EN[n] : n; }
   var DEF = (window.GEN3PM_DEFAULTS || {});
+  var S = window.Sito;       // sito.js: lingua, luoghi, appunti (le cose comuni alle pagine)
 
   var cfg = null;            // {relay, stanza, peer, timing, cavo}
   var dev = null;            // CelioDevice in passthrough (partita)
@@ -61,6 +62,13 @@
   var registroCompleto = [];
   var ultimeParole = 0, ultimoT = 0, paroleS = 0;
   var ultimoSeq = -1, buchi = 0;
+  // LA CHAT DELLA STANZA (2026-10-11): la sessione (js/chat.js) e il suo
+  // disegno nella colonna di destra (js/chat-ui.js). La sessione esiste
+  // sempre, anche a partita ferma: mostra la storia della scheda e, se in
+  // un'altra scheda c'e' la pagina della stanza collegata, scrive attraverso
+  // quella. A partita avviata e' questa pagina a portarla (bridge.sendChat).
+  var chat = null, chatUI = null;
+  var PREF_CHAT = "gen3pm.chat.pref";
 
   /* --- registro ------------------------------------------------------------ */
   function log(testo, chi, grave) {
@@ -107,10 +115,46 @@
       timing: salvate.timing || 7400,
       cavo: salvate.cavo || "auto",
       // STANZA APERTA (2026-09-27): opt-in, spenta di serie.
-      aperta: !!salvate.aperta
+      aperta: !!salvate.aperta,
+      // IL NOME IN CHAT (2026-10-11): viaggia nei messaggi e nel «ciao» della
+      // chat (js/chat.js). Vuoto = «peer N».
+      nome: typeof salvate.nome === "string" ? OwlChat.pulisci(salvate.nome, OwlChat.NOME_MAX) : ""
     };
-    if (!salvate.peer) salvaCfg();   // il numero di peer nasce una volta e resta
+    // L'INVITO: gioca.html?stanza=N compila la stanza. Vale una volta: il
+    // parametro si toglie dall'indirizzo, cosi' una ricarica non riporta
+    // nella stanza dell'invito chi nel frattempo l'ha cambiata.
+    var invitata = S.stanzaDaUrl();
+    if (invitata) {
+      cfg.stanza = invitata;
+      stanzaDaInvito = invitata;
+      try { history.replaceState(null, "", location.pathname); } catch (e) { /* niente */ }
+    }
+    if (!salvate.peer || invitata) salvaCfg();   // il numero di peer nasce una volta e resta
     applicaCfg();
+  }
+  var stanzaDaInvito = 0;
+  /* Un'altra scheda (la pagina Stanze, quella della stanza) ha cambiato le
+   * impostazioni: a partita ferma si riprendono, a partita avviata no - li'
+   * vale il bridge, e si cambia da qui. */
+  function ricaricaCfg() {
+    var salvate = {};
+    try { salvate = JSON.parse(localStorage.getItem(CHIAVE) || "{}") || {}; } catch (e) { return; }
+    // Nome e «stanza aperta» valgono subito, anche a partita avviata: sono le
+    // due cose che le altre pagine possono cambiare senza farci rientrare.
+    cfg.aperta = !!salvate.aperta;
+    if (typeof salvate.nome === "string") cfg.nome = OwlChat.pulisci(salvate.nome, OwlChat.NOME_MAX);
+    if (inPartita) {
+      $("stanza-aperta").checked = cfg.aperta;
+      $("nome-chat").value = cfg.nome;
+      if (bridge) bridge.setPubblica(cfg.aperta && !spettatore);
+      if (chat) chat.setNome(cfg.nome);
+      disegnaStato();
+      return;
+    }
+    ["relay", "stanza", "peer", "peerGioco", "timing", "cavo"].forEach(function (k) { if (salvate[k]) cfg[k] = salvate[k]; });
+    applicaCfg();
+    allineaChat();
+    disegnaTutto();
   }
   function salvaCfg() { try { localStorage.setItem(CHIAVE, JSON.stringify(cfg)); } catch (e) { /* niente */ } }
   function applicaCfg() {
@@ -118,6 +162,7 @@
     $("peer-gioco").value = cfg.peerGioco || "";
     $("timing").value = cfg.timing; $("cavo").value = cfg.cavo;
     $("stanza-aperta").checked = !!cfg.aperta;
+    $("nome-chat").value = cfg.nome || "";
   }
   function leggiCfg() {
     var stanza = parseInt($("stanza").value, 10), peer = parseInt($("peer").value, 10), timing = parseInt($("timing").value, 10);
@@ -134,8 +179,11 @@
       return L("il tuo peer di gioco deve essere DIVERSO da quello di questa pagina", "your game peer must be DIFFERENT from this page's peer");
     if (!(timing >= 1000 && timing <= 60000)) return L("il timing va da 1000 a 60000", "the timing must be between 1000 and 60000");
     cfg = { relay: $("relay").value.trim(), stanza: stanza, peer: peer, peerGioco: peerGioco,
-            timing: timing, cavo: $("cavo").value, aperta: $("stanza-aperta").checked };
+            timing: timing, cavo: $("cavo").value, aperta: $("stanza-aperta").checked,
+            nome: OwlChat.pulisci($("nome-chat").value, OwlChat.NOME_MAX) };
+    if ($("nome-chat").value !== cfg.nome) $("nome-chat").value = cfg.nome;
     salvaCfg();
+    allineaChat();
     return null;
   }
   function salva() {
@@ -545,10 +593,17 @@
       ioPeer = cfg.peerGioco;
       delete amici[cfg.peerGioco];   // niente doppione verde sotto l'azzurro
     }
+    // I NOMI (2026-10-11): quelli detti in chat, cosi' la mappa scrive «Marta»
+    // invece di «Amico 3301». Chi non ne ha resta col numero.
+    var nomi = {};
+    if (chat) {
+      if (chat.nome) nomi[ioPeer] = chat.nome;
+      for (var p in chat.nomi) if (chat.nomi[p].nome) nomi[p] = chat.nomi[p].nome;
+    }
     try {
       canalePos.postMessage({
         t: ora,
-        viste: [{ peer: ioPeer, t: ora, io: ioPos, amici: amici }]
+        viste: [{ peer: ioPeer, t: ora, io: ioPos, amici: amici, nomi: nomi, stanza: stanzaInUso() }]
       });
     } catch (e) { /* niente */ }
   }
@@ -598,6 +653,79 @@
     // scheda fosse gia' aperta da prima.
     setTimeout(inviaPosizioni, 500);
   }
+
+  /* --- la chat della stanza (2026-10-11) -------------------------------------
+   *
+   * Una Sessione per stanza. A partita ferma non ha un collegamento suo
+   * (`invia` nullo): mostra la storia e, se un'altra scheda sta guardando
+   * quella stanza, scrive attraverso di lei. A partita avviata diventa la
+   * scheda PORTANTE: i T_CHAT passano dal bridge, e le altre schede del sito
+   * (pagina della stanza, Mappa live) leggono e scrivono attraverso questa.
+   */
+  function memoriaScheda() { try { sessionStorage.getItem("x"); return sessionStorage; } catch (e) { return null; } }
+  function prefChat() { return S.pref(PREF_CHAT, { suono: true, soloMenzioni: true, eventi: true }); }
+
+  function posPerChat() {
+    var s = bridge ? bridge.snapshot() : null, p = s ? s.posIo : null;
+    // Da spettatore la posizione e' quella del proprio giocatore, se lo si e'
+    // dichiarato (lo stesso criterio della Mappa live).
+    if (!p && s && spettatore && cfg.peerGioco) {
+      s.amici.forEach(function (a) { if (a.peerId === cfg.peerGioco) p = a.pos; });
+    }
+    return p ? { g: p.gruppo, n: p.numero, x: p.x, y: p.y } : null;
+  }
+
+  /* Lo stato della stanza per le schede ospiti: solo dati piatti (passa da un
+   * BroadcastChannel). */
+  function statoPerSchede() {
+    var s = bridge ? bridge.snapshot() : null;
+    return {
+      inPartita: inPartita, spettatore: spettatore, stanza: stanzaInUso(), peer: peerInUso(),
+      peerGioco: cfg ? cfg.peerGioco : 0, relayOk: !!(link && link.aperta), aperta: !!(cfg && cfg.aperta),
+      rtt: s ? s.rttUltimo : null, posIo: s ? s.posIo : null, amici: s ? s.amici : [],
+      club: s ? s.club : false, clubAmici: s ? s.clubAmici : [],
+      inviati: s ? s.sent : 0, ricevuti: s ? s.received : 0
+    };
+  }
+
+  function motivoChatSpenta() {
+    if (!chat) return "";
+    if (chat.portante()) {
+      return (link && link.aperta) ? "" : L("Il relay non risponde: la chat riparte da sola quando torna.", "The relay isn't answering: the chat resumes by itself when it's back.");
+    }
+    if (chat.portanteId) return "";
+    return L("Premi Gioca, o «Guarda soltanto», per entrare nella chat della stanza " + chat.stanza + ".",
+             "Press Play, or «Just watch», to join the chat of room " + chat.stanza + ".");
+  }
+
+  function nuovaChat(stanza, peer) {
+    if (chat) chat.chiudi();
+    chat = new OwlChat.Sessione({
+      stanza: stanza, peer: peer, nome: cfg.nome, ruolo: "g", tipo: "pannello",
+      invia: null, canale: OwlChat.apriCanale(), storage: memoriaScheda(),
+      posMia: posPerChat, statoStanza: statoPerSchede
+    });
+    chatUI = ChatUI.monta($("chat-pannello"), {
+      sessione: chat, stile: "stretta", titolo: "Chat", posizione: true, contaNonLetti: true,
+      nota: L("visibile a tutta la stanza", "visible to the whole room"),
+      prefs: prefChat, spento: motivoChatSpenta
+    });
+    ChatUI.ascolta(chat, "onCambio", function () { disegnaStanza(); });
+    ChatUI.ascolta(chat, "onMessaggio", function (v) {
+      if ($("mostra-eventi").checked) log("[chat ] " + v.nome + ": " + (v.pos ? "(posizione) " : "") + v.testo, "chat");
+    });
+    chat.chiedi();
+  }
+
+  /* Le impostazioni sono cambiate: la chat segue stanza e nome. A partita
+   * avviata la stanza non cambia qui (si rientra, vedi cambioImpostazioni). */
+  function allineaChat() {
+    if (!cfg || typeof OwlChat === "undefined") return;
+    if (!chat || (!inPartita && chat.stanza !== cfg.stanza)) { nuovaChat(cfg.stanza, cfg.peer); return; }
+    if (chat.portante() || !chat.portanteId) chat.setNome(cfg.nome);
+  }
+
+  var CLUB_GENERE = { inizio: "club", fine: "clubfine", amico: "amico", amicofine: "amicofine" };
 
   /* --- la partita ----------------------------------------------------------- */
   /* --- le stanze aperte (2026-09-27) ---------------------------------------
@@ -698,17 +826,24 @@
     if (inPartita) return;
     var url = OwlRelay.normalizzaUrl(cfg.relay);
     url += (url.indexOf("?") >= 0 ? "&" : "?") + "stanza=" + cfg.stanza;
+    nuovaChat(cfg.stanza, cfg.peer);
+    chat.ruolo = spettatore ? "s" : "g";
     bridge = new OwlBridge({
       peerId: cfg.peer, room: cfg.stanza, device: dev, log: logDa,
       copies: 2, onStatus: function () { disegnaStato(); },
       onPos: inviaPosizioniEvento, spettatore: spettatore,
       pubblica: cfg.aperta && !spettatore,
-      onNumeroOccupato: numeroOccupato
+      onNumeroOccupato: numeroOccupato,
+      onChat: function (peer, corpo) { if (chat) chat.ricevi(peer, corpo); },
+      onAmico: function (cosa, peer) { if (chat) chat.evento(cosa, peer, chat.nomeDi(peer)); disegnaStanza(); },
+      onClub: function (cosa, peer) { if (chat) chat.evento(CLUB_GENERE[cosa], peer || 0, peer ? chat.nomeDi(peer) : ""); disegnaStanza(); }
     });
     link = new OwlRelay.RelayLink(url, {
       onMessage: function (b) { bridge.onRelayMessage(b); },
-      onOpen: function () { bridge.sendHello(); disegnaStato(); },
-      onClose: function () { disegnaStato(); },
+      // All'apertura (e a ogni riapertura) ci si presenta anche in chat:
+      // il «ciao» porta il nome, e dice agli altri se si gioca o si guarda.
+      onOpen: function () { bridge.sendHello(); if (chat) chat.ciao(); disegnaStato(); if (chatUI) chatUI.aggiorna(); },
+      onClose: function () { disegnaStato(); if (chatUI) chatUI.aggiorna(); },
       log: logDa
     });
     bridge.link = link;
@@ -716,6 +851,10 @@
     link.connect();
     bridge.start();
     inPartita = true;
+    var mioBridge = bridge, mioLink = link;
+    chat.diventaPortante(function (b) { return !!(bridge === mioBridge && mioLink.aperta && mioBridge.sendChat(b)); });
+    chat.evento(spettatore ? "ioguardo" : "io", 0, "", cfg.stanza);
+    S.ricordaUltima(cfg.stanza);
     log("[rete ] " + (spettatore ? "SPETTATORE" : "partita") + ": peer " + cfg.peer +
         ", stanza " + cfg.stanza + ", relay " + url, "rete");
     if (spettatore) {
@@ -786,6 +925,9 @@
   function fermaPartita() {
     if (!inPartita) return;
     inPartita = false;
+    // La chat saluta PRIMA che il collegamento si chiuda (uno spettatore non
+    // produce un BYE: se non lo dice lui, gli altri lo vedono per 30 s).
+    if (chat) { chat.evento("iovia", 0, ""); chat.diventaOspite(); }
     if (bridge) { bridge.stop(); }
     if (link) { link.close(); }
     log("[rete ] partita fermata", "rete");
@@ -832,39 +974,146 @@
   }
 
   /* --- disegno -------------------------------------------------------------- */
-  function bottone(contenitore, numero, titolo, sotto, sottoVivo, vivo, lavoro, onAvvia, onFerma, disabilitato) {
+  /* LO STEPPER VERTICALE (2026-10-11). Ogni passo resta un bottone - ricollegare
+   * il Pico o ricaricare il gioco deve restare possibile in ogni momento - ma
+   * dice a colpo d'occhio a che punto si e': cerchio verde con la spunta =
+   * fatto, cerchio arancio con l'alone = adesso, grigio = da fare. L'azione
+   * del passo di adesso sta anche, grande, nel riquadro verde (disegnaEroe). */
+  function bottone(contenitore, numero, titolo, sotto, sottoVivo, vivo, lavoro, onAvvia, onFerma, disabilitato, stato) {
     var c = $(contenitore); c.innerHTML = "";
     var b = document.createElement("button");
-    b.className = "azione" + (vivo ? " viva" : "") + (lavoro ? " lavoro" : "");
+    b.type = "button";
+    b.className = "passo " + (stato || (vivo ? "fatto" : "dafare")) + (lavoro ? " lavoro" : "");
     b.disabled = !!disabilitato;
     b.setAttribute("aria-label", (vivo ? L("Ferma: ", "Stop: ") : L("Avvia: ", "Start: ")) + titolo);
+    if (stato === "adesso") b.setAttribute("aria-current", "step");
     b.onclick = function () { (vivo ? onFerma : onAvvia)(); };
-    var num = document.createElement("span"); num.className = "num"; num.textContent = vivo ? "■" : (lavoro ? "…" : numero);
+    var num = document.createElement("span"); num.className = "cerchio";
+    num.textContent = lavoro ? "…" : (stato === "fatto" || (!stato && vivo) ? "✓" : numero);
     var testo = document.createElement("span"); testo.className = "testo";
     var bb = document.createElement("b"); bb.textContent = titolo;
     var sm = document.createElement("small"); sm.textContent = vivo ? sottoVivo : sotto;
-    testo.appendChild(bb); testo.appendChild(sm);
-    var fine = document.createElement("span"); fine.className = "fine"; fine.textContent = vivo ? L("Ferma", "Stop") : (lavoro ? L("In corso", "Working") : L("Avvia", "Start"));
-    b.appendChild(num); b.appendChild(testo); b.appendChild(fine);
+    var fine = document.createElement("span"); fine.className = "fine";
+    fine.textContent = lavoro ? L("In corso…", "Working…") : (vivo ? L("Ferma", "Stop") : (stato === "fatto" ? L("Rifai", "Redo") : L("Avvia", "Start")));
+    testo.appendChild(bb); testo.appendChild(sm); testo.appendChild(fine);
+    b.appendChild(num); b.appendChild(testo);
     c.appendChild(b);
   }
 
+  /* A che punto siamo: 0 collega, 1 carica, 2 gioca, 3 = in partita. */
+  function passoAdesso() {
+    if (multibootInCorso) return 1;
+    if (inPartita) return 3;
+    if (!dev) return 0;
+    if (!(caricato || sondaVista)) return 1;
+    return 2;
+  }
+
   function disegnaPassi() {
+    var ora = passoAdesso(), nelGba = caricato || sondaVista;
     bottone("riga-pico", "0", L("Collega il Pico", "Connect the Pico"), L("Il browser chiede quale USB: scegli il Pico (2FE3:000A). Serve Chrome o Edge.", "The browser asks which USB device: pick the Pico (2FE3:000A). Needs Chrome or Edge."),
-      L("collegato: ", "connected: ") + picoNome, !!dev, false, collegaPico, scollegaPico, multibootInCorso);
-    bottone("riga-multiboot", "1", L("Carica il gioco nel GBA", "Load the game into the GBA"), L("Slot vuoto, GBA acceso dopo il cavo. Schermo rosso ➜ cartuccia ➜ verde.", "Empty slot, GBA switched on after the cable. Red screen ➜ cartridge ➜ green."),
-      "", false, multibootInCorso, caricaGioco, function () {}, multibootInCorso);
+      L("collegato: ", "connected: ") + picoNome, !!dev, false, collegaPico, scollegaPico, multibootInCorso,
+      dev ? "fatto" : (ora === 0 ? "adesso" : "dafare"));
+    bottone("riga-multiboot", "1", L("Carica il gioco nel GBA", "Load the game into the GBA"),
+      nelGba && !multibootInCorso ? L("Il programma è nel GBA. Per ricaricarlo: slot vuoto, GBA acceso dopo il cavo.", "The program is in the GBA. To reload it: empty slot, GBA switched on after the cable.")
+                                  : L("Slot vuoto, GBA acceso dopo il cavo. Schermo rosso ➜ cartuccia ➜ verde.", "Empty slot, GBA switched on after the cable. Red screen ➜ cartridge ➜ green."),
+      "", false, multibootInCorso, caricaGioco, function () {}, multibootInCorso,
+      multibootInCorso || ora === 1 ? "adesso" : (nelGba ? "fatto" : "dafare"));
     bottone("riga-gioca", "2", L("Gioca", "Play"), L("Da premere quando sei in partita, all'aperto. Relay e stanza dalle impostazioni.", "Press it once you're in game, outdoors. Relay and room come from the settings."),
       (spettatore ? L("spettatore", "spectator") : L("partita in corso", "game running")) + L(": stanza ", ": room ") + (stanzaInUso() || "—") + ", peer " + (peerInUso() || "—"),
-      inPartita, false, function () { avviaPartita(false); }, fermaPartita, multibootInCorso);
+      inPartita, false, function () { avviaPartita(false); }, fermaPartita, multibootInCorso,
+      inPartita ? "fatto" : (ora === 2 ? "adesso" : "dafare"));
     var bs = $("btn-spettatore");
     if (bs) { bs.disabled = inPartita || multibootInCorso; bs.textContent = inPartita && spettatore ? L("Sei spettatore", "You are a spectator") : L("Guarda soltanto (spettatore)", "Just watch (spectator)"); }
     $("btn-riavvia").disabled = !dev || multibootInCorso;
     $("btn-scollega").disabled = !dev || multibootInCorso;
+    disegnaEroe();
+    disegnaNav();
+  }
+
+  /* IL RIQUADRO GRANDE: il passo di adesso, con una frase e UN bottone. */
+  function disegnaEroe() {
+    var ora = passoAdesso(), stanza = stanzaInUso() || "—";
+    var sopra, titolo, sotto, bott, azione, spento = false;
+    if (multibootInCorso) {
+      sopra = L("Passo 1 di 2 · in corso", "Step 1 of 2 · working");
+      titolo = L("Sto caricando il gioco nel GBA…", "Loading the game into the GBA…");
+      sotto = L("Non toccare il cavo. Dura una ventina di secondi: alla fine lo schermo del GBA diventa rosso, e inserisci la cartuccia.", "Don't touch the cable. It takes about twenty seconds: at the end the GBA screen turns red, and you insert the cartridge.");
+      bott = L("In corso…", "Working…"); azione = function () {}; spento = true;
+    } else if (ora === 3) {
+      sopra = spettatore ? L("Spettatore", "Spectator") : (bridge && bridge.club ? "Cable Club" : L("In partita", "In game"));
+      titolo = spettatore ? L("Stai guardando la stanza " + stanza + ".", "You're watching room " + stanza + ".")
+                          : L("Stai giocando nella stanza " + stanza + ".", "You're playing in room " + stanza + ".");
+      sotto = spettatore ? L("Vedi gli altri sulla Mappa live e puoi scrivere in chat. Non occupi nessuno dei 4 posti.", "You see the others on the Live map and can write in the chat. You don't take any of the 4 seats.")
+                         : L("Cammina all'aperto: gli amici nella stanza ti vedono comparire in gioco, e tu vedi loro.", "Walk around outdoors: your friends in the room see you show up in the game, and you see them.");
+      bott = spettatore ? L("Smetti di guardare", "Stop watching") : L("Ferma la partita", "Stop the game"); azione = fermaPartita;
+    } else if (ora === 0) {
+      sopra = picoPerso ? L("Il Pico si è scollegato", "The Pico got disconnected") : L("Passo 0 di 2", "Step 0 of 2");
+      titolo = picoPerso ? L("Ricollega il Pico per riprendere.", "Plug the Pico back in to resume.") : L("Collega il Pico per cominciare.", "Connect the Pico to get started.");
+      sotto = picoPerso ? L("Il GBA non va spento: il programma vive nella sua RAM. Ricollega l'adattatore e premi il bottone.", "Don't switch the GBA off: the program lives in its RAM. Plug the adapter back in and press the button.")
+                        : L("Il browser chiede quale USB: scegli il Pico (2FE3:000A). Serve Chrome o Edge; su Windows il driver WinUSB.", "The browser asks which USB device: pick the Pico (2FE3:000A). Needs Chrome or Edge; on Windows, the WinUSB driver.");
+      bott = L("Collega il Pico", "Connect the Pico"); azione = collegaPico;
+    } else if (ora === 1) {
+      sopra = L("Passo 1 di 2", "Step 1 of 2");
+      titolo = L("Il Pico è collegato. Ora carica il gioco nel GBA.", "The Pico is connected. Now load the game into the GBA.");
+      sotto = L("Slot cartuccia vuoto, cavo collegato, poi accendi il GBA. Schermo rosso ➜ inserisci la cartuccia a caldo ➜ verde ➜ il gioco parte.", "Empty cartridge slot, cable plugged in, then switch the GBA on. Red screen ➜ insert the cartridge with the console on ➜ green ➜ the game starts.");
+      bott = L("Carica il gioco", "Load the game"); azione = caricaGioco;
+    } else {
+      sopra = L("Passo 2 di 2", "Step 2 of 2");
+      titolo = L("Il gioco è nel GBA. Premi Gioca quando sei all'aperto.", "The game is in the GBA. Press Play once you're outdoors.");
+      sotto = L("Relay e stanza vengono dalle impostazioni. Gli amici nella stanza " + stanza + " ti vedranno comparire in gioco.", "Relay and room come from the settings. Your friends in room " + stanza + " will see you show up in the game.");
+      bott = L("Gioca", "Play"); azione = function () { avviaPartita(false); };
+    }
+    $("eroe-sopra").textContent = sopra;
+    $("eroe-titolo").textContent = titolo;
+    $("eroe-sotto").textContent = sotto;
+    var b = $("eroe-azione");
+    b.textContent = bott; b.disabled = spento; b.onclick = azione;
+    $("btn-mappa").textContent = L("Mappa live ↗", "Live map ↗");
+  }
+
+  /* LE ALTRE PAGINE SI APRONO ACCANTO, non al posto di questa, quando qui c'e'
+   * qualcosa di vivo: il Pico e la partita abitano in QUESTA scheda, e
+   * cambiare pagina li ucciderebbe. A pannello fermo sono link normali. */
+  function disegnaNav() {
+    var vivo = !!dev || inPartita || multibootInCorso;
+    Array.prototype.forEach.call(document.querySelectorAll("a[data-pagina]"), function (a) {
+      var quale = a.getAttribute("data-pagina");
+      if (quale === "mappa") { a.target = "gen3pm-mappa"; return; }
+      if (quale === "stanza") a.href = S.pagina("stanza", "stanza=" + (stanzaInUso() || ""));
+      if (vivo) a.target = "gen3pm-" + quale; else a.removeAttribute("target");
+    });
   }
 
   function spia(id, testo, stato) { $(id).className = "spia" + (stato ? " " + stato : ""); $(id + "-testo").textContent = testo; }
-  function led(id, stato) { $(id).className = "led" + (stato ? " " + stato : ""); }
+  function led(id, stato) {
+    $(id).className = "led" + (stato ? " " + stato : "");
+    // la pillola che lo contiene prende lo stesso colore
+    var p = $(id).parentNode;
+    if (p && p.classList.contains("pillola")) p.className = "pillola" + (stato ? " " + stato : "");
+  }
+
+  /* La colonna della stanza: numero, invito, chi c'e'. La disegna anche la
+   * chat quando impara un nome. */
+  function disegnaStanza() {
+    if (!cfg || !chat) return;
+    var s = bridge ? bridge.snapshot() : null;
+    var ospite = !inPartita && chat.statoRemoto && chat.portanteId ? chat.statoRemoto.stanzaStato : null;
+    var amici = s ? s.amici : (ospite ? ospite.amici : []);
+    var stanza = stanzaInUso();
+    $("stanza-numero").textContent = stanza || "—";
+    var modello = {
+      ses: chat, stretti: true, conPeer: true, posti: 4,
+      io: inPartita ? { peer: peerInUso(), nome: chat.nomeDi(peerInUso()), pos: s ? s.posIo : null, spettatore: spettatore,
+                        peerGioco: cfg.peerGioco, alClub: !!(s && s.club) } : null,
+      amici: amici.map(function (a) { return { peer: a.peerId, pos: a.pos }; }),
+      clubAmici: s ? s.clubAmici : (ospite ? ospite.clubAmici : [])
+    };
+    var n = ChatUI.giocatori($("lista-amici"), modello);
+    var spett = chat.spettatori().length + (inPartita && spettatore ? 1 : 0);
+    $("pill-stanza").textContent = L("Stanza ", "Room ") + (stanza || "—") + (inPartita || ospite ? " · " + n + L(" di 4", " of 4") : "");
+    return { giocatori: n, spettatori: spett };
+  }
 
   function disegnaStato() {
     var s = bridge ? bridge.snapshot() : null;
@@ -873,35 +1122,30 @@
     // il tuo GBA
     var mappa = mia ? (mia.gruppo + "." + mia.numero) : null;
     var alClub = !!(bridge && bridge.club);
-    $("st-gba").textContent = alClub ? L("Al Cable Club", "At the Cable Club") : (mappa ? L("In partita", "In game") : (caricato || sondaVista ? L("Programma caricato", "Program loaded") : (dev ? L("Canale aperto", "Channel open") : L("Fermo", "Idle"))));
-    $("st-mappa").textContent = alClub
+    var guardo = inPartita && spettatore && !dev;
+    $("st-gba").textContent = guardo ? L("Spettatore", "Spectator") : alClub ? L("Al Cable Club", "At the Cable Club") : (mappa ? L("In partita", "In game") : (caricato || sondaVista ? L("Programma caricato", "Program loaded") : (dev ? L("Canale aperto", "Channel open") : L("Fermo", "Idle"))));
+    $("st-mappa").textContent = guardo ? L("nessun GBA collegato a questa pagina: guardi e scrivi in chat", "no GBA connected to this page: you watch and write in the chat")
+      : alClub
       ? L("scambio o lotta in corso: non toccare cavo e Pico", "trade or battle in progress: don't touch cable or Pico")
       : (mappa
-        ? (L("mappa ", "map ") + mappa + " (" + mia.x + "," + mia.y + ")" + (mia.stato ? " · " + nomeStato(mia.stato) : ""))
+        ? (S.nomeLuogo(mia.gruppo, mia.numero) + " " + S.coord(mia) + " · " + L("mappa ", "map ") + mappa + (mia.stato ? " · " + nomeStato(mia.stato) : ""))
         : (sondaVista ? L("il programma risponde: cammina all'aperto", "the program is answering: walk around outdoors") : (caricato ? L("in attesa che dica dove sei", "waiting for it to report where you are") : L("programma non caricato: premi il passo 1", "program not loaded: press step 1"))));
-    spia("spia-gba", alClub ? "club" : (mappa ? L("attivo", "active") : (sondaVista ? L("pronto", "ready") : (dev ? L("canale", "channel") : L("spento", "off")))), (alClub || mappa) ? "ok" : (inPartita ? "no" : (dev ? "attesa" : "")));
+    if (guardo) spia("spia-gba", L("guardi", "watching"), "");
+    else spia("spia-gba", alClub ? "club" : (mappa ? L("attivo", "active") : (sondaVista ? L("pronto", "ready") : (dev ? L("canale", "channel") : L("spento", "off")))), (alClub || mappa) ? "ok" : (inPartita ? "no" : (dev ? "attesa" : "")));
 
     // gli amici
     var amici = s ? s.amici : [];
-    $("st-amico").textContent = amici.length ? (amici.length === 1 ? L("1 collegato", "1 connected") : amici.length + L(" collegati", " connected")) : L("In attesa", "Waiting");
-    $("st-stanza").textContent = L("stanza ", "room ") + (stanzaInUso() || "—") + L(" · tu sei il peer ", " · you are peer ") + (peerInUso() || "—");
+    var conta = disegnaStanza() || { giocatori: 0, spettatori: 0 };
+    $("st-amico").textContent = (amici.length ? (amici.length === 1 ? L("1 amico collegato", "1 friend connected") : amici.length + L(" amici collegati", " friends connected")) : L("Nessun amico ancora", "No friends yet"))
+      + (conta.spettatori ? " · " + conta.spettatori + (conta.spettatori === 1 ? L(" spettatore", " spectator") : L(" spettatori", " spectators")) : "");
+    $("st-stanza").textContent = L("tu sei ", "you are ") + (cfg && cfg.nome ? cfg.nome + " · " : "") + "peer " + (peerInUso() || "—");
     // E il campo stesso non puo' dire altro: se qualcuno l'ha lasciato a meta'
     // (o un'altra scheda ha riscritto le impostazioni), a partita avviata si
     // rimette al numero vero. Non mentre ci stai scrivendo.
     if (bridge && document.activeElement !== $("peer") && String(bridge.peerId) !== $("peer").value) $("peer").value = bridge.peerId;
-    var ul = $("lista-amici"); ul.innerHTML = "";
-    amici.forEach(function (a) {
-      var li = document.createElement("li");
-      var b = document.createElement("b"); b.textContent = "peer " + a.peerId;
-      if (spettatore && cfg && cfg.peerGioco === a.peerId) b.textContent += L(" (il tuo GBA)", " (your GBA)");
-      li.appendChild(b);
-      // Quanto e' VECCHIA l'ultima notizia di questo amico: un elenco che
-      // mostra solo posizioni non dice se sono di adesso o di dieci secondi
-      // fa, ed e' la differenza fra "e' li' fermo" e "si e' scollegato".
-      var eta = a.pos.visto ? Math.round((Date.now() - a.pos.visto) / 1000) : null;
-      li.appendChild(document.createTextNode(L(" mappa ", " map ") + a.pos.gruppo + "." + a.pos.numero + " (" + a.pos.x + "," + a.pos.y + ")" + (a.pos.stato ? " · " + nomeStato(a.pos.stato) : "") + (eta === null ? "" : " · " + (eta <= 1 ? L("adesso", "now") : eta + L(" s fa", " s ago")))));
-      ul.appendChild(li);
-    });
+    // L'elenco (#lista-amici) lo disegna disegnaStanza, qui sopra: nome,
+    // luogo e da quanto e' l'ultima notizia - la differenza fra «e' li'
+    // fermo» e «si e' scollegato».
     spia("spia-amico", amici.length ? L("vivi", "live") : (inPartita ? (link && link.aperta ? L("in attesa", "waiting") : "relay?") : L("in attesa", "waiting")),
          amici.length ? "ok" : (inPartita ? (link && link.aperta ? "attesa" : "no") : ""));
 
@@ -912,15 +1156,26 @@
     $("st-rtt").textContent = s && s.rttUltimo !== null ? (s.rttUltimo.toFixed(0) + " ms") : "—";
 
     // targhe
-    if (!inPartita) { led("led-relay", ""); $("targa-relay").textContent = "relay: " + (cfg && cfg.relay ? cfg.relay : L("non impostato", "not set")); }
-    else if (link && link.aperta) { led("led-relay", "ok"); $("targa-relay").textContent = L("relay: collegato", "relay: connected") + (s && s.rttMedio !== null ? " · RTT " + s.rttMedio.toFixed(0) + " ms" : ""); }
-    else { led("led-relay", "no"); $("targa-relay").textContent = L("relay: NON raggiungibile, riprovo", "relay: NOT reachable, retrying"); }
+    var pr = $("targa-relay").parentNode;
+    if (!inPartita) {
+      led("led-relay", "");
+      $("targa-relay").textContent = cfg && cfg.relay ? L("Relay: fermo", "Relay: idle") : L("Relay: non impostato", "Relay: not set");
+      pr.title = cfg && cfg.relay ? cfg.relay : "";
+    } else if (link && link.aperta) {
+      led("led-relay", "ok");
+      $("targa-relay").textContent = "Relay" + (s && s.rttMedio !== null ? " " + s.rttMedio.toFixed(0) + " ms" : L(" collegato", " connected"));
+      pr.title = relayInUso || "";
+    } else {
+      led("led-relay", "no");
+      $("targa-relay").textContent = L("Relay: NON raggiungibile, riprovo", "Relay: NOT reachable, retrying");
+    }
     led("led-pico", dev ? "ok" : (multibootInCorso ? "attesa" : (picoPerso ? "no" : "")));
-    $("targa-pico").textContent = dev ? ("Pico: " + picoNome)
+    $("targa-pico").textContent = dev ? L("Pico collegato", "Pico connected")
       : (multibootInCorso ? L("Pico: multiboot in corso", "Pico: multiboot in progress")
-        : (picoPerso ? L("Pico: SCOLLEGATO - ricollegalo e premi Collega", "Pico: DISCONNECTED - plug it back and press Connect") : L("Pico: non collegato", "Pico: not connected")));
+        : (picoPerso ? L("Pico: SCOLLEGATO - ricollegalo", "Pico: DISCONNECTED - plug it back") : L("Pico: non collegato", "Pico: not connected")));
+    $("targa-pico").parentNode.title = dev ? picoNome : L("il Pico (adattatore USB)", "the Pico (USB adapter)");
 
-    $("marchio").style.boxShadow = (inPartita && mappa) ? "0 6px 16px rgba(0,0,0,.35), 0 0 0 2px rgba(63,214,143,.55)" : "0 6px 16px rgba(0,0,0,.35)";
+    $("marchio").classList.toggle("vivo", !!(inPartita && mappa));
   }
 
   function disegnaDiagnostica() {
@@ -945,8 +1200,7 @@
     // Dal buffer completo, NON dal DOM: il DOM taglia a MAX_RIGHE, e per il
     // debug servono tutte le righe della sessione.
     var testo = registroCompleto.join("\n");
-    var originale = bott.textContent;
-    function fatto(ok) { bott.textContent = ok ? L("Copiato! (", "Copied! (") + registroCompleto.length + L(" righe)", " lines)") : L("Non ci riesco: usa Scarica", "Couldn't copy: use Download"); setTimeout(function () { bott.textContent = originale; }, 2500); }
+    function fatto(ok) { S.lampo(bott, ok ? L("Copiato! (", "Copied! (") + registroCompleto.length + L(" righe)", " lines)") : L("Non ci riesco: usa Scarica", "Couldn't copy: use Download")); }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(testo).then(function () { fatto(true); }, function () { fatto(false); });
     } else {
@@ -974,6 +1228,36 @@
   /* --- avvio ---------------------------------------------------------------- */
   window.addEventListener("load", function () {
     caricaCfg();
+    S.caricaLuoghi().then(function () { disegnaStato(); if (chatUI) chatUI.aggiorna(); });
+    allineaChat();
+    $("btn-copia").textContent = L("Copia tutto il registro", "Copy the whole log");
+    $("btn-invito").onclick = function () {
+      var b = this, n = stanzaInUso();
+      S.copia(S.urlInvito(n)).then(function (ok) {
+        S.lampo(b, ok ? L("Copiato!", "Copied!") : L("Non ci riesco", "Couldn't copy"));
+        // Appunti negati (pagina non in primo piano, permesso rifiutato):
+        // l'indirizzo si mostra, cosi' lo si copia a mano.
+        if (!ok) esito("esito-azione", L("Copia a mano: ", "Copy it by hand: ") + S.urlInvito(n));
+      });
+    };
+    window.addEventListener("storage", function (ev) { if (ev.key === CHIAVE) ricaricaCfg(); });
+    // Le fisarmoniche ricordano come le hai lasciate. Senza un relay scritto,
+    // le impostazioni si aprono da sole: e' la prima cosa da fare.
+    var fis = S.pref("gen3pm.fis", {});
+    ["fis-imp", "fis-log", "fis-att", "fis-diag", "fis-avanzate"].forEach(function (id) {
+      var d = $(id);
+      if (!d) return;
+      if (id in fis) d.open = !!fis[id];
+      else if (id === "fis-imp" && !cfg.relay) d.open = true;
+      d.addEventListener("toggle", function () { if (!fisPronte) return; fis[id] = d.open; S.salvaPref("gen3pm.fis", fis); });
+    });
+    var fisPronte = false;      // l'apertura fatta qui sopra non e' una scelta dell'utente
+    setTimeout(function () { fisPronte = true; }, 400);
+    // Il battito della chat (il «ciao» ogni 10 s, le scadenze) passa da
+    // Battito come quello del bridge: con la scheda nascosta un setInterval
+    // della pagina scende a un colpo al minuto, e gli altri ci vedrebbero
+    // sparire dall'elenco.
+    (window.Battito || window).setInterval(function () { if (chat) chat.battito(); }, 1000);
     $("btn-salva").onclick = salva;
     $("btn-stanze").onclick = aggiornaStanze;
     $("btn-stanza-caso").onclick = entraInStanzaLibera;
@@ -1014,7 +1298,7 @@
       romScelta = await leggiRom(f);
       log("[mb  ] programma scelto a mano: " + f.name + " (" + romScelta.length + " byte)", "mb");
     };
-    ["relay", "stanza", "peer", "peer-gioco", "timing", "cavo"].forEach(function (id) { $(id).addEventListener("change", cambioImpostazioni); });
+    ["relay", "stanza", "peer", "peer-gioco", "timing", "cavo", "nome-chat"].forEach(function (id) { $(id).addEventListener("change", cambioImpostazioni); });
 
     var avv = [];
     if (!CelioDevice.supportato()) {
@@ -1037,6 +1321,10 @@
     setInterval(function () { disegnaDiagnostica(); disegnaStato(); inviaPosizioni(); }, 1000);
     log(L("pronto. Passo 0: 'Collega il Pico' apre la finestra del browser per scegliere il Pico (2FE3:000A).", "ready. Step 0: 'Connect the Pico' opens the browser window to pick the Pico (2FE3:000A)."), "usb");
     if (!cfg.relay) log(L("[rete ] nessun relay impostato: scrivilo nelle impostazioni (te lo da' chi ha pubblicato la pagina)", "[rete ] no relay set: enter it in the settings (whoever published the page gives it to you)"), "rete");
-    window.addEventListener("beforeunload", function () { if (link) link.close(); });
+    if (stanzaDaInvito) {
+      log(L("[rete ] stanza " + stanzaDaInvito + " presa dall'invito: e' gia' nelle impostazioni", "[rete ] room " + stanzaDaInvito + " taken from the invite: it's already in the settings"), "rete");
+      esito("esito-azione", L("Stanza " + stanzaDaInvito + " dall'invito: collega il Pico e gioca, oppure premi «Guarda soltanto».", "Room " + stanzaDaInvito + " from the invite: connect the Pico and play, or press «Just watch»."), "bene");
+    }
+    window.addEventListener("beforeunload", function () { if (chat) chat.chiudi(); if (link) link.close(); });
   });
 })();

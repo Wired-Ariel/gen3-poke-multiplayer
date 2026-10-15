@@ -22,7 +22,7 @@
 const MAGIC = [0x4F, 0x57, 0x4C, 0x31];   // "OWL1"
 const VERSION = 1;
 const HEADER = 11;
-const T = { HELLO: 0, EVENT: 1, PING: 2, PONG: 3, BYE: 4, CLUB: 6 };
+const T = { HELLO: 0, EVENT: 1, PING: 2, PONG: 3, BYE: 4, CLUB: 6, CHAT: 10 };
 
 function unpack(u8) {
   if (u8.length < HEADER) return null;
@@ -95,7 +95,9 @@ export class Room {
       return;
     }
     if (p.kind === T.HELLO) return;
-    if (p.kind === T.EVENT || p.kind === T.CLUB) {
+    // CHAT (10, 2026-10-11): la chat della stanza, inoltrata come gli eventi.
+    // Qui NON c'e' il tetto di frequenza di relay.py: resta da fare.
+    if (p.kind === T.EVENT || p.kind === T.CLUB || p.kind === T.CHAT) {
       for (const w of this._others(ws)) {
         try { w.send(u8); } catch (e) { /* il close arrivera' da solo */ }
       }

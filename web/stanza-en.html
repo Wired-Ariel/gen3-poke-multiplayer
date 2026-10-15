@@ -1,0 +1,222 @@
+<!doctype html>
+<!-- GENERATO da tools/gen_en.py a partire da stanza.html: NON modificare a mano.
+     Si cambia stanza.html (il testo inglese e' li' dentro) e si rilancia lo script. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>gen3-poke-multiplayer — Room</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="img/favicon.png">
+<link rel="alternate" hreflang="it" href="stanza.html">
+<script src="js/lingua.js?v=1.8.0"></script>
+<link rel="stylesheet" href="css/sito.css?v=1.8.0">
+<!--
+  LA PAGINA DI UNA STANZA (2026-10-11): chi c'e', la chat completa, e la
+  scheda «Mappa live» con la chat piccola sopra. Indirizzo: stanza.html?stanza=N.
+
+  Questa pagina NON pilota il GBA: quello lo fa il pannello (gioca.html), che
+  e' l'unica scheda col Pico. Qui ci sono due modi, e la pagina sceglie da
+  sola (js/stanza.js):
+    - se in un'altra scheda il pannello sta giocando in QUESTA stanza, la
+      pagina e' sua OSPITE: legge e scrive attraverso di lui, senza aprire un
+      secondo collegamento;
+    - altrimenti si collega da sola al relay come SPETTATORE (T_WATCH): non
+      occupa un posto, riceve posizioni e chat, e in chat puo' scrivere.
+
+  NIENTE RISORSE ESTERNE. Le due lingue stanno in questo file: stanza-en.html
+  la genera tools/gen_en.py.
+-->
+<style>
+  .stanza-capo { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .stanza-capo .indietro { font-size: 13.5px; font-weight: 600; color: var(--tenue); text-decoration: none; }
+  .stanza-capo .barra { color: var(--bordo-scuro); }
+  .stanza-capo .numero { font: 700 26px var(--mono); letter-spacing: -.01em; }
+  .targhetta { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; background: var(--fondo2); color: var(--tenue); font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+  .targhetta.aperta { background: var(--verde-chiaro); color: var(--verde2); }
+  .stanza-capo .bottoni { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .stanza-capo .bottoni .btn { height: 38px; }
+
+  .griglia-stanza { display: grid; grid-template-columns: 270px minmax(0, 1fr) 280px; gap: 18px; align-items: start;
+                    grid-template-areas: "gente chat lato"; }
+  #col-gente { grid-area: gente; } #scheda-chat { grid-area: chat; } #col-lato { grid-area: lato; }
+  .divisore { height: 1px; background: var(--riga); margin: 10px 0; }
+  .spettatori { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .spettatori li { display: flex; align-items: center; gap: 10px; padding: 0 8px; font-size: 13.5px; min-width: 0; }
+  .spettatori li span.n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .spettatori li small { margin-left: auto; font-size: 11.5px; color: var(--tenue2); white-space: nowrap; }
+  .spettatori .nessuno { color: var(--tenue2); font-size: 12.5px; }
+  .invito-url { display: flex; align-items: center; height: 38px; padding: 0 10px; border-radius: 10px; background: var(--pagina); font: 12px var(--mono); color: var(--testo2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* la scheda della chat: alta quanto lo schermo permette */
+  #scheda-chat { padding: 0; display: flex; flex-direction: column; overflow: hidden; height: clamp(520px, calc(100vh - 190px), 760px); }
+  #chat-stanza { flex: 1; min-height: 0; }
+  #chat-stanza.solo-testa { flex: none; }
+  #riquadro-mappa { position: relative; flex: 1; min-height: 0; background: repeating-linear-gradient(135deg, #e4ecd9 0 14px, #dce6cf 14px 28px); }
+  #mappa-dentro { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+  #riquadro-mappa .tutto { position: absolute; top: 14px; right: 14px; z-index: 3; box-shadow: 0 4px 14px rgba(16,36,28,.08); }
+
+  /* la chat piccola sopra la mappa */
+  #chat-piccola { position: absolute; bottom: 14px; left: 14px; z-index: 4; width: 340px; max-width: calc(100% - 28px); display: flex; flex-direction: column;
+                  border-radius: 16px; overflow: hidden; background: rgba(255,255,255,.92); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+                  border: 1px solid rgba(231,224,207,.9); box-shadow: 0 10px 30px rgba(16,36,28,.18); opacity: .55; transition: opacity .2s; }
+  #chat-piccola:hover, #chat-piccola:focus-within, #chat-piccola.bloccata { opacity: 1; }
+  #chat-piccola.dx, #chat-pillola.dx { left: auto; right: 14px; }
+  #chat-piccola .capo { display: flex; align-items: center; gap: 6px; padding: 9px 10px 9px 14px; border-bottom: 1px solid rgba(16,36,28,.08); }
+  #chat-piccola .capo b { font-size: 13.5px; font-weight: 800; }
+  #chat-piccola .capo .quale { font-size: 11.5px; color: var(--tenue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #chat-piccola .capo .tasti { margin-left: auto; display: flex; gap: 4px; flex: none; }
+  #chat-piccola .capo button { height: 28px; min-width: 28px; padding: 0 8px; border: none; border-radius: 8px; background: rgba(16,36,28,.06); color: var(--testo2); font: 700 12px var(--sans); cursor: pointer; }
+  #chat-piccola .capo button[aria-pressed="true"] { background: var(--verde); color: #fff; }
+  #chat-piccola-corpo .chat-lista { max-height: 170px; flex: none; }
+  #chat-pillola { position: absolute; bottom: 14px; left: 14px; z-index: 4; height: 40px; padding: 0 16px; border: 1px solid var(--bordo); border-radius: 999px; background: rgba(255,255,255,.92);
+                  box-shadow: 0 6px 18px rgba(16,36,28,.15); font: 700 13px var(--sans); color: var(--inchiostro); cursor: pointer; }
+
+  /* il lato destro */
+  .gba-conti { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font: 12px var(--mono); color: rgba(234,245,238,.85); }
+  .adesso { display: flex; flex-direction: column; gap: 10px; }
+  .adesso .voce { display: flex; gap: 10px; }
+  .adesso .voce i { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; flex: none; }
+  .adesso .voce div { font-size: 13px; line-height: 1.45; min-width: 0; }
+  .adesso .voce small { display: block; font-size: 12px; color: var(--tenue); }
+  .notifica { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 0; font-size: 13px; }
+  .notifica > span { flex: 1; }
+  .riga-nome { display: flex; gap: 8px; margin-top: 8px; }
+  .riga-nome input { height: 40px; }
+  .riga-nome .btn { height: 40px; }
+
+  @media (max-width: 1180px) {
+    .griglia-stanza { grid-template-columns: 270px minmax(0, 1fr); grid-template-areas: "gente chat" "lato chat"; }
+  }
+  @media (max-width: 900px) {
+    /* una colonna sola, con la chat in fondo */
+    .griglia-stanza { grid-template-columns: minmax(0, 1fr); grid-template-areas: "gente" "lato" "chat"; gap: 14px; }
+    #scheda-chat { height: 78vh; min-height: 460px; }
+    .stanza-capo .bottoni { margin-left: 0; width: 100%; }
+    .stanza-capo .bottoni .btn { flex: 1; }
+  }
+  @media (max-width: 640px) {
+    .stanza-capo .numero { font-size: 22px; }
+    .stanza-capo .bottoni .btn { height: 44px; flex: 1 1 40%; }
+    #chat-piccola .capo button { height: 36px; min-width: 36px; }
+    #chat-piccola-corpo .chat-lista { max-height: 130px; }
+    .riga-nome input, .riga-nome .btn { height: 46px; }
+    #riquadro-mappa .tutto { top: auto; bottom: 64px; right: 10px; }
+  }
+</style>
+</head>
+<body>
+<header class="testata">
+  <a class="marchio" href="index-en.html" aria-label="Home page">
+    <img class="o1" src="img/orma-treecko-scuro-bordo.png" alt="">
+    <img class="o2" src="img/orma-torchic-scuro-bordo.png" alt="">
+  </a>
+  <a class="nome-sito" href="index-en.html">gen3-poke-multiplayer</a>
+  <nav class="nav" aria-label="Pages">
+    <a href="gioca-en.html" id="nav-pannello"><span class="l-it">Pannello</span><span class="l-en">Panel</span></a>
+    <a class="qui" href="stanze-en.html"><span class="l-it">Stanze</span><span class="l-en">Rooms</span></a>
+    <a href="mappa.html" target="gen3pm-mappa"><span class="l-it">Mappa live</span><span class="l-en">Live map</span></a>
+    <a href="progetto-en.html"><span class="l-it">Come funziona</span><span class="l-en">How it works</span></a>
+  </nav>
+  <div class="pillole">
+    <span class="pillola" id="pill-relay"><i></i><span id="pill-relay-testo">Relay</span></span>
+    <span class="pillola" id="pill-stato"><i></i><span id="pill-stato-testo">—</span></span>
+    <span id="lingua-slot"></span>
+  </div>
+</header>
+
+<main class="muro">
+  <div class="stanza-capo">
+    <a class="indietro" href="stanze-en.html"><span class="l-it">‹ Stanze</span><span class="l-en">‹ Rooms</span></a>
+    <span class="barra">/</span>
+    <span class="numero" id="stanza-numero">—</span>
+    <span class="targhetta" id="badge-aperta">—</span>
+    <div class="bottoni">
+      <button class="btn invito" id="btn-invito" type="button"><span class="l-it">Copia invito</span><span class="l-en">Copy invite</span></button>
+      <a class="btn" id="a-mappa" href="mappa.html" target="gen3pm-mappa"><span class="l-it">Mappa live ↗</span><span class="l-en">Live map ↗</span></a>
+      <button class="btn rosso" id="btn-esci" type="button"><span class="l-it">Esci dalla stanza</span><span class="l-en">Leave the room</span></button>
+    </div>
+  </div>
+
+  <div class="griglia-stanza">
+    <!-- ============================================================ chi c'e' -->
+    <div class="colonna" id="col-gente">
+      <section class="scheda" style="padding:16px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">
+          <span class="etichetta"><span class="l-it">Giocatori</span><span class="l-en">Players</span></span>
+          <span class="mono" style="font-size:12px;color:var(--tenue2)" id="giocatori-conta">— / 4</span></div>
+        <ul class="giocatori" id="lista-giocatori"></ul>
+        <div class="divisore"></div>
+        <p class="etichetta" style="margin-bottom:8px" id="spett-titolo">—</p>
+        <ul class="spettatori" id="lista-spettatori"></ul>
+      </section>
+      <section class="scheda" style="padding:16px">
+        <div style="font-size:14px;font-weight:700"><span class="l-it">Invita un amico</span><span class="l-en">Invite a friend</span></div>
+        <p class="piccolo" style="margin:4px 0 10px"><span class="l-it">Il link apre il pannello con questa stanza già compilata.</span><span class="l-en">The link opens the panel with this room already filled in.</span></p>
+        <div class="invito-url" id="invito-url">—</div>
+      </section>
+    </div>
+
+    <!-- ================================================================ chat -->
+    <section class="scheda" id="scheda-chat">
+      <div id="chat-stanza"></div>
+      <div id="riquadro-mappa" hidden>
+        <iframe id="mappa-dentro" title="Live map"></iframe>
+        <a class="btn tutto" id="a-mappa-tutta" href="mappa.html" target="gen3pm-mappa"><span class="l-it">Apri a tutto schermo ↗</span><span class="l-en">Open full screen ↗</span></a>
+        <div id="chat-piccola">
+          <div class="capo">
+            <b>Chat</b><span class="quale" id="piccola-quale"></span>
+            <div class="tasti">
+              <button type="button" id="btn-blocca" aria-pressed="false" title="Lock: always fully visible">Blocca</button>
+              <button type="button" id="btn-sposta" title="Move to the other corner" aria-label="Move to the other corner">⇄</button>
+              <button type="button" id="btn-riduci" title="Minimize" aria-label="Minimize the chat">–</button>
+            </div>
+          </div>
+          <div id="chat-piccola-corpo"></div>
+        </div>
+        <button type="button" id="chat-pillola" hidden>Chat</button>
+      </div>
+    </section>
+
+    <!-- ========================================================== lato destro -->
+    <div class="colonna" id="col-lato">
+      <section class="eroe piccolo-eroe">
+        <div>
+          <div class="sopra" style="font-size:11px" id="gba-sopra"><span class="l-it">Il tuo GBA</span><span class="l-en">Your GBA</span></div>
+          <div style="font-size:18px;font-weight:800;margin-top:6px" id="gba-titolo">—</div>
+          <div class="mono" style="font-size:12px;color:rgba(234,245,238,.75);margin-top:2px;overflow-wrap:anywhere" id="gba-riga"></div>
+          <div class="gba-conti" id="gba-conti"></div>
+          <a class="btn vetro" id="gba-cta" href="gioca-en.html" style="height:40px;margin-top:12px" hidden></a>
+        </div>
+      </section>
+      <section class="scheda" style="padding:16px">
+        <p class="etichetta" style="margin-bottom:10px"><span class="l-it">Adesso nella stanza</span><span class="l-en">In the room right now</span></p>
+        <div class="adesso" id="adesso"></div>
+      </section>
+      <section class="scheda" style="padding:16px">
+        <p class="etichetta" style="margin-bottom:6px"><span class="l-it">Notifiche</span><span class="l-en">Notifications</span></p>
+        <div class="notifica"><span id="n-suono"><span class="l-it">Suono</span><span class="l-en">Sound</span></span><button class="interruttore piccolo-int" type="button" data-pref="suono" aria-pressed="false" aria-labelledby="n-suono"></button></div>
+        <div class="notifica"><span id="n-menzioni"><span class="l-it">Solo quando mi chiamano con @</span><span class="l-en">Only when I'm called with @</span></span><button class="interruttore piccolo-int" type="button" data-pref="soloMenzioni" aria-pressed="false" aria-labelledby="n-menzioni"></button></div>
+        <div class="notifica"><span id="n-eventi"><span class="l-it">Mostra gli eventi di gioco</span><span class="l-en">Show game events</span></span><button class="interruttore piccolo-int" type="button" data-pref="eventi" aria-pressed="false" aria-labelledby="n-eventi"></button></div>
+        <div class="divisore"></div>
+        <label class="campo"><span><span class="l-it">Il tuo nome in chat</span><span class="l-en">Your name in chat</span></span></label>
+        <form class="riga-nome" id="form-nome">
+          <input type="text" id="nome-chat" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="empty = peer N" aria-label="Your name in chat">
+          <button class="btn verde" type="submit"><span class="l-it">Salva</span><span class="l-en">Save</span></button>
+        </form>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script src="config.js?v=1.8.0"></script>
+<script src="js/sio.js?v=1.8.0"></script>
+<script src="js/battito.js?v=1.8.0"></script>
+<script src="js/relay.js?v=1.8.0"></script>
+<script src="js/club.js?v=1.8.0"></script>
+<script src="js/bridge.js?v=1.8.0"></script>
+<script src="js/sito.js?v=1.8.0"></script>
+<script src="js/chat.js?v=1.8.0"></script>
+<script src="js/chat-ui.js?v=1.8.0"></script>
+<script src="js/stanza.js?v=1.8.0"></script>
+</body>
+</html>

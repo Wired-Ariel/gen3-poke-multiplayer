@@ -2,401 +2,388 @@
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<title>gen3-poke-multiplayer — Pannello web</title>
+<title data-en="gen3-poke-multiplayer — Web panel">gen3-poke-multiplayer — Pannello web</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="img/favicon.png">
 <link rel="alternate" hreflang="en" href="gioca-en.html">
-<script src="js/lingua.js?v=1.7.3"></script>
+<script src="js/lingua.js?v=1.8.0"></script>
+<link rel="stylesheet" href="css/sito.css?v=1.8.0">
 <!--
-  Il pannello gen3-poke-multiplayer NEL BROWSER (2026-08-23): stessa faccia di
-  net/pannello.html, ma qui non c'e' nessun programma dietro. Il Pico si parla
-  via WebUSB (device.js), il gioco si carica nel GBA via multiboot
-  (multiboot.js), la partita passa dal relay via WebSocket (relay.js +
-  bridge.js, il porting di client.py). Chrome o Edge, pagina su https o
-  localhost; su Windows il driver WinUSB (Zadig) come sempre.
+  Il pannello gen3-poke-multiplayer NEL BROWSER (2026-08-23; nuovo disegno e
+  chat della stanza il 2026-10-11). Qui non c'e' nessun programma dietro: il
+  Pico si parla via WebUSB (device.js), il gioco si carica nel GBA via
+  multiboot (multiboot.js), la partita passa dal relay via WebSocket (relay.js
+  + bridge.js, il porting di client.py), la chat sta in chat.js. Chrome o
+  Edge, pagina su https o localhost; su Windows il driver WinUSB (Zadig).
 
-  NIENTE RISORSE ESTERNE: le immagini stanno in img/ e sono i pixel della
-  decomp. La pagina funziona anche servita da un PC offline in LAN.
+  NIENTE RISORSE ESTERNE: immagini in img/ (i pixel della decomp), font in
+  fonts/, stile in css/sito.css. La pagina funziona anche servita da un PC
+  offline in LAN.
+
+  DUE LINGUE, UN FILE: il testo inglese sta accanto all'italiano (.l-it /
+  .l-en, data-en-*), e gioca-en.html lo GENERA tools/gen_en.py da questo
+  file. Si modifica solo questo.
+
+  GLI ID NON SI TOCCANO: js/app.js li cerca per nome. Un elemento puo'
+  cambiare posto e aspetto, non id.
 -->
 <style>
-  :root {
-    --verde-cupo: #0f3428; --verde: #0f6b4a; --verde-vivo: #16a06e; --verde-chiaro: #3fd68f;
-    --carta: #f2ede1; --scheda: #fffdf7; --bordo: #dfd7c4; --bordo-scuro: #cbc3b0;
-    --inchiostro: #16211c; --tenue: #6b7269; --tenue2: #8b9189; --ambra: #c07a12; --rosso: #b3392f;
-    --mono: Consolas, "Cascadia Mono", "Courier New", monospace;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color: var(--inchiostro); background: var(--carta); }
-  img.px { image-rendering: pixelated; }
-  [hidden] { display: none !important; }
+  .griglia-pannello { display: grid; grid-template-columns: 250px minmax(0, 1fr) 390px; gap: 20px; align-items: start;
+                      grid-template-areas: "passi centro stanza"; }
+  #col-passi { grid-area: passi; } #col-centro { grid-area: centro; } #col-stanza { grid-area: stanza; }
 
-  header { position: relative; overflow: hidden; background: var(--verde-cupo); color: #eaf5ee; padding: 20px 0 22px; }
-  header .erba, header .velo { position: absolute; inset: 0; }
-  header .erba { background: url(img/tile-erba-alta.png) 0 0/96px 96px repeat; image-rendering: pixelated; opacity: .9; }
-  header .velo { background: linear-gradient(100deg, rgba(8,26,20,.92) 0%, rgba(8,26,20,.78) 55%, rgba(8,26,20,.52) 100%); }
-  header .dentro { position: relative; max-width: 1160px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
-  .marchio { position: relative; width: 56px; height: 56px; flex: none; border-radius: 13px; overflow: hidden; border: 2px solid #08211a; box-shadow: 0 6px 16px rgba(0,0,0,.35); }
-  .marchio .fondo { position: absolute; inset: 0; background: url(img/tile-erba-alta.png) 0 0/30px 30px repeat; image-rendering: pixelated; }
-  .marchio .o1 { position: absolute; left: 5px; bottom: 5px; width: 25px; height: 25px; }
-  .marchio .o2 { position: absolute; right: 4px; top: 4px; width: 22px; height: 22px; }
-  header h1 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
-  header .sub { margin: 3px 0 0; font-size: 13px; color: rgba(234,245,238,.74); }
-  .targhe { margin-left: auto; display: flex; gap: 9px; flex-wrap: wrap; }
-  .targa { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 9px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.16); font: 12px/1 var(--mono); color: #bfe2cd; max-width: 420px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .targa .led { width: 7px; height: 7px; border-radius: 50%; background: #7a857e; flex: none; }
-  .targa .led.ok { background: var(--verde-chiaro); } .targa .led.no { background: #ff7b72; } .targa .led.attesa { background: #ffcc70; }
+  /* lo stepper verticale */
+  .passi-v { padding: 18px 12px 6px; }
+  .passi-v .etichetta { margin: 0 6px 12px; }
+  button.passo { display: flex; gap: 12px; width: 100%; text-align: left; padding: 8px 6px 14px; border: none; border-radius: 12px; background: none; color: inherit; font: inherit; cursor: pointer; }
+  button.passo:hover:not(:disabled) { background: var(--pagina); }
+  button.passo:disabled { cursor: not-allowed; opacity: .6; }
+  .passo .cerchio { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 50%; background: #ebe5d6; color: var(--tenue); font: 700 14px var(--mono); }
+  .passo.fatto .cerchio { background: var(--verde); color: #fff; font-family: var(--sans); font-weight: 800; }
+  .passo.adesso .cerchio { background: var(--arancio); color: #fff; box-shadow: 0 0 0 5px #fde3d3; }
+  .passo .testo { min-width: 0; flex: 1; }
+  .passo .testo b { display: block; font-size: 14.5px; font-weight: 700; }
+  .passo .testo small { display: block; font-size: 12.5px; line-height: 1.45; color: var(--tenue); margin-top: 2px; overflow-wrap: anywhere; }
+  .passo .fine { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 700; color: var(--verde2); }
+  .passo.fatto .fine { color: var(--tenue2); }
+  .passo.adesso .fine { color: var(--arancio-testo); }
 
-  main { max-width: 1160px; margin: 22px auto 40px; padding: 0 24px; }
-
-  #avviso { display: flex; gap: 13px; align-items: flex-start; background: #fdf4dd; border: 1px solid #e8ce8f; border-left: 5px solid var(--ambra); border-radius: 12px; padding: 13px 17px; margin-bottom: 18px; font-size: 14px; }
-  #avviso .bang { display: grid; place-items: center; width: 24px; height: 24px; flex: none; border-radius: 50%; background: var(--ambra); color: #fff; font-weight: 800; font-size: 14px; }
-
-  .stato { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-  .scheda { background: var(--scheda); border: 1px solid var(--bordo); border-radius: 16px; padding: 17px 19px; box-shadow: 0 1px 2px rgba(20,30,24,.05); }
-  .etichetta { margin: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .14em; color: var(--tenue2); }
-  .scheda.presenza { position: relative; }
-  .grosso { margin: 11px 0 0; font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
-  .riga-mono { margin: 4px 0 0; font: 12.5px/1.4 var(--mono); color: #5f6b62; }
-  .spia { position: absolute; top: 16px; right: 18px; display: flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--tenue2); }
+  /* le due schede di stato */
+  .stato2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .stato2 .scheda { border-radius: 16px; }
+  .riga-testa { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .grosso { margin: 8px 0 0; font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
+  .riga-mono { margin: 3px 0 0; font: 12.5px/1.4 var(--mono); color: #5f6b62; overflow-wrap: anywhere; }
+  .spia { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--tenue2); white-space: nowrap; }
   .spia i { width: 8px; height: 8px; border-radius: 50%; background: #c3c3cc; }
-  .spia.ok { color: var(--verde); } .spia.ok i { background: var(--verde-vivo); }
+  .spia em { font-style: normal; }
+  .spia.ok { color: var(--verde2); } .spia.ok i { background: var(--verde-vivo); }
   .spia.no { color: var(--rosso); } .spia.no i { background: var(--rosso); }
   .spia.attesa { color: var(--ambra); } .spia.attesa i { background: var(--ambra); }
-  .amici { margin: 8px 0 0; padding: 0; list-style: none; font: 12.5px/1.5 var(--mono); color: #3b463f; }
-  .amici li { display: flex; gap: 8px; align-items: baseline; }
-  .amici li b { color: var(--verde); }
+  .cifra { display: flex; align-items: baseline; gap: 8px; margin-top: 8px; }
+  .cifra b { font: 700 26px/1 var(--mono); }
+  .cifra span { font: 12px var(--mono); color: var(--tenue); }
+  .conti { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font: 12.5px var(--mono); color: var(--testo2); }
+  .conti b { font-weight: 700; }
 
-  .scheda.canale { background: var(--verde-cupo); border-color: #0b2a20; color: #dcefe3; }
-  .scheda.canale .etichetta { color: rgba(220,239,227,.6); }
-  .cifra { display: flex; align-items: baseline; gap: 8px; margin-top: 11px; }
-  .cifra b { font: 700 32px/1 var(--mono); letter-spacing: -.02em; }
-  .cifra span { font: 12.5px/1 var(--mono); color: rgba(220,239,227,.65); }
-  .conti { display: flex; gap: 8px; margin-top: 13px; }
-  .conti div { flex: 1; border-radius: 9px; background: rgba(255,255,255,.07); padding: 7px 10px; }
-  .conti small { display: block; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: rgba(220,239,227,.55); }
-  .conti b { display: block; margin-top: 4px; font: 700 15px/1 var(--mono); }
+  /* impostazioni */
+  .aperte { border: 1px dashed var(--bordo-scuro); border-radius: 12px; padding: 12px; }
+  .aperte label.spunta { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; line-height: 1.5; cursor: pointer; }
+  .aperte label.spunta input { margin-top: 3px; flex: none; }
+  .aperte .testa { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; font-size: 12px; font-weight: 600; color: var(--testo2); }
+  .aperte .testa > span { margin-right: auto; }
+  .aperte ul { list-style: none; margin: 6px 0 0; padding: 0; }
+  .aperte li { display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 6px 0; border-top: 1px solid var(--riga); font-size: 13px; }
+  .aperte li:first-child { border-top: 0; }
+  .aperte li button.minore { height: 32px; }
+  .riga-bottoni { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 14px; align-items: center; }
 
-  .due { display: grid; grid-template-columns: minmax(0,1.32fr) minmax(0,1fr); gap: 18px; align-items: start; margin-top: 18px; }
-  .pannello { background: var(--scheda); border: 1px solid var(--bordo); border-radius: 16px; padding: 20px 22px 22px; box-shadow: 0 1px 2px rgba(20,30,24,.05); }
-  .pannello h2 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
-  .pannello p.aiuto { margin: 6px 0 16px; font-size: 13px; line-height: 1.55; color: var(--tenue); }
-  .passi { display: flex; flex-direction: column; gap: 10px; }
-  button.azione { display: flex; align-items: center; gap: 15px; width: 100%; text-align: left; border: 1px solid #e3dbc9; background: var(--scheda); border-radius: 13px; padding: 13px 15px; font: inherit; cursor: pointer; }
-  button.azione:hover:not(:disabled) { border-color: var(--bordo-scuro); background: #fffaf0; }
-  button.azione:disabled { cursor: not-allowed; opacity: .55; }
-  button.azione .num { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border-radius: 10px; background: #e9e2d0; color: #5f6b62; font: 700 15px/1 var(--mono); }
-  button.azione .testo { min-width: 0; }
-  button.azione .testo b { display: block; font-size: 15px; font-weight: 700; }
-  button.azione .testo small { display: block; margin-top: 3px; font-size: 12.5px; color: var(--tenue); }
-  button.azione .fine { margin-left: auto; flex: none; display: grid; place-items: center; height: 38px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--bordo-scuro); background: #fff; font-size: 13px; font-weight: 700; color: #3b463f; }
-  button.azione.viva { border-color: #cfe3d6; background: #f3faf5; }
-  button.azione.viva .num { background: var(--verde); color: #fff; }
-  button.azione.viva .fine { background: var(--inchiostro); border-color: var(--inchiostro); color: #fff; }
-  button.azione.lavoro .num { background: var(--ambra); color: #fff; }
-
-  .separa { height: 1px; background: #e6dfcd; margin: 18px 0 14px; }
-  .attrezzi { display: flex; flex-wrap: wrap; gap: 9px; }
-  button.minore, a.minore { height: 38px; padding: 0 15px; border: 1px solid var(--bordo-scuro); border-radius: 10px; background: #fff; color: #3b463f; font: 600 13px/38px inherit; font-family: inherit; cursor: pointer; text-decoration: none; display: inline-block; }
-  button.minore:hover, a.minore:hover { background: #f5f0e3; }
-  button.minore:disabled { opacity: .5; cursor: not-allowed; }
-
-  label.campo { display: block; }
-  label.campo > span { display: block; font-size: 11.5px; font-weight: 600; color: #3b463f; margin-bottom: 6px; }
-  label.campo > small.guida { display: block; margin-top: 5px; font-size: 11.5px; line-height: 1.5; color: var(--tenue); }
-  input[type=text], input[type=number], select { width: 100%; height: 42px; padding: 0 11px; border: 1px solid var(--bordo); border-radius: 10px; background: #fff; font: 13.5px/1 var(--mono); color: var(--inchiostro); }
-  input:focus, select:focus { outline: 2px solid var(--verde-vivo); outline-offset: 1px; }
-  .campi { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .campi .larga { grid-column: 1 / -1; }
-  button.salva { height: 42px; padding: 0 18px; border: none; border-radius: 10px; background: var(--verde); color: #fff; font: 700 13px/1 inherit; font-family: inherit; cursor: pointer; }
-  button.salva:hover { background: #0b573b; }
-  .esito { font-size: 13px; margin-top: 10px; min-height: 19px; color: var(--tenue); }
-  .esito.male { color: var(--rosso); font-weight: 600; }
-  .esito.bene { color: var(--verde); font-weight: 600; }
-
-  .diagnostica { margin-top: 18px; background: var(--scheda); border: 1px solid var(--bordo); border-radius: 16px; padding: 14px 19px; }
-  .diagnostica p { margin: 6px 0 0; font: 12px/1.5 var(--mono); color: #3b463f; word-break: break-word; }
-
-  .registro { margin-top: 18px; background: #0d211a; border: 1px solid #0a1b15; border-radius: 16px; overflow: hidden; }
-  .barra-log { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 18px; border-bottom: 1px solid rgba(255,255,255,.08); }
-  .barra-log h2 { margin: 0; font-size: 14px; font-weight: 700; color: #eaf5ee; }
-  .barra-log label { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: rgba(234,245,238,.72); }
-  .legenda { margin-left: auto; display: flex; gap: 11px; font: 11px/1 var(--mono); }
-  .legenda span { display: flex; align-items: center; gap: 6px; }
+  /* registro */
+  .barra-log { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+  .barra-log label { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--testo2); cursor: pointer; }
+  .legenda { margin-left: auto; display: flex; gap: 11px; flex-wrap: wrap; font: 11px/1 var(--mono); }
+  .legenda > span { display: flex; align-items: center; gap: 6px; }
   .legenda i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  #log { height: 320px; overflow-y: auto; padding: 12px 18px 16px; font: 12.5px/1.7 var(--mono); color: #cfe0d6; white-space: pre-wrap; word-break: break-word; }
+  #log { height: 300px; overflow-y: auto; background: #0d211a; border-radius: 12px; padding: 12px 16px; font: 12.5px/1.7 var(--mono); color: #cfe0d6; white-space: pre-wrap; word-break: break-word; }
   #log .r { display: block; }
   #log .chi { color: #5f7a6b; }
   #log .rete .chi { color: #7fb2ff; } #log .gba .chi { color: #7fd7a0; } #log .mb .chi { color: #ffcc70; }
-  #log .usb .chi { color: #ff9a9a; } #log .stato .chi { color: #d8a0ff; } #log .club .chi { color: #d8a0ff; }
+  #log .usb .chi { color: #ff9a9a; } #log .stato .chi { color: #d8a0ff; } #log .club .chi { color: #d8a0ff; } #log .chat .chi { color: #ffb38a; }
   #log .err { color: #ff8f8f; font-weight: 700; }
-  footer { text-align: center; color: var(--tenue2); font-size: 12.5px; padding: 16px 0 30px; }
-  footer a { color: var(--verde); }
-  /* ============================================================= MOBILE ====
-   * Il pannello nasce per il monitor: su telefono le tre schede di stato, le
-   * due colonne e la riga degli attrezzi diventano una colonna sola, i
-   * bersagli crescono fino a 44 px (sotto, col dito si sbaglia), e il
-   * registro smette di prendersi mezzo schermo. */
+  .attrezzi { display: flex; flex-wrap: wrap; gap: 8px; }
+  .diag p { margin: 6px 0 0; font: 12px/1.5 var(--mono); color: var(--testo2); word-break: break-word; }
+  p.aiuto.ambra { border-left: 4px solid var(--ambra); padding-left: 12px; color: var(--testo2); }
+
+  /* la colonna della stanza */
+  #col-stanza { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .stanza-su { padding: 18px 18px 12px; border-bottom: 1px solid var(--riga); }
+  .stanza-su .numero { font: 700 22px var(--mono); margin-top: 2px; }
+  .amici-testa { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0 4px; }
+  .amici-testa b { font-size: 13.5px; }
+  #chat-pannello .chat-testa { padding: 12px 18px 0; border-bottom: 0; }
+  #chat-pannello .chat-testa .titolo { font-size: 14px; font-weight: 700; }
+  #chat-pannello .chat-lista { height: 330px; flex: none; }
+
+  @media (max-width: 1180px) {
+    .griglia-pannello { grid-template-columns: minmax(0, 1fr) 350px; grid-template-areas: "passi stanza" "centro stanza"; }
+  }
   @media (max-width: 900px) {
-    .stato { grid-template-columns: 1fr; }
-    .due { grid-template-columns: 1fr; }
+    /* Una colonna sola, con la chat in fondo. Le due colonne di sinistra si
+     * sciolgono (display: contents) per poter mettere IN CIMA il riquadro col
+     * passo di adesso e il suo bottone: su un telefono e' la prima cosa che
+     * serve, e sotto lo stepper finirebbe a due schermate di distanza. */
+    .griglia-pannello { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; gap: 14px; }
+    #col-passi, #col-centro { display: contents; }
+    #eroe { order: 1; }
+    #esito-azione, #aiuto-firmware, #aiuto-firmware-pico { order: 2; margin: 0; }
+    #esito-azione:empty { display: none; }
+    .passi-v { order: 3; }
+    .stato2 { order: 4; }
+    #col-centro > .fisarmoniche { order: 5; }
+    #col-passi > .tratteggio { order: 6; }
+    #col-stanza { grid-area: auto; order: 9; }
   }
-
   @media (max-width: 640px) {
-    header { padding: 14px 0 15px; }
-    header .dentro { padding: 0 14px; gap: 12px; }
-    header h1 { font-size: 20px; }
-    header .sub { font-size: 12px; }
-    /* le targhe vanno a capo sotto il marchio invece di stringere il titolo */
-    .targhe { margin-left: 0; width: 100%; order: 3; }
-    .targa { flex: 1 1 100%; max-width: none; }
-
-    main { margin: 14px auto 26px; padding: 0 14px; }
-    .scheda { padding: 14px 15px; border-radius: 14px; }
-    .pannello { padding: 16px 15px 18px; border-radius: 14px; }
-    .cifra b { font-size: 27px; }
-
-    /* la spia in alto a destra finirebbe sopra il testo: va sotto */
-    .spia { position: static; margin-top: 9px; }
-
-    /* i passi: numero sopra, bottone a tutta larghezza sotto */
-    button.azione { flex-wrap: wrap; gap: 10px 12px; padding: 12px 13px; }
-    button.azione .testo { flex: 1 1 auto; }
-    button.azione .fine { margin-left: 0; flex: 1 1 100%; height: 44px; }
-
-    /* attrezzi e campi: uno per riga, alti abbastanza per un dito */
+    .stato2 { grid-template-columns: 1fr; }
     .attrezzi { flex-direction: column; }
-    button.minore, a.minore, .attrezzi label.minore { width: 100%; height: 44px; line-height: 44px; text-align: center; }
-    .campi { grid-template-columns: 1fr; }
-    input[type=text], input[type=number], select { height: 46px; font-size: 16px; }
-    /* 16px NON e' un capriccio: sotto i 16 px iOS ingrandisce la pagina da
-     * solo quando il campo prende il fuoco, e non la rimpicciolisce piu'. */
-    button.salva { width: 100%; height: 46px; }
-
-    /* le caselle di spunta a 13 px si sbagliano col dito: si ingrandiscono
-     * loro e la riga che le contiene, cosi' il bersaglio vero e' l'etichetta */
-    .barra-log label, .attrezzi label { min-height: 40px; }
-    input[type=checkbox] { width: 20px; height: 20px; }
-
-    #log { height: 42vh; font-size: 12px; padding: 10px 13px 13px; }
-    .barra-log { padding: 10px 13px; gap: 10px; }
-    .legenda { margin-left: 0; width: 100%; flex-wrap: wrap; gap: 8px; }
-    #riga-club { flex-wrap: wrap; }
-    #riga-club .pillola { margin-left: 0; }
+    .attrezzi .minore { width: 100%; justify-content: center; }
+    .riga-bottoni > * { flex: 1 1 100%; justify-content: center; }
+    .barra-log label { min-height: 40px; }
+    .legenda { margin-left: 0; width: 100%; }
+    #log { height: 42vh; font-size: 12px; padding: 10px 13px; }
+    #chat-pannello .chat-lista { height: 46vh; }
+    .aperte .testa button, .aperte .testa a { flex: 1 1 100%; justify-content: center; }
+    .aperte li button.minore { height: 44px; }
   }
-  /* Le stanze aperte (2026-09-27) */
-  .aperte { border: 1px dashed var(--bordo-scuro); border-radius: 10px; padding: 10px 12px; }
-  .aperte label.spunta { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; line-height: 1.5; cursor: pointer; }
-  .aperte label.spunta input { margin-top: 2px; flex: none; }
-  .aperte .testa { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-top: 10px; font-size: 11.5px; font-weight: 600; color: #3b463f; }
-  .aperte ul { list-style: none; margin: 6px 0 0; padding: 0; }
-  .aperte li { display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 6px 0; border-top: 1px solid var(--bordo-scuro); font-size: 13px; }
-  .aperte li:first-child { border-top: 0; }
-  .aperte li button.minore { height: 30px; line-height: 30px; padding: 0 12px; width: auto; }
 </style>
 </head>
 <body>
 <!-- BANNER DELLA VERSIONE (2026-09-27): si cambia VERSIONE e testo a ogni rilascio. -->
-<div id="banner-versione" style="background:#1f4d36;color:#f2f7f3;font:14px/1.45 system-ui,-apple-system,'Segoe UI',sans-serif;padding:10px 16px;display:flex;gap:12px;align-items:flex-start;justify-content:center;flex-wrap:wrap;position:relative;z-index:50">
-  <span style="background:#f2c14e;color:#1f2a22;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap">Aggiornato alla versione 1.7.3</span>
-  <span style="max-width:760px;flex:1 1 320px">28 settembre 2026: l'amico non compare più spostato di qualche pixel quando entra in scena mentre stai camminando (per esempio uscendo dalla saletta del Cable Club).
-    Serve ricaricare il gioco nel GBA dal sito, e a chi gioca in emulatore riscaricare lo script.
-    Nella saletta resta il modo di prima (i passi possono sfasarsi); scambi e lotte funzionano.</span>
-  <button type="button" aria-label="Chiudi" onclick="try{localStorage.setItem('banner-versione','1.7.3')}catch(e){};this.parentNode.hidden=true" style="background:none;border:1px solid rgba(242,247,243,.5);color:inherit;border-radius:6px;padding:2px 9px;cursor:pointer;font:inherit">×</button>
+<div id="banner-versione">
+  <span class="v"><span class="l-it">Aggiornato alla versione 1.8.0</span><span class="l-en">Updated to version 1.8.0</span></span>
+  <span class="t l-it"><b>Tutte le animazioni dell'amico</b> (salti dai gradini, bici da corsa e acrobatica, pesca, Surf, volo) e <b>chat della stanza</b>, in un sito nuovo.
+    Il GBA prende il gioco nuovo da solo; chi usa l'emulatore deve <b>riscaricare lo script</b>. Le animazioni si vedono se siete aggiornati tutti e due.</span>
+  <span class="t l-en"><b>All of your friend's animations</b> (ledge jumps, Mach and Acro Bike, fishing, Surf, Fly) and <b>room chat</b>, in a new site.
+    The GBA picks up the new game by itself; emulator players must <b>download the script again</b>. You see the animations when both of you are up to date.</span>
+  <button type="button" aria-label="Chiudi" data-en-aria-label="Close" onclick="try{localStorage.setItem('banner-versione','1.8.0-anim')}catch(e){};this.parentNode.hidden=true">×</button>
 </div>
-<script>try{if(localStorage.getItem('banner-versione')==='1.7.3')document.getElementById('banner-versione').hidden=true}catch(e){}</script>
+<script>try{if(localStorage.getItem('banner-versione')==='1.8.0-anim')document.getElementById('banner-versione').hidden=true}catch(e){}</script>
 
-<header>
-  <div class="erba"></div>
-  <div class="velo"></div>
-  <div class="dentro">
-    <div class="marchio" id="marchio">
-      <div class="fondo"></div>
-      <img class="px o1" src="img/orma-treecko-scuro-bordo.png" alt="">
-      <img class="px o2" src="img/orma-torchic-scuro-bordo.png" alt="">
-    </div>
-    <div>
-      <h1>gen3-poke-multiplayer</h1>
-      <p class="sub" id="sottotitolo">Camminate insieme in Pokémon Smeraldo, su GBA vero — dal browser.</p>
-    </div>
-    <div class="targhe">
-      <span id="lingua-slot" style="color:#eaf5ee"></span>
-      <span class="targa" title="il relay"><span class="led" id="led-relay"></span><span id="targa-relay">relay: non collegato</span></span>
-      <span class="targa" title="il Pico (adattatore USB)"><span class="led" id="led-pico"></span><span id="targa-pico">Pico: non collegato</span></span>
-    </div>
+<header class="testata">
+  <a class="marchio" id="marchio" href="index.html" aria-label="Pagina iniziale" data-en-aria-label="Home page">
+    <img class="o1" src="img/orma-treecko-scuro-bordo.png" alt="">
+    <img class="o2" src="img/orma-torchic-scuro-bordo.png" alt="">
+  </a>
+  <a class="nome-sito" href="index.html">gen3-poke-multiplayer
+    <small id="sottotitolo"><span class="l-it">Camminate insieme in Pokémon Smeraldo, su GBA vero — dal browser.</span><span class="l-en">Walk together in Pokémon Emerald, on a real GBA — from the browser.</span></small></a>
+  <nav class="nav" id="nav" aria-label="Pagine" data-en-aria-label="Pages">
+    <a class="qui" href="gioca.html" aria-current="page"><span class="l-it">Pannello</span><span class="l-en">Panel</span></a>
+    <a href="stanze.html" data-pagina="stanze"><span class="l-it">Stanze</span><span class="l-en">Rooms</span></a>
+    <a href="mappa.html" data-pagina="mappa" target="gen3pm-mappa"><span class="l-it">Mappa live</span><span class="l-en">Live map</span></a>
+    <a href="progetto.html" data-pagina="progetto"><span class="l-it">Come funziona</span><span class="l-en">How it works</span></a>
+  </nav>
+  <div class="pillole">
+    <a class="pillola stanza" id="pill-stanza" href="stanza.html" data-pagina="stanza" title="Apri la pagina della stanza" data-en-title="Open the room page">—</a>
+    <span class="pillola" title="il relay" data-en-title="the relay"><i class="led" id="led-relay"></i><span id="targa-relay">relay</span></span>
+    <span class="pillola" title="il Pico (adattatore USB)" data-en-title="the Pico (USB adapter)"><i class="led" id="led-pico"></i><span id="targa-pico">Pico</span></span>
+    <span id="lingua-slot"></span>
   </div>
 </header>
 
-<main>
-  <div id="avviso" hidden><span class="bang">!</span><span id="avviso-testo"></span></div>
+<main class="muro">
+  <div class="avviso" id="avviso" hidden><span class="bang">!</span><span id="avviso-testo"></span></div>
 
-  <section class="stato">
-    <div class="scheda presenza">
-      <p class="etichetta">Il tuo GBA</p>
-      <p class="grosso" id="st-gba">Fermo</p>
-      <p class="riga-mono" id="st-mappa">programma non caricato</p>
-      <span class="spia" id="spia-gba"><i></i><em id="spia-gba-testo" style="font-style:normal">in attesa</em></span>
-    </div>
-    <div class="scheda presenza">
-      <p class="etichetta">Gli amici</p>
-      <p class="grosso" id="st-amico">In attesa</p>
-      <p class="riga-mono" id="st-stanza">stanza —</p>
-      <ul class="amici" id="lista-amici"></ul>
-      <span class="spia" id="spia-amico"><i></i><em id="spia-amico-testo" style="font-style:normal">in attesa</em></span>
-    </div>
-    <div class="scheda canale">
-      <p class="etichetta">Canale</p>
-      <div class="cifra"><b id="st-parole">—</b><span>parole/s sul cavo</span></div>
-      <div class="conti">
-        <div><small>Inviati</small><b id="st-inviati">0</b></div>
-        <div><small>Ricevuti</small><b id="st-ricevuti">0</b></div>
-        <div><small>RTT</small><b id="st-rtt">—</b></div>
-      </div>
-    </div>
-  </section>
-
-  <div class="due">
-    <section class="pannello">
-      <h2>Partita</h2>
-      <p class="aiuto">In ordine: collega il Pico, poi <b>slot cartuccia vuoto</b>, cavo, accendi il GBA e carica il gioco;
-        schermo rosso ➜ inserisci la cartuccia a caldo ➜ verde ➜ gioca. Infine premi Gioca quando sei all'aperto.</p>
-      <p class="aiuto" style="margin:4px 0 14px">Vale per <b>Pokémon Smeraldo italiano</b> e <b>Pokémon Emerald inglese</b> (USA/Europa): il programma riconosce da solo la cartuccia inserita, e lo script per l’emulatore la ROM caricata. Non c’è niente da scegliere.</p>
-      <div class="passi">
-        <div id="riga-pico"></div>
-        <div id="riga-multiboot"></div>
-        <div id="riga-gioca"></div>
-      </div>
-      <div class="esito" id="esito-azione"></div>
-      <p class="aiuto" id="aiuto-firmware" hidden style="border-left:4px solid var(--ambra);padding-left:12px"><b>Il GBA non ha mai risposto.</b> La causa più comune è il <b>firmware del Pico</b>: questo progetto vuole il suo <a href="https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2"><code>celio.uf2</code></a>, anche se l’adattatore ha già il firmware Celio o GB-Link. Tieni premuto BOOTSEL mentre colleghi il Pico, trascina il file nell’unità che compare, poi riprova. Se non basta: slot cartuccia vuoto, GBA acceso <i>dopo</i> il cavo, cavo nel verso giusto.</p>
-      <p class="aiuto" id="aiuto-firmware-pico" hidden style="border-left:4px solid var(--ambra);padding-left:12px"><b>Il Pico non ha il firmware di questo progetto</b> (<span id="fw-trovato"></span>). Senza, il gioco non si carica e il GBA non risponde. Scarica <a href="https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2"><code>celio.uf2</code></a>, tieni premuto BOOTSEL mentre colleghi il Pico, trascina il file nell’unità che compare, poi premi di nuovo «Collega il Pico». Va fatto una volta sola.</p>
-
-      <div class="separa"></div>
-      <p class="etichetta" style="margin-bottom:10px">Attrezzi</p>
-      <div class="attrezzi">
-        <button class="minore" id="btn-mappa">Mappa live ↗</button>
-        <button class="minore" id="btn-spettatore">Guarda soltanto (spettatore)</button>
-        <button class="minore" id="btn-lua" title="Scarica lo script gia' configurato con la stanza qui sopra: si carica in mGBA e basta">Scarica lo script per l'emulatore ↓</button>
-        <button class="minore" id="btn-riavvia" disabled>Riavvia il Pico (F-4)</button>
-        <button class="minore" id="btn-scollega" disabled>Scollega il Pico</button>
-        <label class="minore" style="cursor:pointer;padding:0 12px">.gba diverso: <input type="file" id="mb-file" accept=".gba" style="width:190px;font-size:12px"></label>
-        <button class="minore" id="btn-copia">Copia tutto il registro</button>
-        <button class="minore" id="btn-scarica" title="Salva un file .log con TUTTE le righe della sessione, anche quelle uscite dallo schermo">Scarica il log completo</button>
-        <button class="minore" id="btn-pulisci" title="Sgombra solo lo schermo: copia e download restituiscono comunque tutta la sessione">Pulisci il log</button>
-      </div>
-      <p class="aiuto" style="margin:12px 0 0">La <b>Mappa live</b> mostra Hoenn con te e gli amici dal vivo: si apre in una scheda a parte
-        e prende le posizioni da questa pagina, quindi tienile aperte tutte e due.
-        <b>Guarda soltanto</b> serve a chi non ha il GBA sottomano (o usa Firefox, dove WebUSB non esiste): ti colleghi
-        al relay e vedi gli altri muoversi, senza mandare niente — e <b>senza occupare uno dei 4 posti</b> della stanza,
-        quindi si può guardare anche a partita piena. Se stai giocando altrove (per esempio dentro mGBA), scrivi il
-        numero di peer di quel client fra le Impostazioni: sulla mappa ti ritrovi come <b>«tu»</b>, in azzurro.</p>
-      <p class="aiuto" style="margin:8px 0 0"><b>Giochi dentro mGBA?</b> Premi <b>Scarica lo script per l'emulatore</b>:
-        ti viene giù un file <code>.lua</code> già scritto con la stanza qui sopra — lo carichi in mGBA
-        (<i>Tools → Scripting → Load script</i>) e giochi, senza modificare niente a mano. Il numero di peer se lo
-        sorteggia da solo. Per cambiare stanza dopo: riscarica, oppure scrivi <code>stanza(4242)</code> nella
-        console di mGBA.</p>
-      <p class="aiuto" style="margin:8px 0 0">Il <b>Cable Club</b> (scambi e lotte) funziona anche da qui: sedetevi al bancone
-        della saletta in due, e il resto parte da solo — il registro dice «passo il Pico in modo LINK». Durante lo scambio
-        puoi passare a un'altra scheda o ridurre la finestra (dal 27/09/2026, provato con uno scambio vero); la fermerebbe solo un browser che <i>sospende</i> le schede inattive (Edge «schede in sospensione», Chrome «Risparmio memoria»). Serve il Pico collegato:
-        da spettatore, o dentro mGBA, il club non c'è.</p>
-    </section>
-
-    <section class="pannello">
-      <h2>Impostazioni</h2>
-      <p class="aiuto">Devono combaciare con i tuoi amici: <b>stesso relay</b> e <b>stessa stanza</b>. Nessuno ospita niente:
-        il relay sta su un server e ognuno si collega.</p>
-      <div class="campi">
-        <label class="campo larga"><span>Relay (wss://host/ws, oppure host:porta)</span>
-          <input type="text" id="relay" spellcheck="false" placeholder="wss://relay.esempio.it/ws">
-          <small class="guida">L'indirizzo del server che smista i pacchetti fra i giocatori.
-            Se apri questa pagina dal sito ufficiale è già compilato: non toccarlo.
-            «Prova il relay» qui sotto ti dice subito se è raggiungibile e in quanti millisecondi.</small></label>
-        <label class="campo"><span>Stanza (stesso numero per tutti)</span>
-          <input type="number" id="stanza" min="1" max="65535">
-          <small class="guida">La «partita»: si vedono solo i giocatori con lo stesso numero.
-            Scegline uno qualsiasi fra 1 e 65535 e passalo agli amici. Non è una password:
-            chi lo conosce entra.</small></label>
-        <div class="campo larga aperte">
-          <label class="spunta"><input type="checkbox" id="stanza-aperta">
-            <span><b>Stanza aperta</b>: la tua stanza compare nell'elenco qui sotto e <b>chiunque può entrare</b>
-              (fino a 4 giocatori). Resta aperta finché la spunta c'è e tu sei in partita. Vale anche per lo <b>script dell'emulatore</b> scaricato da questa pagina; dentro mGBA si cambia con <code>aperta(true)</code> o dal pannello L+R+B.</span></label>
-          <div class="testa"><span>Stanze aperte adesso</span><button class="minore" id="btn-stanza-caso" type="button">Entra in una stanza libera</button><button class="minore" id="btn-stanze" type="button">Aggiorna</button></div>
-          <ul id="lista-stanze"></ul>
-          <small class="guida" id="stanze-nota"></small>
+  <div class="griglia-pannello">
+    <!-- ============================================================ i passi -->
+    <div class="colonna" id="col-passi">
+      <section class="scheda passi-v">
+        <p class="etichetta"><span class="l-it">Come si gioca</span><span class="l-en">How to play</span></p>
+        <div class="passi">
+          <div id="riga-pico"></div>
+          <div id="riga-multiboot"></div>
+          <div id="riga-gioca"></div>
         </div>
-        <label class="campo"><span>Il tuo numero (peer)</span>
-          <input type="number" id="peer" min="1" max="65534">
-          <small class="guida">Il tuo identificativo dentro la stanza: <b>deve essere diverso
-            da quello di ogni amico</b>, altrimenti i pacchetti si confondono. La pagina ne ha
-            sorteggiato uno a caso per te: in genere va bene così. Se nella stanza lo usa già
-            qualcun altro, giocatore o spettatore, il relay te lo dice e la pagina te ne dà uno nuovo da sola.</small></label>
-        <label class="campo"><span>Il tuo numero di gioco (solo da spettatore)</span>
-          <input type="number" id="peer-gioco" min="1" max="65534" placeholder="vuoto = nessuno">
-          <small class="guida">Se stai <b>giocando altrove</b> — dentro mGBA, o col GBA collegato a
-            un altro computer — scrivi qui il numero di peer di quel client: sulla Mappa live
-            diventi il <b>pallino azzurro «tu»</b> invece di un amico qualunque. Dev'essere diverso
-            dal numero qui sopra. Lascia vuoto se guardi soltanto.</small></label>
-        <label class="campo"><span>Velocità canale (timing PIO)</span>
-          <input type="number" id="timing" min="1000" max="60000" step="100">
-          <small class="guida">Il periodo (in cicli) con cui l'adattatore scandisce il cavo verso
-            il GBA. <b>7400</b> è il valore misurato che funziona: alzalo solo se il registro
-            mostra tanti «desync», abbassalo solo se sai cosa stai facendo.</small></label>
-        <label class="campo"><span>Cavo</span>
-          <select id="cavo">
-            <option value="auto">automatico</option>
-            <option value="gba">GBA (SD su GP3)</option>
-            <option value="gbc">GBC (SD su GP4)</option>
-          </select>
-          <small class="guida">Su quale piedino del Pico arriva il segnale SD: dipende da come è
-            saldato il tuo adattatore. <b>Automatico</b> prova da solo e di norma indovina;
-            forzalo solo se il canale resta muto con il cavo giusto attaccato.</small></label>
+      </section>
+      <section class="scheda tratteggio">
+        <div style="font-size:14px;font-weight:700"><span class="l-it">Niente GBA sottomano?</span><span class="l-en">No GBA at hand?</span></div>
+        <p class="piccolo" style="margin:4px 0 12px"><span class="l-it">Guarda gli altri sulla mappa e scrivi in chat senza occupare uno dei 4 posti. Funziona anche su Firefox.</span><span class="l-en">Watch the others on the map and write in the chat without taking one of the 4 seats. Works on Firefox too.</span></p>
+        <button class="btn largo" id="btn-spettatore">Guarda soltanto (spettatore)</button>
+      </section>
+    </div>
+
+    <!-- ============================================================ il centro -->
+    <div class="colonna" id="col-centro">
+      <section class="eroe" id="eroe" aria-live="polite">
+        <div class="dentro">
+          <div class="sopra" id="eroe-sopra">—</div>
+          <h1 id="eroe-titolo">gen3-poke-multiplayer</h1>
+          <p id="eroe-sotto"></p>
+          <div class="azioni">
+            <button class="btn arancio" id="eroe-azione" type="button">…</button>
+            <button class="btn vetro" id="btn-mappa" type="button">Mappa live ↗</button>
+          </div>
+        </div>
+      </section>
+      <div class="esito" id="esito-azione" style="margin:-4px 2px 0"></div>
+      <p class="aiuto ambra" id="aiuto-firmware" hidden>
+        <span class="l-it"><b>Il GBA non ha mai risposto.</b> La causa più comune è il <b>firmware del Pico</b>: questo progetto vuole il suo <a href="https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2"><code>celio.uf2</code></a>, anche se l’adattatore ha già il firmware Celio o GB-Link. Tieni premuto BOOTSEL mentre colleghi il Pico, trascina il file nell’unità che compare, poi riprova. Se non basta: slot cartuccia vuoto, GBA acceso <i>dopo</i> il cavo, cavo nel verso giusto.</span>
+        <span class="l-en"><b>The GBA never answered.</b> The most common cause is the <b>Pico firmware</b>: this project needs its own <a href="https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2"><code>celio.uf2</code></a>, even if your adapter already runs Celio or GB-Link firmware. Hold BOOTSEL while plugging in the Pico, drag the file onto the drive that appears, then try again. If it still fails: empty cartridge slot, GBA switched on <i>after</i> the cable, cable the right way round.</span></p>
+      <p class="aiuto ambra" id="aiuto-firmware-pico" hidden>
+        <span class="l-it"><b>Il Pico non ha il firmware di questo progetto</b></span><span class="l-en"><b>The Pico does not have this project’s firmware</b></span>
+        (<span id="fw-trovato"></span>).
+        <span class="l-it">Senza, il gioco non si carica e il GBA non risponde. Scarica <a href="https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2"><code>celio.uf2</code></a>, tieni premuto BOOTSEL mentre colleghi il Pico, trascina il file nell’unità che compare, poi premi di nuovo «Collega il Pico». Va fatto una volta sola.</span>
+        <span class="l-en">Without it the game won’t load and the GBA never answers. Download <a href="https://github.com/Wired-Ariel/gen3-poke-multiplayer/releases/latest/download/celio.uf2"><code>celio.uf2</code></a>, hold BOOTSEL while plugging in the Pico, drag the file onto the drive that appears, then press «Connect the Pico» again. You only need to do this once.</span></p>
+
+      <div class="stato2">
+        <section class="scheda">
+          <div class="riga-testa">
+            <p class="etichetta"><span class="l-it">Il tuo GBA</span><span class="l-en">Your GBA</span></p>
+            <span class="spia" id="spia-gba"><i></i><em id="spia-gba-testo">—</em></span>
+          </div>
+          <p class="grosso" id="st-gba">—</p>
+          <p class="riga-mono" id="st-mappa"></p>
+        </section>
+        <section class="scheda">
+          <p class="etichetta"><span class="l-it">Canale</span><span class="l-en">Channel</span></p>
+          <div class="cifra"><b id="st-parole">—</b><span><span class="l-it">parole/s sul cavo</span><span class="l-en">words/s on the cable</span></span></div>
+          <div class="conti">
+            <span><span class="l-it">Inviati</span><span class="l-en">Sent</span> <b id="st-inviati">0</b></span>
+            <span><span class="l-it">Ricevuti</span><span class="l-en">Received</span> <b id="st-ricevuti">0</b></span>
+            <span>RTT <b id="st-rtt">—</b></span>
+          </div>
+        </section>
       </div>
-      <p class="aiuto" style="margin-top:10px">Prima volta su Windows? Il Pico ha bisogno del driver
-        <b>WinUSB</b> (si installa una volta sola con <b>Zadig</b>: seleziona il device 2FE3:000A e
-        premi «Install driver»). Senza driver il browser vede il Pico ma non riesce ad aprirlo.</p>
-      <div style="margin-top:16px;display:flex;gap:9px;flex-wrap:wrap">
-        <button class="salva" id="btn-salva">Salva impostazioni</button>
-        <button class="minore" id="btn-prova-relay" title="Apre la connessione, manda un PING, misura il tempo e chiude">Prova il relay</button>
+
+      <section class="scheda fisarmoniche">
+        <!-- ------------------------------------------------ impostazioni -->
+        <details id="fis-imp">
+          <summary><b><span class="l-it">Impostazioni</span><span class="l-en">Settings</span></b>
+            <span><span class="l-it">relay, stanza, il tuo nome</span><span class="l-en">relay, room, your name</span></span></summary>
+          <div class="corpo">
+            <p class="aiuto" style="margin:0 0 14px"><span class="l-it">Devono combaciare con i tuoi amici: <b>stesso relay</b> e <b>stessa stanza</b>. Nessuno ospita niente: il relay sta su un server e ognuno si collega.</span><span class="l-en">They must match your friends': <b>same relay</b> and <b>same room</b>. Nobody hosts anything: the relay lives on a server and everyone connects to it.</span></p>
+            <div class="campi">
+              <label class="campo larga"><span><span class="l-it">Relay (wss://host/ws, oppure host:porta)</span><span class="l-en">Relay (wss://host/ws, or host:port)</span></span>
+                <input type="text" id="relay" spellcheck="false" placeholder="wss://relay.esempio.it/ws" data-en-placeholder="wss://relay.example.com/ws">
+                <small class="guida"><span class="l-it">L'indirizzo del server che smista i pacchetti fra i giocatori. Se apri questa pagina dal sito ufficiale è già compilato: non toccarlo. «Prova il relay» qui sotto ti dice subito se è raggiungibile e in quanti millisecondi.</span><span class="l-en">The address of the server that forwards packets between players. If you opened this page from the official site it's already filled in: leave it. «Test the relay» below tells you right away whether it's reachable, and in how many milliseconds.</span></small></label>
+              <label class="campo"><span><span class="l-it">Stanza (stesso numero per tutti)</span><span class="l-en">Room (same number for everyone)</span></span>
+                <input type="number" id="stanza" min="1" max="65535">
+                <small class="guida"><span class="l-it">La «partita»: si vedono solo i giocatori con lo stesso numero. Scegline uno qualsiasi fra 1 e 65535 e passalo agli amici. Non è una password: chi lo conosce entra.</span><span class="l-en">The «game»: only players with the same number see each other. Pick any number between 1 and 65535 and share it with your friends. It's not a password: anyone who knows it can join.</span></small></label>
+              <label class="campo"><span><span class="l-it">Il tuo nome in chat</span><span class="l-en">Your name in chat</span></span>
+                <input type="text" id="nome-chat" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="vuoto = peer N" data-en-placeholder="empty = peer N">
+                <small class="guida"><span class="l-it">Come ti vedono gli altri in chat, nell'elenco dei giocatori e sulla Mappa live. Al massimo 16 caratteri. Se lo lasci vuoto sei «peer» e il tuo numero.</span><span class="l-en">How the others see you in the chat, in the player list and on the Live map. 16 characters at most. Leave it empty and you're «peer» plus your number.</span></small></label>
+              <div class="campo larga aperte">
+                <label class="spunta"><input type="checkbox" id="stanza-aperta">
+                  <span><span class="l-it"><b>Stanza aperta</b>: la tua stanza compare nell'elenco delle stanze e <b>chiunque può entrare</b> (fino a 4 giocatori). Resta aperta finché la spunta c'è e tu sei in partita. Vale anche per lo <b>script dell'emulatore</b> scaricato da questa pagina; dentro mGBA si cambia con <code>aperta(true)</code> o dal pannello L+R+B.</span><span class="l-en"><b>Open room</b>: your room shows up in the room list and <b>anyone can join</b> (up to 4 players). It stays open while the box is ticked and you are in a game. It also applies to the <b>emulator script</b> downloaded from this page; inside mGBA use <code>aperta(true)</code> or the L+R+B panel.</span></span></label>
+                <div class="testa"><span><span class="l-it">Stanze aperte adesso</span><span class="l-en">Open rooms right now</span></span>
+                  <button class="minore" id="btn-stanza-caso" type="button"><span class="l-it">Entra in una stanza libera</span><span class="l-en">Join a free room</span></button>
+                  <button class="minore" id="btn-stanze" type="button"><span class="l-it">Aggiorna</span><span class="l-en">Refresh</span></button>
+                  <a class="minore" href="stanze.html" data-pagina="stanze"><span class="l-it">Tutte le stanze ›</span><span class="l-en">All rooms ›</span></a></div>
+                <ul id="lista-stanze"></ul>
+                <small class="guida" id="stanze-nota"></small>
+              </div>
+            </div>
+            <details class="avanzate" id="fis-avanzate">
+              <summary><span class="l-it">Avanzate: peer, velocità del canale, cavo (di norma non si toccano)</span><span class="l-en">Advanced: peer, channel speed, cable (usually left alone)</span></summary>
+              <div class="campi">
+                <label class="campo"><span><span class="l-it">Il tuo numero (peer)</span><span class="l-en">Your number (peer)</span></span>
+                  <input type="number" id="peer" min="1" max="65534">
+                  <small class="guida"><span class="l-it">Il tuo identificativo dentro la stanza: <b>deve essere diverso da quello di ogni amico</b>, altrimenti i pacchetti si confondono. La pagina ne ha sorteggiato uno a caso per te: in genere va bene così. Se nella stanza lo usa già qualcun altro, giocatore o spettatore, il relay te lo dice e la pagina te ne dà uno nuovo da sola.</span><span class="l-en">Your identifier inside the room: <b>it must be different from every friend's</b>, otherwise packets get mixed up. The page has picked a random one for you: usually that's fine. If someone else in the room, player or spectator, is already using it, the relay says so and the page gives you a new one by itself.</span></small></label>
+                <label class="campo"><span><span class="l-it">Il tuo numero di gioco (solo da spettatore)</span><span class="l-en">Your game number (spectators only)</span></span>
+                  <input type="number" id="peer-gioco" min="1" max="65534" placeholder="vuoto = nessuno" data-en-placeholder="empty = none">
+                  <small class="guida"><span class="l-it">Se stai <b>giocando altrove</b> — dentro mGBA, o col GBA collegato a un altro computer — scrivi qui il numero di peer di quel client: sulla Mappa live diventi il <b>pallino azzurro «tu»</b> invece di un amico qualunque. Dev'essere diverso dal numero qui accanto. Lascia vuoto se guardi soltanto.</span><span class="l-en">If you're <b>playing elsewhere</b> — inside mGBA, or with the GBA connected to another computer — enter that client's peer number here: on the Live map you become the <b>light-blue «you» dot</b> instead of just another friend. It must be different from the number next to it. Leave empty if you're only watching.</span></small></label>
+                <label class="campo"><span><span class="l-it">Velocità canale (timing PIO)</span><span class="l-en">Channel speed (PIO timing)</span></span>
+                  <input type="number" id="timing" min="1000" max="60000" step="100">
+                  <small class="guida"><span class="l-it">Il periodo (in cicli) con cui l'adattatore scandisce il cavo verso il GBA. <b>7400</b> è il valore misurato che funziona: alzalo solo se il registro mostra tanti «desync», abbassalo solo se sai cosa stai facendo.</span><span class="l-en">The period (in cycles) at which the adapter clocks the cable towards the GBA. <b>7400</b> is the measured value that works: raise it only if the log shows lots of «desync», lower it only if you know what you're doing.</span></small></label>
+                <label class="campo"><span><span class="l-it">Cavo</span><span class="l-en">Cable</span></span>
+                  <select id="cavo">
+                    <option value="auto" data-en="automatic">automatico</option>
+                    <option value="gba" data-en="GBA (SD on GP3)">GBA (SD su GP3)</option>
+                    <option value="gbc" data-en="GBC (SD on GP4)">GBC (SD su GP4)</option>
+                  </select>
+                  <small class="guida"><span class="l-it">Su quale piedino del Pico arriva il segnale SD: dipende da come è saldato il tuo adattatore. <b>Automatico</b> prova da solo e di norma indovina; forzalo solo se il canale resta muto con il cavo giusto attaccato.</span><span class="l-en">Which Pico pin receives the SD signal: it depends on how your adapter is wired. <b>Automatic</b> tries by itself and usually gets it right; force it only if the channel stays silent with the right cable plugged in.</span></small></label>
+              </div>
+            </details>
+            <p class="aiuto" style="margin-top:12px"><span class="l-it">Prima volta su Windows? Il Pico ha bisogno del driver <b>WinUSB</b> (si installa una volta sola con <b>Zadig</b>: seleziona il device 2FE3:000A e premi «Install driver»). Senza driver il browser vede il Pico ma non riesce ad aprirlo.</span><span class="l-en">First time on Windows? The Pico needs the <b>WinUSB</b> driver (installed once with <b>Zadig</b>: select device 2FE3:000A and press «Install driver»). Without the driver the browser sees the Pico but can't open it.</span></p>
+            <div class="riga-bottoni">
+              <button class="salva" id="btn-salva"><span class="l-it">Salva impostazioni</span><span class="l-en">Save settings</span></button>
+              <button class="btn" id="btn-prova-relay" title="Apre la connessione, manda un PING, misura il tempo e chiude" data-en-title="Opens the connection, sends a PING, measures the time and closes"><span class="l-it">Prova il relay</span><span class="l-en">Test the relay</span></button>
+            </div>
+            <div class="esito" id="esito-config"></div>
+          </div>
+        </details>
+
+        <!-- ------------------------------------------------------ registro -->
+        <details id="fis-log" open>
+          <summary><b><span class="l-it">Registro</span><span class="l-en">Log</span></b>
+            <span><span class="l-it">cosa succede, riga per riga</span><span class="l-en">what's going on, line by line</span></span></summary>
+          <div class="corpo">
+            <div class="barra-log">
+              <label><input type="checkbox" id="autoscroll" checked> <span class="l-it">Segui le novità</span><span class="l-en">Follow new lines</span></label>
+              <label><input type="checkbox" id="mostra-eventi"> <span class="l-it">Eventi del gioco</span><span class="l-en">Game events</span></label>
+              <label><input type="checkbox" id="mostra-sonda"> <span class="l-it">Sonda</span><span class="l-en">Probe</span></label>
+              <div class="legenda">
+                <span style="color:#3f7fd6"><i></i><span class="l-it">rete</span><span class="l-en">net</span></span>
+                <span style="color:#2f9a62"><i></i>gba</span>
+                <span style="color:#b98414"><i></i>multiboot</span>
+                <span style="color:#d05f5f"><i></i>usb</span>
+                <span style="color:#9a5fd0"><i></i><span class="l-it">stato</span><span class="l-en">state</span></span>
+              </div>
+            </div>
+            <div id="log"></div>
+            <div class="attrezzi" style="margin-top:10px">
+              <button class="minore" id="btn-copia">Copia tutto il registro</button>
+              <button class="minore" id="btn-scarica" title="Salva un file .log con TUTTE le righe della sessione, anche quelle uscite dallo schermo" data-en-title="Save a .log file with ALL the lines of the session, including those scrolled off screen"><span class="l-it">Scarica il log completo</span><span class="l-en">Download the full log</span></button>
+              <button class="minore" id="btn-pulisci" title="Sgombra solo lo schermo: copia e download restituiscono comunque tutta la sessione" data-en-title="Only clears the screen: copy and download still return the whole session"><span class="l-it">Pulisci il log</span><span class="l-en">Clear the log</span></button>
+            </div>
+          </div>
+        </details>
+
+        <!-- ------------------------------------------------------ attrezzi -->
+        <details id="fis-att">
+          <summary><b><span class="l-it">Attrezzi</span><span class="l-en">Tools</span></b>
+            <span><span class="l-it">script per mGBA, riavvio del Pico, .gba diverso</span><span class="l-en">mGBA script, Pico restart, different .gba</span></span></summary>
+          <div class="corpo">
+            <div class="attrezzi">
+              <button class="minore" id="btn-lua" title="Scarica lo script gia' configurato con la stanza qui sopra: si carica in mGBA e basta" data-en-title="Download the script already set up with the room above: just load it in mGBA"><span class="l-it">Scarica lo script per l'emulatore ↓</span><span class="l-en">Download the emulator script ↓</span></button>
+              <button class="minore" id="btn-riavvia" disabled><span class="l-it">Riavvia il Pico (F-4)</span><span class="l-en">Restart the Pico (F-4)</span></button>
+              <button class="minore" id="btn-scollega" disabled><span class="l-it">Scollega il Pico</span><span class="l-en">Disconnect the Pico</span></button>
+              <label class="minore" style="height:auto;min-height:36px;padding:4px 12px;gap:8px;flex-wrap:wrap"><span class="l-it">.gba diverso:</span><span class="l-en">Different .gba:</span> <input type="file" id="mb-file" accept=".gba" style="max-width:200px;font-size:12px"></label>
+            </div>
+            <p class="aiuto" style="margin-top:12px"><span class="l-it">La <b>Mappa live</b> mostra Hoenn con te e gli amici dal vivo: si apre in una scheda a parte e prende le posizioni da questa pagina, quindi tienile aperte tutte e due. <b>Guarda soltanto</b> serve a chi non ha il GBA sottomano (o usa Firefox, dove WebUSB non esiste): ti colleghi al relay e vedi gli altri muoversi, senza mandare niente — e <b>senza occupare uno dei 4 posti</b> della stanza, quindi si può guardare anche a partita piena. Se stai giocando altrove (per esempio dentro mGBA), scrivi il numero di peer di quel client fra le Impostazioni avanzate: sulla mappa ti ritrovi come <b>«tu»</b>, in azzurro.</span><span class="l-en">The <b>Live map</b> shows Hoenn with you and your friends live: it opens in a separate tab and takes positions from this page, so keep both open. <b>Just watch</b> is for those without a GBA at hand (or on Firefox, where WebUSB doesn't exist): you connect to the relay and see the others move, without sending anything — and <b>without taking one of the room's 4 seats</b>, so you can watch even when the game is full. If you're playing elsewhere (for example inside mGBA), enter that client's peer number in the advanced Settings: on the map you'll show up as <b>«you»</b>, in light blue.</span></p>
+            <p class="aiuto"><span class="l-it"><b>Giochi dentro mGBA?</b> Premi <b>Scarica lo script per l'emulatore</b>: ti viene giù un file <code>.lua</code> già scritto con la stanza delle Impostazioni — lo carichi in mGBA (<i>Tools → Scripting → Load script</i>) e giochi, senza modificare niente a mano. Per cambiare stanza dopo: riscarica, oppure scrivi <code>stanza(4242)</code> nella console di mGBA. La chat da dentro mGBA non c'è: per leggerla e scrivere apri questa pagina e premi «Guarda soltanto».</span><span class="l-en"><b>Playing inside mGBA?</b> Press <b>Download the emulator script</b>: you get a <code>.lua</code> file already set up with the room from the Settings — load it in mGBA (<i>Tools → Scripting → Load script</i>) and play, with nothing to edit by hand. To change room later: download it again, or type <code>stanza(4242)</code> in the mGBA console (with your room number). There is no chat inside mGBA: to read and write, open this page and press «Just watch».</span></p>
+            <p class="aiuto"><span class="l-it">Il <b>Cable Club</b> (scambi e lotte) funziona anche da qui: sedetevi al bancone della saletta in due, e il resto parte da solo — il registro dice «passo il Pico in modo LINK». Durante lo scambio puoi passare a un'altra scheda o ridurre la finestra (dal 27/09/2026, provato con uno scambio vero); la fermerebbe solo un browser che <i>sospende</i> le schede inattive (Edge «schede in sospensione», Chrome «Risparmio memoria»). Serve il Pico collegato: da spettatore, o dentro mGBA, il club non c'è.</span><span class="l-en">The <b>Cable Club</b> (trades and battles) works from here too: both of you sit at the counter in the club room, and the rest starts by itself — the log says «passo il Pico in modo LINK». During the trade you can switch to another tab or minimize the window (since 2026-09-27, tested with a real trade); only a browser that <i>suspends</i> inactive tabs (Edge «sleeping tabs», Chrome «Memory Saver») would stop it. The Pico must be connected: as a spectator, or inside mGBA, there is no club.</span></p>
+            <p class="aiuto"><span class="l-it">Vale per <b>Pokémon Smeraldo italiano</b> e <b>Pokémon Emerald inglese</b> (USA/Europa): il programma riconosce da solo la cartuccia inserita, e lo script per l’emulatore la ROM caricata. Non c’è niente da scegliere.</span><span class="l-en">Works with <b>Pokémon Emerald, English</b> (USA/Europe) and <b>Pokémon Smeraldo, Italian</b>: the program recognises the inserted cartridge by itself, and the emulator script the loaded ROM. Nothing to choose.</span></p>
+          </div>
+        </details>
+
+        <!-- --------------------------------------------------- diagnostica -->
+        <details id="fis-diag">
+          <summary><b><span class="l-it">Diagnostica</span><span class="l-en">Diagnostics</span></b>
+            <span><span class="l-it">quello che il GBA dice di sé</span><span class="l-en">what the GBA reports about itself</span></span></summary>
+          <div class="corpo diag">
+            <p id="st-stats">—</p>
+            <p id="st-sonda"><span class="l-it">sonda: nessuna ancora (il payload la manda una volta al secondo, anche dal titolo)</span><span class="l-en">probe: none yet (the payload sends one every second, even from the title screen)</span></p>
+            <p id="st-diag"></p>
+          </div>
+        </details>
+      </section>
+    </div>
+
+    <!-- ======================================================= stanza + chat -->
+    <section class="scheda" id="col-stanza">
+      <div class="stanza-su">
+        <div class="riga-testa">
+          <div><p class="etichetta"><span class="l-it">La tua stanza</span><span class="l-en">Your room</span></p>
+            <div class="numero" id="stanza-numero">—</div></div>
+          <button class="btn invito" id="btn-invito" type="button" title="Copia un link che apre questa pagina con la stanza già compilata" data-en-title="Copies a link that opens this page with the room already filled in"><span class="l-it">Copia invito</span><span class="l-en">Copy invite</span></button>
+        </div>
+        <p class="riga-mono" id="st-stanza"></p>
+        <div class="amici-testa"><b id="st-amico">—</b><span class="spia" id="spia-amico"><i></i><em id="spia-amico-testo">—</em></span></div>
+        <ul class="giocatori stretti" id="lista-amici"></ul>
       </div>
-      <div class="esito" id="esito-config"></div>
+      <div id="chat-pannello"></div>
     </section>
   </div>
 
-  <section class="diagnostica">
-    <p class="etichetta">Diagnostica (quello che il GBA dice di sé)</p>
-    <p id="st-stats">—</p>
-    <p id="st-sonda">sonda: nessuna ancora (il payload la manda una volta al secondo, anche dal titolo)</p>
-    <p id="st-diag"></p>
-  </section>
-
-  <section class="registro">
-    <div class="barra-log">
-      <h2>Registro</h2>
-      <label><input type="checkbox" id="autoscroll" checked> Segui le novità</label>
-      <label><input type="checkbox" id="mostra-eventi"> Eventi del gioco</label>
-      <label><input type="checkbox" id="mostra-sonda"> Sonda</label>
-      <div class="legenda">
-        <span style="color:#7fb2ff"><i></i>rete</span>
-        <span style="color:#7fd7a0"><i></i>gba</span>
-        <span style="color:#ffcc70"><i></i>multiboot</span>
-        <span style="color:#ff9a9a"><i></i>usb</span>
-        <span style="color:#d8a0ff"><i></i>stato</span>
-      </div>
-    </div>
-    <div id="log"></div>
-  </section>
-
-  <footer><a href="index.html">‹ Pagina iniziale</a> · gen3-poke-multiplayer nel browser · <a href="progetto.html"><b>Come funziona il progetto, e i crediti</b></a>
-    — costruito sul lavoro di Celio, pret (pokeemerald), mGBA, GBATEK e altri: <a href="progetto.html">l'elenco completo</a>
-    · autotest: <a href="test.html">sio</a> · <a href="mb_test.html">multiboot</a> · <a href="bridge_test.html">bridge</a></footer>
+  <footer class="piede">
+    <a href="index.html"><span class="l-it">‹ Pagina iniziale</span><span class="l-en">‹ Home page</span></a> ·
+    <span class="l-it">costruito sul lavoro di Celio, pret (pokeemerald), mGBA, GBATEK e altri:</span><span class="l-en">built on the work of Celio, pret (pokeemerald), mGBA, GBATEK and others:</span>
+    <a href="progetto.html" data-pagina="progetto"><span class="l-it">come funziona, e i crediti</span><span class="l-en">how it works, and credits</span></a>
+    · <span class="l-it">autotest</span><span class="l-en">self-tests</span>: <a href="test.html">sio</a> · <a href="mb_test.html">multiboot</a> · <a href="bridge_test.html">bridge + chat</a>
+  </footer>
 </main>
 
-<script src="config.js?v=1.7.3"></script>
-<script src="js/sio.js?v=1.7.3"></script>
-<script src="js/device.js?v=1.7.3"></script>
-<script src="js/multiboot.js?v=1.7.3"></script>
-<script src="js/battito.js?v=1.7.3"></script>
-<script src="js/relay.js?v=1.7.3"></script>
-<script src="js/club.js?v=1.7.3"></script>
-<script src="js/bridge.js?v=1.7.3"></script>
-<script src="js/app.js?v=1.7.3"></script>
+<script src="config.js?v=1.8.0"></script>
+<script src="js/sio.js?v=1.8.0"></script>
+<script src="js/device.js?v=1.8.0"></script>
+<script src="js/multiboot.js?v=1.8.0"></script>
+<script src="js/battito.js?v=1.8.0"></script>
+<script src="js/relay.js?v=1.8.0"></script>
+<script src="js/club.js?v=1.8.0"></script>
+<script src="js/bridge.js?v=1.8.0"></script>
+<script src="js/sito.js?v=1.8.0"></script>
+<script src="js/chat.js?v=1.8.0"></script>
+<script src="js/chat-ui.js?v=1.8.0"></script>
+<script src="js/app.js?v=1.8.0"></script>
 </body>
 </html>

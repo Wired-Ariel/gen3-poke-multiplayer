@@ -56,6 +56,7 @@
 
 #define STATE_IDLE     0u   /* nessun remoto sulla mappa            */
 #define STATE_SPAWNED  1u   /* remoto vivo                          */
+#define SETTLE_FRAMES  6u   /* frame da fermo prima di rimettere la posa */
 
 /* Quanti VBlank aspettare dopo essere entrati nell'overworld prima di spawnare.
  * Serve a far assestare la mappa: appena cambiata, gli object event della mappa
@@ -902,7 +903,11 @@ struct Remote
     u32 status;         /* ST_*: l'icona sopra la testa                     */
     u32 statusAge;      /* frame dall'ultimo EVENT_STATUS (STATUS_STALE)     */
     u32 spawnMapKey;    /* su che mappa NOSTRA l'avatar e' stato messo      */
-    u32 settled;        /* rimesso in posa da fermo dopo l'ultimo movimento */
+    u32 settled;        /* frame passati da fermo; a SETTLE_FRAMES la posa e'
+                         * stata rimessa (vedi il blocco "POSA DA FERMO")   */
+    u32 pose;           /* il codice dell'ultimo evento, se e' una POSA o il
+                         * VOLO (>= CODE_POSE); 0 = nessuna                 */
+    u32 flyTimer;       /* frame che mancano a dimenticare chi e' decollato */
     u32 driftRun;       /* SYNC di fila con lo stesso scostamento mentre
                          * cammina: a DRIFT_RUN_MAX si riallinea comunque    */
     u32 lastEnqSeq;     /* SEQ_TAG dell'ultimo PASSO/GIRA accodato (dedup)  */
@@ -1064,18 +1069,57 @@ static int PlayerCoordsSettled(u32 playerOe)
     return dx <= 1 && dy <= 1;
 }
 
-static u32 PlayerSpeedClass(void)
-{
-    u8 flags = gPlayerAvatar_flags;
+/* =============================================================================
+ * TUTTE LE ANIMAZIONI, CON UN BYTE (2026-10-10)
+ * =============================================================================
+ *
+ * Fino a oggi il byte `speed` del NetEvent portava una CLASSE (cammina, corre,
+ * bici, surf) e chi riceveva sceglieva lui una movement action: quattro
+ * andature, e tutto il resto - il salto dal gradino, l'impennata, il saltello
+ * della bici acrobatica, la scivolata sul ghiaccio, la cascata, lo sbattere
+ * contro un muro - non esisteva.
+ *
+ * Ma il gioco muove il giocatore esattamente come muove un NPC: con una
+ * MOVEMENT ACTION scritta in objectEvent->movementActionId (PlayerSetAnimId,
+ * field_player_avatar.c). Quindi non c'e' niente da tradurre: il mittente
+ * manda QUEL numero e chi riceve lo da' al remoto con la stessa
+ * ObjectEventSetHeldMovement. Il motore fa il resto, ed e' il motore vero.
+ *
+ * IL BYTE, cosi' com'e' sul filo (retrocompatibile nei due versi):
+ *   0x00-0x03  mittente VECCHIO: la classe di velocita' (in un PASSO), oppure
+ *              "girati e basta" (in un GIRA): il verso sta in `dir`;
+ *   0x04-0xBF  la movement action del mittente;
+ *   0xC0-0xEF  POSA: 0xC0 | animNum dello sprite. Pescare, annaffiare e la
+ *              posa delle mosse di campo non sono movement action: il gioco le
+ *              mette con StartSpriteAnim da un task;
+ *   0xF0       VOLO: l'amico sta decollando (FLDEFF_USE_FLY);
+ *   0xFF       niente (fermo, nessuna azione in corso).
+ * Un ricevente vecchio legge un numero che non conosce e cammina (il suo
+ * `default`): degrada, non si rompe.
+ *
+ * LO STATO (avatarState) passa da 5 a 8 valori: si aggiungono mossa di campo,
+ * pesca e annaffiatoio, che gPlayerAvatar.flags non conosce (pescando si resta
+ * ON_FOOT) e che si riconoscono dalla GRAFICA del proprio object event. */
+#define PLAYER_AVATAR_STATE_FIELD_MOVE  5
+#define PLAYER_AVATAR_STATE_FISHING     6
+#define PLAYER_AVATAR_STATE_WATERING    7
+#define CODE_POSE                       0xC0u
+#define CODE_FLY                        0xF0u
+#define CODE_NONE                       0xFFu
+#define FLDEFF_NPCFLY_OUT               30
+#define FLDEFF_USE_FLY                  31
+#define OBJ_EVENT_PAL_TAG_BRENDAN       0x1100
+#define OBJ_EVENT_PAL_TAG_MAY           0x1110
+#define PALSLOT_NPC_SPECIAL             10
 
-    if (flags & (PLAYER_AVATAR_FLAG_SURFING | PLAYER_AVATAR_FLAG_UNDERWATER))
-        return SPEED_SURF;
-    if (flags & (PLAYER_AVATAR_FLAG_MACH_BIKE | PLAYER_AVATAR_FLAG_ACRO_BIKE))
-        return SPEED_BIKE;
-    if (flags & PLAYER_AVATAR_FLAG_DASH)
-        return SPEED_RUN;
-    return SPEED_WALK;
-}
+/* Quante animazioni ha la tabella dello sprite di ogni stato
+ * (object_event_anims.h: BrendanMayNormal 24, Standard 20, AcroBike 40,
+ * Surfing 24, FieldMove 1, Fishing 12). E' LA guardia di tutto il blocco:
+ * un animNum oltre la tabella fa leggere un comando di animazione spazzatura
+ * e RequestSpriteFrameImageCopy ne ricava un DMA di dimensione arbitraria
+ * nella OBJ VRAM (vedi SyncRemoteGraphics). Nessuna azione e nessuna posa
+ * vengono applicate senza passare di qui. */
+static const u8 kAnimCount[8] = { 24, 20, 40, 24, 20, 1, 12, 20 };
 
 /* Lo stato dell'avatar e' cosa il giocatore E', non quanto va veloce: e' lui a
  * decidere lo sprite. Correre resta stato NORMAL, perche' la corsa e'
@@ -1093,6 +1137,29 @@ static u8 PlayerAvatarState(void)
     if (flags & PLAYER_AVATAR_FLAG_ACRO_BIKE)
         return PLAYER_AVATAR_STATE_ACRO_BIKE;
     return PLAYER_AVATAR_STATE_NORMAL;
+}
+
+/* Lo stato che EmitEvent scrive negli eventi. Lo aggiorna PlayerCode, dal
+ * CORPO: riconoscere pesca, annaffiatoio e mossa di campo vuol dire chiamare
+ * una funzione del gioco, e EmitEvent gira anche dal VBlank (STATO, CLUB), da
+ * dove il gioco non si chiama (guardia `stack` di build.ps1). */
+static u8 sMyState;
+
+/* Il codice da mettere nel byte `speed` di QUESTO istante (vedi sopra), e lo
+ * stato che lo accompagna. */
+static u8 PlayerCode(u32 playerOe)
+{
+    u8 gfx = oe_graphicsId(playerOe);
+    u32 s;
+
+    for (s = PLAYER_AVATAR_STATE_FIELD_MOVE; s <= PLAYER_AVATAR_STATE_WATERING; s++)
+        if (GetPlayerAvatarGraphicsIdByStateId((u8)s) == gfx)
+        {
+            sMyState = (u8)s;
+            return (u8)(CODE_POSE | sprite_animNum(Sprite(oe_spriteId(playerOe))));
+        }
+    sMyState = PlayerAvatarState();
+    return oe_movementActionId(playerOe);
 }
 
 static u8 PlayerGender(void)
@@ -1194,7 +1261,7 @@ static void EmitEvent(u8 type, u8 dir, u8 speed, s16 x, s16 y)
     ev.x     = x;
     ev.y     = y;
     ev.gender      = PlayerGender();
-    ev.avatarState = PlayerAvatarState();
+    ev.avatarState = sMyState;
     EmitRaw(&ev);
 }
 
@@ -1376,6 +1443,8 @@ static void StatusTick(void)
  * "non rappresentabile" e un TeleportRemote al rientro. Adesso il cambio mappa
  * lo possiede il gate di assestamento (SettleCommit), che e' l'unico posto in
  * cui la domanda "dove sono?" ha una risposta sola. */
+static u8 sLastCode, sLastHeld, sFlySent;
+
 static void TrackPlayer(u32 playerOe)
 {
     s16 x = oe_currentX(playerOe);
@@ -1384,7 +1453,9 @@ static void TrackPlayer(u32 playerOe)
      * GUARDA, ed e' l'unico che cambia quando ci si gira sul posto. Durante il
      * cammino i due coincidono. */
     u8  dir = oe_facingDirection(playerOe);
-    u32 speed = PlayerSpeedClass();
+    u32 speed = PlayerCode(playerOe);
+    /* bit 6 = movimento tenuto attivo, bit 7 = finito: 0x40 = "in corso" */
+    u32 held = oe_flags0(playerOe) & 0xC0u;
     u32 mapKey = g_state.mapKey;
 
     ST_MIRROR(playerX, x);
@@ -1415,12 +1486,37 @@ static void TrackPlayer(u32 playerOe)
         sLastPlayerY = y;
         EmitEvent(EVENT_STEP, dir, (u8)speed, x, y);
     }
-    else if (dir != sLastPlayerDir)
+    else if ((dir != sLastPlayerDir
+              /* ...ma non se a girarlo e' l'azione che sta gia' facendo: il salto
+               * con giravolta della bici acrobatica (JUMP_IN_PLACE_x_y) cambia
+               * verso a META' salto, e raccontarlo di nuovo lo faceva eseguire due
+               * volte all'amico (scena del salto laterale, 2026-10-10). */
+              && !(held == 0x40u && speed >= 4u && speed < CODE_POSE))
+             /* UNA POSA NUOVA (canna tirata fuori, abboccato, annaffiatoio)... */
+             || (speed >= CODE_POSE && speed != CODE_NONE && speed != sLastCode)
+             /* ...o UN'AZIONE SUL POSTO APPENA PARTITA: l'impennata, il saltello,
+              * lo sbattere contro un muro. Sono ripetute uguali finche' si tiene
+              * il tasto, quindi non basta "il numero e' cambiato": conta anche
+              * il fronte "prima non era in corso, adesso si'". */
+             || (speed >= 4u && speed < CODE_POSE && held == 0x40u
+                 && (speed != sLastCode || sLastHeld != 0x40u)))
     {
-        /* Fermo ma girato: nessun PASSO lo racconterebbe. */
+        /* Fermo ma girato, o fermo e in posa: nessun PASSO lo racconterebbe. */
         EmitEvent(EVENT_TURN, dir, (u8)speed, x, y);
     }
     sLastPlayerDir = dir;
+    sLastCode = (u8)speed;
+    sLastHeld = (u8)held;
+
+    /* IL VOLO non e' ne' un'azione ne' una posa: e' un field effect che anima
+     * lo sprite da un task. Lo si racconta una volta, al fronte di salita. */
+    {
+        u32 fly = FieldEffectActiveListContains(FLDEFF_USE_FLY);
+
+        if (fly && !sFlySent)
+            EmitEvent(EVENT_TURN, dir, CODE_FLY, x, y);
+        sFlySent = (u8)fly;
+    }
 
     /* Le ripetizioni dell'ingresso: un solo SYNC perso costerebbe un secondo di
      * posizione sbagliata proprio nel momento peggiore. */
@@ -1452,44 +1548,66 @@ static void TrackPlayer(u32 playerOe)
 /* Lato RX: far muovere il remoto come dice l'amico                           */
 /* ========================================================================== */
 
-/* Ogni famiglia di movement action e' ordinata DOWN, UP, LEFT, RIGHT, cioe'
- * DIR_SOUTH, DIR_NORTH, DIR_WEST, DIR_EAST. Cambiare andatura = cambiare base. */
-static u8 ActionFor(u8 dir, u8 speed, int hurry)
-{
-    u8 base;
+/* L'AZIONE DA DARE AL REMOTO per un codice ricevuto, o CODE_NONE se non c'e'
+ * niente da fare. `step` dice se l'evento e' un PASSO (deve spostare) o un
+ * GIRA / una posa da fermo (non deve).
+ *
+ * Tre filtri, nell'ordine:
+ *  1. lo stato ha una tabella di animazioni da meno di 20 voci (mossa di campo,
+ *     pesca): li' NESSUNA azione e' lecita, nemmeno girarsi - conta solo la
+ *     posa (RemotePose);
+ *  2. l'azione dev'essere una di quelle che un GIOCATORE produce: girarsi,
+ *     camminare lento/normale, saltare un gradino (0x00-0x0F), le andature
+ *     veloci, i passi sul posto, la corrente, la scivolata, la corsa
+ *     (0x15-0x38), il salto del Surf (0x3A-0x3D), i salti (0x42-0x4D), la bici
+ *     acrobatica (0x64-0x8B). Fuori di li' ci sono cose che su un amico non
+ *     vogliamo (SET_INVISIBLE, i punti esclamativi, FLY_UP...) e, oltre 0x9D,
+ *     la fine della tabella di funzioni del gioco;
+ *  3. l'animazione che l'azione usa deve ESISTERE nella tabella dello stato:
+ *     corsa e salto del Surf vogliono 24 voci, la bici acrobatica 40.
+ * Chi non passa viene degradato a una camminata normale (o a un girarsi): si
+ * vede un po' peggio, non si legge fuori da una tabella.
+ *
+ * Ogni famiglia e' ordinata DOWN, UP, LEFT, RIGHT, cioe' DIR_SOUTH, DIR_NORTH,
+ * DIR_WEST, DIR_EAST: `d` e' l'indice dentro la famiglia. */
+static const u8 kLegacyBase[4] = {
+    MOVEMENT_BASE_WALK, MOVEMENT_BASE_RUN, MOVEMENT_BASE_FAST, MOVEMENT_BASE_SURF
+};
 
-    if (dir < DIR_SOUTH || dir > DIR_EAST)
-        return MOVEMENT_ACTION_FACE_DOWN;
+static u8 ActionFor(struct Remote *r, u8 dir, u8 code, int hurry, int step)
+{
+    u32 n = kAnimCount[r->avatarState];
+    u32 d = (u32)dir - DIR_SOUTH;
+    u32 base = step ? MOVEMENT_BASE_WALK : MOVEMENT_BASE_FACE;
+    u32 act = code;
+    u32 need = 20;
+
+    if (d > 3u || n < 20u)
+        return CODE_NONE;
+
+    if (code < 4u)                      /* mittente vecchio, o un semplice girarsi */
+        act = (step ? kLegacyBase[code] : MOVEMENT_BASE_FACE) + d;
+
+    if (!(act <= 0x0Fu || (act >= 0x15u && act <= 0x38u) || (act >= 0x3Au && act <= 0x3Du)
+          || (act >= 0x42u && act <= 0x4Du) || (act >= 0x64u && act <= 0x8Bu)))
+        act = base + d;
+
+    if (act >= 0x64u)
+        need = 40;
+    else if (act >= 0x35u && act <= 0x3Du)
+        need = 24;
+    if (n < need)
+        act = base + d;
 
     /* Marcia di recupero: quando la coda si accumula, il remoto va piu' veloce
-     * dell'andatura dichiarata finche' non ha riassorbito il ritardo. Serve
-     * perche' correndo o in bici il giocatore produce piu' passi al secondo di
-     * quanti l'animazione normale ne possa consumare, e senza questo il ritardo
-     * cresce per tutta la volata. */
-    if (hurry)
-        base = MOVEMENT_BASE_FASTER;
-    else
-    {
-        switch (speed)
-        {
-        case SPEED_RUN:  base = MOVEMENT_BASE_RUN;  break;
-        case SPEED_BIKE: base = MOVEMENT_BASE_FAST; break;
-        case SPEED_SURF: base = MOVEMENT_BASE_SURF; break;
-        default:         base = MOVEMENT_BASE_WALK; break;
-        }
-    }
+     * dell'andatura dichiarata finche' non ha riassorbito il ritardo. Solo
+     * sulle camminate e sulla corsa: un salto o un'impennata affrettati non
+     * sarebbero piu' un salto o un'impennata. */
+    if (hurry && (act - MOVEMENT_BASE_WALK < 4u || act - MOVEMENT_BASE_FAST < 4u
+                  || act - MOVEMENT_BASE_RUN < 4u))
+        act = MOVEMENT_BASE_FASTER + d;
 
-    return (u8)(base + (dir - DIR_SOUTH));
-}
-
-/* Girarsi sul posto: stessa famiglia ordinata DOWN, UP, LEFT, RIGHT, base 0x00
- * (MOVEMENT_ACTION_FACE_*). */
-static u8 FaceActionFor(u8 dir)
-{
-    if (dir < DIR_SOUTH || dir > DIR_EAST)
-        return MOVEMENT_ACTION_FACE_DOWN;
-
-    return (u8)(MOVEMENT_BASE_FACE + (dir - DIR_SOUTH));
+    return (u8)act;
 }
 
 /* Quanti eventi giacciono nella mailbox condivisa (non ancora smistati). */
@@ -1995,6 +2113,8 @@ static int InsideView(s16 x, s16 y)
         && y >= VIEW_TOP(py)  && y <= VIEW_BOTTOM(py);
 }
 
+static void FixPlayerSlotPalette(struct Remote *r, u32 oe);
+
 static void TrySpawnRemote(struct Remote *r, s16 x, s16 y)
 {
     u32 playerOe = ObjectEvent(gPlayerAvatar_objectEventId);
@@ -2060,6 +2180,7 @@ static void TrySpawnRemote(struct Remote *r, s16 x, s16 y)
     r->objectId = id;
     r->state = STATE_SPAWNED;
     r->spawnMapKey = g_state.mapKey;
+    FixPlayerSlotPalette(r, ObjectEvent(id));
     /* LO SPAWN E' GIA' UN RIPOSIZIONAMENTO ASSOLUTO: il remoto e' stato messo
      * esattamente dove l'amico dice di essere. Se sForceResync restasse alzato,
      * il PRIMO PASSO dopo lo spawn verrebbe degradato a SYNC e applicato con
@@ -2090,9 +2211,31 @@ static int RemoteReadyForMovement(u32 oe)
     return 0;
 }
 
-static void QueueRemoteStep(u32 oe, u8 dir, u8 speed, int hurry)
+static void QueueRemoteStep(struct Remote *r, u32 oe, u8 dir, u8 speed, int hurry, int step)
 {
-    if (ObjectEventSetHeldMovement((void *)oe, ActionFor(dir, speed, hurry)) == 0)
+    u8 act = ActionFor(r, dir, speed, hurry, step);
+
+    /* IL SALTO LATERALE DELLA BICI ACROBATICA NON GIRA IL PERSONAGGIO (dal campo,
+     * 2026-10-10, fra due GBA: «si gira verso dove fa il salto»). Il gioco, prima
+     * di quel salto, alza objectEvent->facingDirectionLocked
+     * (AcroBikeTransition_SideJump, bike.c): l'azione sposta ma non cambia dove
+     * si guarda. Quel bit non viaggia - e non serve: `dir` dell'evento e' dove
+     * il mittente GUARDA, il numero dell'azione dice dove SI MUOVE; se in un
+     * PASSO le due cose non coincidono, il mittente aveva il blocco alzato. Lo si
+     * rimette com'e' a ogni azione, cosi' non resta appeso.
+     * La direzione dentro la famiglia: le famiglie sono da quattro (giu', su,
+     * sinistra, destra) ma non partono tutte da un multiplo di 4. */
+    if (act != CODE_NONE)
+    {
+        u32 da = act;
+        volatile u8 *f1 = &GAME_U8(oe + 1);
+
+        if (act >= 0x10u && act < 0x64u)
+            da = act - ((act <= 0x38u) ? 1u : 2u);
+        *f1 = (u8)((*f1 & ~0x02u) | ((step && (da & 3u) != (u32)dir - DIR_SOUTH) ? 0x02u : 0u));
+    }
+
+    if (act != CODE_NONE && ObjectEventSetHeldMovement((void *)oe, act) == 0)
     {
         BUMPF(movesQueued);
         if (hurry)
@@ -2130,6 +2273,38 @@ static s32 AbsDiff(s32 a, s32 b)
  * Per questo si fa esattamente cio' che fa il gioco in PlayerAvatarTransition_*:
  * si cancella il movimento in corso e si chiama ObjectEventTurn, che riporta
  * animNum a una FACE_* (0-3) e riavvolge il frame. */
+#define FLY_FRAMES          40u    /* l'uccello ci mette 32 frame (data[2] += 4 fino a 0x80) */
+#define FLY_RESPAWN_FRAMES  240u   /* e l'animazione del mittente ne dura un altro centinaio */
+
+/* PESCA E ANNAFFIATOIO HANNO LA PALETTE DEL GIOCATORE LOCALE.
+ *
+ * Per quegli stati la tabella del rivale non ha una grafica sua: usa quelle
+ * del giocatore (OBJ_EVENT_GFX_BRENDAN_FISHING...), che hanno paletteSlot =
+ * PALSLOT_PLAYER. Darle a un remoto fa riscrivere lo slot 0 - quello
+ * dell'avatar LOCALE - con i colori del sesso dell'amico: se e' l'altro sesso
+ * chi guarda cambia colore, e resta cosi' fino al prossimo caricamento di
+ * mappa. E' lo stesso scontro per cui tutti gli altri stati usano le grafiche
+ * del rivale (vedi GfxForRemote).
+ * Qui si rimette nello slot 0 la palette di chi gioca e si sposta lo sprite
+ * del remoto sullo slot degli NPC speciali, caricandoci la SUA: e' lo slot che
+ * usa in tutti gli altri stati. Sott'acqua non serve: la' la palette e' una
+ * sola per tutti (OBJ_EVENT_PAL_TAG_PLAYER_UNDERWATER) e anche chi guarda e'
+ * sott'acqua. */
+static void FixPlayerSlotPalette(struct Remote *r, u32 oe)
+{
+    u32 spr;
+
+    if (r->avatarState < PLAYER_AVATAR_STATE_FISHING)
+        return;
+    /* OBJ_EVENT_PAL_TAG_MAY = OBJ_EVENT_PAL_TAG_BRENDAN + 0x10: il sesso (0/1)
+     * fa da indice, senza rami. */
+    PatchObjectPalette((u16)(OBJ_EVENT_PAL_TAG_BRENDAN + (PlayerGender() << 4)), 0);
+    LoadSpecialObjectReflectionPalette((u16)(OBJ_EVENT_PAL_TAG_BRENDAN + ((r->gender & 1u) << 4)),
+                                       PALSLOT_NPC_SPECIAL);
+    spr = Sprite(oe_spriteId(oe));
+    sprite_oamAttr2(spr) = (u16)((sprite_oamAttr2(spr) & 0x0FFFu) | (PALSLOT_NPC_SPECIAL << 12));
+}
+
 static void SyncRemoteGraphics(struct Remote *r, u32 oe)
 {
     u8 want = GfxForRemote((u8)r->avatarState, (u8)r->gender);
@@ -2188,9 +2363,51 @@ static void SyncRemoteGraphics(struct Remote *r, u32 oe)
     ObjectEventSetGraphicsId((void *)oe, want);
     /* movementDirection, non facingDirection: e' l'argomento che passano
      * PlayerAvatarTransition_Normal / _MachBike / _Surfing
-     * (field_player_avatar.c:852, 859, 878). */
-    ObjectEventTurn((void *)oe, oe_movementDirection(oe));
+     * (field_player_avatar.c:852, 859, 878).
+     * MA NON PER MOSSA DI CAMPO E PESCA: le loro tabelle hanno 1 e 12 voci, e
+     * ObjectEventTurn metterebbe l'animazione "guarda a ovest" (indice 2) su
+     * una tabella che ne ha una sola. Li' si riparte dalla prima, e la posa
+     * vera la mette RemotePose nello stesso giro. */
+    if (kAnimCount[r->avatarState] >= 20u)
+        ObjectEventTurn((void *)oe, oe_movementDirection(oe));
+    else
+        StartSpriteAnim((void *)Sprite(oe_spriteId(oe)), 0);
+    FixPlayerSlotPalette(r, oe);
     BUMPF(gfxChanges);
+}
+
+/* LA POSA: l'animazione che il mittente ha sullo sprite, quando non e' una
+ * movement action a deciderla (pesca, annaffiatoio, mossa di campo), e il
+ * volo. Si chiama dal corpo DOPO SyncRemoteGraphics, cioe' con la tabella
+ * delle animazioni gia' quella dello stato dichiarato: e' la condizione che
+ * rende lecito il confronto con kAnimCount.
+ * Idempotente: riavvia l'animazione solo se non e' gia' quella, quindi il
+ * SYNC che la ripete ogni secondo non la fa ripartire da capo. */
+static void RemotePose(struct Remote *r, u32 oe)
+{
+    u32 spr = Sprite(oe_spriteId(oe));
+    u32 anim = r->pose & 0x3Fu;
+
+    if (r->pose == CODE_FLY)
+    {
+        /* Lo stesso effetto che il gioco usa per gli NPC che volano via
+         * (FldEff_NPCFlyOut, field_effect.c:3118): l'uccello passa e si porta
+         * lo sprite. La casella degli argomenti e' del gioco: si rimette
+         * com'era (vedi CreateRemoteSurfBlob). Dopo, lo sprite e' fuori posto
+         * e non segue piu' la camera: a FLY_FRAMES il remoto si dimentica, e
+         * se l'amico e' ancora su questa mappa ricompare dopo la pausa. */
+        u32 keep = gFieldEffectArguments(0);
+
+        gFieldEffectArguments(0) = oe_spriteId(oe);
+        FieldEffectStart(FLDEFF_NPCFLY_OUT);
+        gFieldEffectArguments(0) = keep;
+        r->pose = 0;
+        r->flyTimer = FLY_FRAMES;
+        return;
+    }
+    if (r->pose >= CODE_POSE && anim < kAnimCount[r->avatarState]
+        && sprite_animNum(spr) != anim)
+        StartSpriteAnim((void *)spr, (u8)anim);
 }
 
 /* --- blob del surf --------------------------------------------------------
@@ -2387,10 +2604,14 @@ static void RemoteSpriteCb(void *sprite)
     u32 i, changed = 0;
     u32 oeId = (u16)sprite_data0((u32)sprite);   /* sObjEventId */
     void (*cb)(void *) = 0;
+    u32 state = 0;
 
     for (i = 0; i < N_REMOTES; i++)
         if (g_remotes[i].objectId == oeId)
+        {
             cb = g_remotes[i].sprCb;
+            state = g_remotes[i].avatarState;
+        }
     /* Nessun padrone: lo sprite non puo' essere piu' nostro (ForgetRemote e
      * il respawn distruggono prima lo sprite). Non si chiama un puntatore
      * che non sappiamo da dove venga. */
@@ -2407,6 +2628,18 @@ static void RemoteSpriteCb(void *sprite)
     }
     if (changed)
         BUMPF(fxArgsKept);
+
+    /* SOTT'ACQUA SI DONDOLA. Il gioco lo fa con uno sprite fantasma che sposta
+     * y2 del giocatore di un pixel ogni 4 frame e inverte ogni 16
+     * (StartUnderwaterSurfBlobBobbing, field_effect_helpers.c:1150): un altro
+     * sprite da creare, ricordare e distruggere. Qui la stessa onda si scrive
+     * direttamente, dal contatore dei VBlank: niente da ricordare. */
+    if (state == PLAYER_AVATAR_STATE_UNDERWATER)
+    {
+        u32 w = (gMain_vblankCounter1 >> 2) & 7u;
+
+        sprite_y2((u32)sprite) = (s16)(w < 4u ? w : 8u - w);
+    }
 }
 
 /* Si rifa' a ogni frame, perche' il gioco ricrea lo sprite dal template quando
@@ -3072,7 +3305,7 @@ static void ConsumeSlotEvents(u32 slot)
                     mdir = (mdy > 0) ? DIR_SOUTH : DIR_NORTH;
                     r->targetY += (mdy > 0) ? 1 : -1;
                 }
-                QueueRemoteStep(oe, mdir, speed, 1);
+                QueueRemoteStep(r, oe, mdir, 0, 1, 1);
                 r->settled = 0;
                 return;   /* l'evento NON e' consumato: qTail non avanza */
             }
@@ -3112,7 +3345,7 @@ static void ConsumeSlotEvents(u32 slot)
              * stato dichiarato da QUESTO evento: andatura e sprite devono
              * essere consistenti per costruzione (vedi SyncRemoteGraphics). */
             r->gender = qe->gender;
-            r->avatarState = qe->avatarState;
+            r->avatarState = qe->avatarState & 7u;
             SyncRemoteGraphics(r, oe);
 
             /* SyncRemoteGraphics puo' aver deciso di ricreare il remoto
@@ -3137,21 +3370,35 @@ static void ConsumeSlotEvents(u32 slot)
                  * e' l'unico posto in cui il passo DEVE vedersi camminare).
                  * La marcia guarda la coda del SINGOLO slot: il ritardo da
                  * riassorbire e' suo, non della stanza. */
-                QueueRemoteStep(oe, dir, speed,
-                                !(sDoorState == DOOR_ST_EXIT_STEP && sDoorOwner == slot)
-                                && RqLen(r) >= HURRY_THRESHOLD);
+                /* SE E' GIA' LI', NON SI MUOVE. Serve al salto dal gradino
+                 * (JUMP_2_*, trovato il 2026-10-10 col mittente vero,
+                 * scena del gradino): quell'azione sposta le
+                 * coordinate del giocatore DUE volte - alla partenza e a meta'
+                 * salto (DoJumpAnimStep, JUMP_HALFWAY) - e il mittente racconta
+                 * due PASSI da una casella, tutti e due col codice del salto.
+                 * Il primo fa saltare l'amico di due caselle; il secondo lo
+                 * troverebbe gia' arrivato e lo farebbe saltare ancora. Due
+                 * passi da una casella restano tali per chiunque stia in mezzo
+                 * (la ricucitura del client non vede buchi), e la regola vale
+                 * per ogni altro PASSO che arrivi a cose fatte. */
+                if (oe_currentX(oe) != lx || oe_currentY(oe) != ly)
+                    QueueRemoteStep(r, oe, dir, speed,
+                                    !(sDoorState == DOOR_ST_EXIT_STEP && sDoorOwner == slot)
+                                    && RqLen(r) >= HURRY_THRESHOLD, 1);
                 BUMPF(rxSteps);
                 if (via)
                     BUMPF(rxTranslated);
             }
-            else if (ObjectEventSetHeldMovement((void *)oe, FaceActionFor(dir)) == 0)
+            else if (speed < CODE_POSE)
             {
+                /* Girarsi, oppure un'azione sul posto (impennata, saltello,
+                 * passo contro un muro). Una POSA non passa di qui: la mette
+                 * RemotePose dal corpo, dopo aver allineato la grafica. */
+                QueueRemoteStep(r, oe, dir, speed, 0, 0);
                 BUMPF(rxTurns);
                 if (via)
                     BUMPF(rxTranslated);
             }
-            else
-                BUMPF(movesRejected);
             r->settled = 0;
         }
         else if (type == EVENT_SYNC && applicable)
@@ -3199,7 +3446,7 @@ static void ConsumeSlotEvents(u32 slot)
                 TeleportRemote(oe, lx, ly);
             }
             else if (drift > 0 && RemoteReadyForMovement(oe)
-                     && (r->settled || r->driftRun >= DRIFT_RUN_MAX))
+                     && (r->settled >= SETTLE_FRAMES || r->driftRun >= DRIFT_RUN_MAX))
             {
                 TeleportRemote(oe, lx, ly);
                 BUMPF(idleFixes);
@@ -3225,7 +3472,11 @@ static void ConsumeSlotEvents(u32 slot)
         r->targetX = x;
         r->targetY = y;
         r->gender = qe->gender;
-        r->avatarState = qe->avatarState;
+        r->avatarState = qe->avatarState & 7u;
+        /* La posa viaggia con OGNI evento di posizione (anche il SYNC: chi
+         * arriva dopo vede l'amico gia' con la canna in mano) e si spegne
+         * col primo che non la porta. */
+        r->pose = (speed >= CODE_POSE && speed != CODE_NONE) ? speed : 0;
 
         if (borderWalk)
             BUMPF(borderWalks);
@@ -4051,7 +4302,7 @@ static void SettleCommit(u32 playerOe)
     s16 x = oe_currentX(playerOe);
     s16 y = oe_currentY(playerOe);
     u8  dir = oe_facingDirection(playerOe);
-    u32 speed = PlayerSpeedClass();
+    u32 speed = PlayerCode(playerOe);
     u32 slot;
 
     ST_MIRROR(prevMapKey, sLastMapKey);
@@ -4600,13 +4851,26 @@ static void OverworldTick(void)
                  * Il giocatore locale ha l'idle handler che gli rimette la
                  * posa a ogni frame; il remoto quell'handler non ce l'ha,
                  * glielo facciamo noi. Il predicato "niente in attesa" e'
-                 * la coda del SUO slot (RqLen), non quella della stanza. */
-                if (!r->settled && RqLen(r) == 0 && RemoteReadyForMovement(oe))
+                 * la coda del SUO slot (RqLen), non quella della stanza.
+                 *
+                 * DOPO SETTLE_FRAMES, non subito (2026-10-10): fra due passi
+                 * che arrivano con un filo di ritardo, o fra due impennate sul
+                 * posto, la posa da fermo comparirebbe per un frame e l'amico
+                 * tremerebbe. Chi e' in una POSA (pesca...) non ha posa da
+                 * fermo: ActionFor risponde CODE_NONE e non si tocca niente. */
+                if (r->pose)
+                    RemotePose(r, oe);
+                if (r->flyTimer && --r->flyTimer == 0)
                 {
-                    if (ObjectEventSetHeldMovement((void *)oe,
-                                                   FaceActionFor(oe_facingDirection(oe))) == 0)
-                        BUMPF(settles);
-                    r->settled = 1;
+                    ForgetRemote(r);
+                    r->spawnCooldown = FLY_RESPAWN_FRAMES;
+                    continue;
+                }
+                if (r->settled < SETTLE_FRAMES && RqLen(r) == 0 && RemoteReadyForMovement(oe)
+                    && ++r->settled == SETTLE_FRAMES)
+                {
+                    QueueRemoteStep(r, oe, oe_facingDirection(oe), 0, 0, 0);
+                    BUMPF(settles);
                 }
 
                 /* Solo per il log, e solo per il primario: dove il gioco sta

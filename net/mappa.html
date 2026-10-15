@@ -524,29 +524,150 @@
     #lato { height: 78vh; max-height: 78vh; }
     .safari .sft { font-size: 11px; }
   }
+
+  /* ============================================================================
+   * NUOVO ASPETTO (2026-10-11): lo stile comune del sito (web/css/sito.css).
+   * Questa pagina resta UN FILE SOLO - la serve anche il pannello Python, che
+   * non ha la cartella css/ - quindi lo stile nuovo sta qui in coda, sopra le
+   * regole di prima: intestazione bianca con la navigazione, lato a sezioni,
+   * la chat della stanza in fondo al lato, controlli chiari sulla mappa.
+   * I font sono locali (fonts/, li serve anche pannello.py); se mancano si
+   * ricade su Segoe UI e Consolas.
+   * ========================================================================== */
+  @font-face { font-family: "Figtree"; font-style: normal; font-weight: 400 800; font-display: swap;
+    src: url(fonts/figtree-latin.woff2) format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: "Figtree"; font-style: normal; font-weight: 400 800; font-display: swap;
+    src: url(fonts/figtree-latin-ext.woff2) format("woff2");
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+  @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400 700; font-display: swap;
+    src: url(fonts/jetbrains-mono-latin.woff2) format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400 700; font-display: swap;
+    src: url(fonts/jetbrains-mono-latin-ext.woff2) format("woff2");
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+  :root {
+    --verde-cupo: #0f3b2d; --carta: #f7f4ec; --scheda: #fff; --bordo: #e7e0cf; --bordo-scuro: #dfd7c4;
+    --inchiostro: #10241c;
+    --sans: "Figtree", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", Consolas, "Cascadia Mono", "Courier New", monospace;
+  }
+  html, body { font-family: var(--sans); }
+  button, input, select { font-family: var(--sans); }
+  .nonvisto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  header { background: #fff; color: var(--inchiostro); padding: 12px 0; border-bottom: 1px solid var(--bordo); overflow: visible; }
+  header .dentro { padding: 0 24px; gap: 14px; flex-wrap: wrap; }
+  .marchio { display: block; border-radius: 12px; border: 2px solid #0b2a20; box-shadow: none; }
+  .nome-sito { font-size: 20px; font-weight: 800; letter-spacing: -.02em; color: var(--inchiostro); text-decoration: none; white-space: nowrap; }
+  .nav-sito { display: flex; gap: 4px; margin-left: 8px; }
+  .nav-sito a { height: 36px; padding: 0 14px; border-radius: 10px; font-size: 14px; font-weight: 600; line-height: 36px; color: #5d6b62; text-decoration: none; white-space: nowrap; }
+  .nav-sito a:hover { background: #f4f0e6; color: var(--inchiostro); }
+  .nav-sito a.qui { font-weight: 700; color: #0f6b4a; background: #eaf6ef; }
+  .targhe { gap: 8px; }
+  .targa { height: 34px; padding: 0 12px; border-radius: 999px; background: #f4f0e6; border: 0; font: 12px/1 var(--mono); color: #3b463f; gap: 5px; }
+  .targa b { color: var(--inchiostro); }
+  .targa.stanza { background: #fff1e6; border: 1px solid #f7cfb0; color: #a84816; font: 700 13px/1 var(--sans); }
+  .lingua { height: 34px; border-radius: 999px; border: 1px solid #dfd7c4; }
+  .lingua button { background: #fff; color: #5d6b62; border-radius: 0; height: 100%; }
+  .lingua button:hover { background: #f4f0e6; }
+  .lingua button.on { background: #10241c; color: #fff; }
+
+  #lato { width: 360px; background: #fff; border-right: 1px solid var(--bordo); }
+  #scroll::-webkit-scrollbar-thumb { border-color: #fff; }
+  .sez { border: 0; border-bottom: 1px solid #efe9db; border-radius: 0; margin: 0; padding: 16px 18px; box-shadow: none; background: #fff; }
+  #scroll .sez:last-child { margin-bottom: 0; }
+  .sez h2, details.sez > summary { font-size: 11px; letter-spacing: .12em; }
+  .sez h2 { margin-bottom: 10px; }
+  input[type=text], select { height: 40px; border-color: #dfd7c4; font: 14px/1 var(--sans); }
+  .interruttori { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  label.ck { position: relative; height: 30px; padding: 0 11px; border-radius: 999px; border-color: #dfd7c4; font-size: 12.5px; font-weight: 600; color: #6b7269; gap: 5px; }
+  label.ck input { position: absolute; opacity: 0; width: 0; height: 0; }
+  label.ck:focus-within { outline: 2px solid var(--verde-vivo); outline-offset: 1px; }
+  label.ck:has(input:checked) { border-color: #c6e6d3; background: #eaf6ef; color: #0f6b4a; }
+  label.ck:has(input:checked)::before { content: "\2713"; }
+  #btn-fit { border-radius: 999px; border-color: #dfd7c4; }
+  .segm { border: 0; padding: 3px; background: #f4f0e6; border-radius: 10px; }
+  .segm button { border: 0 !important; border-radius: 8px; background: transparent; font-weight: 600; font-size: 13px; color: #6b7269; }
+  .segm button.on { background: #fff; color: #10241c; font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .giocatore { background: transparent; padding: 3px 0; gap: 10px; font-size: 13px; margin-bottom: 5px; }
+  .giocatore .pallino { width: 30px; height: 30px; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 12px; box-shadow: none; text-transform: uppercase; }
+
+  /* la chat della stanza, in fondo al lato */
+  #sez-chat { display: flex; flex-direction: column; flex: none; max-height: 40%; min-height: 148px; border-top: 1px solid #efe9db; background: #fff; }
+  #sez-chat h2 { margin: 0; padding: 14px 18px 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: var(--tenue2); display: flex; gap: 8px; align-items: baseline; }
+  #sez-chat h2 span { font: 11px/1 var(--mono); text-transform: none; letter-spacing: 0; }
+  #chat-lista { flex: 1; min-height: 40px; overflow-y: auto; padding: 4px 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+  #chat-lista .ev, #chat-nota { font-size: 11.5px; color: var(--tenue2); }
+  #chat-lista .luogo { color: var(--verde); font-weight: 600; cursor: pointer; text-decoration: underline; }
+  #chat-nota { padding: 4px 18px 0; line-height: 1.45; }
+  #chat-nota:empty { display: none; }
+  #chat-riga { display: flex; gap: 6px; padding: 10px 14px 14px; margin: 0; }
+  #chat-campo { flex: 1; min-width: 0; height: 38px; padding: 0 12px; font: 13.5px/1 var(--sans); }
+  #chat-manda { height: 38px; padding: 0 12px; border: 0; border-radius: 10px; background: #0f6b4a; color: #fff; font: 700 12.5px/1 var(--sans); }
+  #chat-manda:hover { background: #0b573b; }
+  #chat-manda:disabled, #chat-campo:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* i controlli sopra la mappa: chiari */
+  #nav button, #nav .dove, #zoom button, #stato {
+    background: #fff; border: 1px solid var(--bordo); color: var(--inchiostro); box-shadow: 0 4px 14px rgba(16,36,28,.12);
+  }
+  #nav .dove { font: 700 13px/1 var(--sans); height: 32px; border-radius: 10px; }
+  #nav button { height: 32px; border-radius: 10px; }
+  #nav button:hover, #zoom button:hover { background: #f4f0e6; }
+  #nav button.fuori { background: #eaf6ef; border-color: #c6e6d3; color: #0f6b4a; }
+  #zoom { flex-direction: column-reverse; gap: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(16,36,28,.12); }
+  #zoom button { width: 40px; height: 40px; border-radius: 0; box-shadow: none; font-size: 18px; }
+  #stato { color: var(--tenue); font-size: 11px; }
+
+  /* DENTRO un'altra pagina (stanza.html, scheda «Mappa live»): solo la mappa. */
+  html.dentro header, html.dentro #lato { display: none !important; }
+  /* servita dal pannello Python: le altre pagine del sito non ci sono */
+  html.python #nav-stanze, html.python #nav-progetto { display: none; }
+
+  @media (max-width: 1100px) { .targhe .targa:not(.stanza) { display: none; } }
+  @media (max-width: 820px), (pointer: coarse) and (max-width: 1000px) {
+    header { padding: 8px 0; }
+    header .dentro { padding: 0 12px; gap: 6px 10px; }
+    .marchio { width: 36px; height: 36px; }
+    .nome-sito { font-size: 16px; }
+    .targhe { display: flex; margin-left: auto; }
+    .nav-sito { order: 5; width: 100%; margin-left: 0; overflow-x: auto; scrollbar-width: none; }
+    .nav-sito::-webkit-scrollbar { display: none; }
+    .nav-sito a { height: 40px; line-height: 40px; }
+    #lato { width: 100%; }
+    #fisso, #scroll { padding: 0; }
+    #sez-chat { max-height: 38%; }
+    #chat-campo { font-size: 16px; height: 44px; }
+    #chat-manda { height: 44px; min-width: 64px; }
+    #zoom button { min-width: 44px; min-height: 44px; }
+  }
 </style>
 </head>
 <body>
 <div id="app">
   <header>
-    <div class="erba"></div>
-    <div class="velo"></div>
     <div class="dentro">
-      <div class="marchio">
+      <a class="marchio" href="gioca.html" id="a-marchio" aria-label="Pannello">
         <div class="fondo"></div>
         <img class="px o1" src="img/orma-treecko-scuro-bordo.png" alt="">
         <img class="px o2" src="img/orma-torchic-scuro-bordo.png" alt="">
-      </div>
-      <div>
-        <h1 id="t-titolo">Mappa live</h1>
-        <p class="sub" id="t-sub">Hoenn disegnata dalla decomp · posizioni dal vivo dal pannello</p>
-      </div>
+      </a>
+      <a class="nome-sito" href="gioca.html" id="a-nome">gen3-poke-multiplayer</a>
+      <h1 class="nonvisto" id="t-titolo">Mappa live</h1>
+      <p class="nonvisto" id="t-sub">Hoenn disegnata dalla decomp · posizioni dal vivo dal pannello</p>
+      <!-- Le pagine del sito. Servita dal pannello Python (html.python) restano
+           solo «Pannello», che li' e' la radice, e questa. -->
+      <nav class="nav-sito" id="nav-sito">
+        <a href="gioca.html" id="t-torna">Pannello</a>
+        <a href="stanze.html" id="nav-stanze">Stanze</a>
+        <a class="qui" href="mappa.html" id="nav-mappa" aria-current="page">Mappa live</a>
+        <a href="progetto.html" id="nav-progetto">Come funziona</a>
+      </nav>
       <div class="targhe">
-        <span class="targa"><b id="targa-mappe">—</b><span id="t-mappe">mappe</span></span>
-        <span class="targa"><b id="targa-specie">—</b><span id="t-specie">specie</span></span>
+        <span class="targa"><b id="targa-mappe">—</b><span id="t-mappe">mappe</span> · <b id="targa-specie">—</b><span id="t-specie">specie</span></span>
         <span class="lingua"><button id="lang-it">IT</button><button id="lang-en">EN</button></span>
-        <span class="targa"><span class="led"></span>127.0.0.1:7411</span>
-        <a class="torna" href="/" id="t-torna">‹ Torna al pannello</a>
+        <span class="targa stanza" id="targa-stanza" hidden></span>
       </div>
     </div>
   </header>
@@ -601,6 +722,19 @@
           <div class="legenda" id="legenda" style="margin-top:10px"></div>
         </details>
       </div>
+
+      <!-- LA CHAT DELLA STANZA (2026-10-11). Sul sito scrive attraverso la
+           scheda che tiene il collegamento (il pannello in partita, o la
+           pagina della stanza); dal pannello Python si legge soltanto. -->
+      <div id="sez-chat">
+        <h2><span id="t-chat" style="font:inherit;letter-spacing:inherit;text-transform:inherit">Chat</span><span id="chat-quale"></span></h2>
+        <div id="chat-lista" role="log" aria-live="polite"></div>
+        <div id="chat-nota"></div>
+        <form id="chat-riga">
+          <input type="text" id="chat-campo" maxlength="280" autocomplete="off" enterkeyhint="send">
+          <button type="submit" id="chat-manda">Invia</button>
+        </form>
+      </div>
     </div>
 
     <div id="tela-box">
@@ -628,6 +762,9 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var T = 16;                           // pixel per tile
+  // ?dentro=1: la pagina e' dentro un'altra (stanza.html, scheda «Mappa live»):
+  // solo la mappa, senza intestazione ne' lato.
+  try { if (new URLSearchParams(location.search).get("dentro") === "1") document.documentElement.classList.add("dentro"); } catch (e) { /* niente */ }
   var dati = null, MAP_OFFSET = 7;
   var vista = null;                     // {tipo:'mondo', id} | {tipo:'mappa', key}
   var z = 0.5, cx = 0, cy = 0;
@@ -668,7 +805,16 @@
       sub: "Hoenn disegnata dalla decomp · posizioni dal vivo dal pannello",
       mappe: "mappe", specie: "specie", vista: "Vista", giocatori: "Giocatori",
       cerca: "Cerca", dettagli: "Dettagli", legenda: "Legenda", segui: "Segui",
-      torna: "‹ Torna al pannello", fit: "Tutta la vista",
+      torna: "Pannello", fit: "Tutta la vista",
+      navStanze: "Stanze", navMappa: "Mappa live", navProg: "Come funziona",
+      tuNome: "Tu (%s)", stanzaN: "Stanza %s", chatInvia: "Invia", chatTu: "Tu",
+      chatPh: "Scrivi alla stanza…", chatVuota: "Nessun messaggio ancora.",
+      chatSpenta: "Per leggere e scrivere tieni aperto in un'altra scheda il Pannello (in partita) o la pagina di una Stanza.",
+      chatLettura: "Sola lettura: dal pannello Python la chat si legge e basta.",
+      chatAttesa: "Il relay non risponde: il messaggio non è partito.",
+      chatTroppi: "Piano: al massimo 5 messaggi in 10 secondi.",
+      evEntra: "%s è entrato in gioco", evEsce: "%s è uscito", evClub: "%s è al Cable Club", evClubFine: "%s ha lasciato il Cable Club",
+      evSpett: "%s guarda la stanza", evSpettVia: "%s non guarda più",
       str: "strumenti", per: "personaggi", por: "porte", nom: "nomi", gri: "griglia",
       cMappe: "Mappe", cSpecie: "Pokémon", cAll: "Allenatori",
       phMappe: "Route 110, Borgo Radice, Centro…",
@@ -762,7 +908,16 @@
       sub: "Hoenn rendered from the decomp · live positions from the panel",
       mappe: "maps", specie: "species", vista: "View", giocatori: "Players",
       cerca: "Search", dettagli: "Details", legenda: "Legend", segui: "Follow",
-      torna: "‹ Back to panel", fit: "Fit to view",
+      torna: "Panel", fit: "Fit to view",
+      navStanze: "Rooms", navMappa: "Live map", navProg: "How it works",
+      tuNome: "You (%s)", stanzaN: "Room %s", chatInvia: "Send", chatTu: "You",
+      chatPh: "Write to the room…", chatVuota: "No messages yet.",
+      chatSpenta: "To read and write, keep the Panel (in a game) or a Room page open in another tab.",
+      chatLettura: "Read only: from the Python panel the chat can only be read.",
+      chatAttesa: "The relay isn't answering: the message wasn't sent.",
+      chatTroppi: "Slow down: at most 5 messages every 10 seconds.",
+      evEntra: "%s joined the game", evEsce: "%s left", evClub: "%s is at the Cable Club", evClubFine: "%s left the Cable Club",
+      evSpett: "%s is watching the room", evSpettVia: "%s stopped watching",
       str: "items", per: "people", por: "doors", nom: "names", gri: "grid",
       cMappe: "Maps", cSpecie: "Pokémon", cAll: "Trainers",
       phMappe: "Route 110, Littleroot, Center…",
@@ -915,6 +1070,12 @@
     $("t-legenda").textContent = t("legenda");
     $("t-segui").textContent = t("segui");
     $("t-torna").textContent = t("torna");
+    $("nav-stanze").textContent = t("navStanze");
+    $("nav-mappa").textContent = t("navMappa");
+    $("nav-progetto").textContent = t("navProg");
+    $("a-marchio").setAttribute("aria-label", t("torna"));
+    $("chat-manda").textContent = t("chatInvia");
+    disegnaChat();
     $("btn-fit").title = t("fit");
     $("t-ck-str").textContent = t("str");
     $("t-ck-per").textContent = t("per");
@@ -969,6 +1130,15 @@
       } catch (e) { /* niente */ }
       poll();
       setInterval(poll, 500);
+      // ?mappa=g.n&x=X&y=Y: una posizione condivisa in chat. Si apre li'.
+      try {
+        var q = new URLSearchParams(location.search), km = q.get("mappa");
+        if (km && d.mappe[km]) {
+          var qx = parseInt(q.get("x"), 10), qy = parseInt(q.get("y"), 10);
+          if (isFinite(qx) && isFinite(qy)) centraPunto(km, qx, qy);
+          else { vaiA(km); mostraMappa(km); }
+        }
+      } catch (e2) { /* indirizzo senza parametri leggibili: si resta su Hoenn */ }
     }).catch(function (e) {
       $("avviso").classList.add("visibile");
       $("avviso-testo").innerHTML = t("datiNo", e.message);
@@ -1438,21 +1608,37 @@
         ctx.imageSmoothingEnabled = z < 1;
       } else {
         ctx.beginPath(); ctx.arc(bx + sw / 2, by + sw / 2, Math.max(5, sw / 2), 0, Math.PI * 2);
-        ctx.fillStyle = g.io ? "#7fb2ff" : "#3fd68f"; ctx.fill(); ctx.strokeStyle = "#08211a"; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.fillStyle = coloreDi(g); ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2.5; ctx.stroke();
       }
       var STATO_NOMI = { 0: "", 1: "in lotta", 2: "in un dialogo", 3: "nel menu", 4: "nella Borsa", 5: "nella Squadra", 6: "nel Pokédex", 7: "nel PokéNav" };
       var STATO_EN = { 0: "", 1: "in battle", 2: "in a dialog", 3: "in the menu", 4: "in the Bag", 5: "in the Party", 6: "in the Pokédex", 7: "in the PokéNav" };
       var st = (lang === "it" ? STATO_NOMI : STATO_EN)[g.stato] || "";
       var eti = g.label + (st ? " · " + st : "");
-      ctx.font = "700 12px 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif";
+      ctx.font = "700 12px Figtree, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif";
       ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-      var tw = ctx.measureText(eti).width + 12, ex = bx + sw / 2, ey = by - sh / 2 - 4;
-      ctx.fillStyle = g.io ? "rgba(30,74,148,.94)" : "rgba(11,77,54,.94)";
+      var tw = ctx.measureText(eti).width + 16, ex = bx + sw / 2, ey = by - sh / 2 - 4;
+      // l'etichetta ha il colore del giocatore: azzurro tu, poi arancio, verde, viola
+      ctx.fillStyle = coloreDi(g);
       ctx.beginPath();
-      if (ctx.roundRect) { ctx.roundRect(ex - tw / 2, ey - 18, tw, 18, 5); ctx.fill(); }
-      else ctx.fillRect(ex - tw / 2, ey - 18, tw, 18);
-      ctx.fillStyle = "#f6f2e6"; ctx.fillText(eti, ex, ey - 3);
+      if (ctx.roundRect) { ctx.roundRect(ex - tw / 2, ey - 19, tw, 19, 9.5); ctx.fill(); }
+      else ctx.fillRect(ex - tw / 2, ey - 19, tw, 19);
+      ctx.fillStyle = "#fff"; ctx.fillText(eti, ex, ey - 3);
       ctx.globalAlpha = 1;
+    }
+    // IL PUNTO CONDIVISO (2026-10-11): una posizione mandata in chat, aperta
+    // con «Mappa». Un anello che pulsa per qualche secondo dice dov'e'.
+    if (puntoCondiviso) {
+      var resta = puntoCondiviso.fino - Date.now(), op = origine(puntoCondiviso.key);
+      if (resta <= 0) puntoCondiviso = null;
+      else if (op) {
+        var px = sx((op.x + puntoCondiviso.tx + 0.5) * T), py = sy((op.y + puntoCondiviso.ty + 0.5) * T);
+        var fase = (Date.now() % 1200) / 1200, raggio = Math.max(10, T * z * 0.7) * (1 + fase * 0.9);
+        ctx.beginPath(); ctx.arc(px, py, raggio, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(242,115,58," + (1 - fase).toFixed(2) + ")"; ctx.lineWidth = 3; ctx.stroke();
+        ctx.beginPath(); ctx.arc(px, py, Math.max(4, T * z * 0.22), 0, Math.PI * 2);
+        ctx.fillStyle = "#f2733a"; ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
+        dirty = true;
+      }
     }
     requestAnimationFrame(disegna);
   }
@@ -1977,7 +2163,7 @@
       ["<i style='box-shadow:0 0 0 2px #ff9b3b inset'></i>", t("legDono")],
       ["<i style='background:#ff3b3b;box-shadow:0 0 0 1px #fff'></i>", t("legAll")],
       ["<i style='background:#f2ede1'></i>", t("legNpc")],
-      ["<i style='background:#7fb2ff'></i>", t("legTu")],
+      ["<i style='background:#3a8fd9'></i>", t("legTu")],
       ["<i style='background:#3fd68f'></i>", t("legAmico")],
       ["<i class=q style='background:" + PORTA_COL.entra + "'></i>", t("legEntra")],
       ["<i class=q style='background:" + PORTA_COL.esce + "'></i>", t("legEsce")],
@@ -3021,20 +3207,45 @@
   // STESSO payload {t, viste:[...]}. Da `applica()` in giu' non cambia niente:
   // e' il motivo per cui il formato si tiene identico invece di inventarne uno
   // nuovo per il web.
+  // I colori dei giocatori (2026-10-11): tu azzurro, gli altri arancio, verde,
+  // viola nell'ordine in cui compaiono. Gli stessi su etichette, elenco e chat.
+  var TAVOLOZZA = ["#f2733a", "#12a06e", "#c46bd6", "#d39a12", "#2f9aa8", "#b3566b"];
+  var coloriPeer = {}, nomiPeer = {}, peerIo = null;
+  function colorePeer(peer) {
+    if (peerIo !== null && String(peer) === String(peerIo)) return "#3a8fd9";
+    if (!coloriPeer[peer]) coloriPeer[peer] = TAVOLOZZA[Object.keys(coloriPeer).length % TAVOLOZZA.length];
+    return coloriPeer[peer];
+  }
+  function coloreDi(g) { return g.io ? "#3a8fd9" : colorePeer(g.peer); }
+  function iniziale(nome) { var m = /[A-Za-zÀ-ÿ0-9]/.exec(String(nome || "")); return m ? m[0].toUpperCase() : "?"; }
+  var puntoCondiviso = null;
+
   function applica(d) {
     var perPeer = {};
     var adessoS = (d.t || Date.now() / 1000);
+    var chatViste = [], stanzaVista = 0;
     (d.viste || []).forEach(function (v) {
       if (adessoS - (v.t || 0) > 15) return;
+      // i nomi detti in chat, la stanza e (dal pannello Python) la chat stessa
+      if (v.nomi) Object.keys(v.nomi).forEach(function (p) { if (v.nomi[p]) nomiPeer[p] = String(v.nomi[p]).slice(0, 16); });
+      if (v.stanza) stanzaVista = v.stanza;
+      if (v.chat) { chatViste = chatViste.concat(v.chat); chatDaApi = true; }
       if (v.io) { var io2 = Object.assign({}, v.io, { peer: v.peer, io: true }); if (!perPeer[v.peer] || io2.t >= perPeer[v.peer].t) perPeer[v.peer] = io2; }
       Object.keys(v.amici || {}).forEach(function (p) {
         var a = Object.assign({}, v.amici[p], { peer: +p, io: false });
         if (!perPeer[p] || (!perPeer[p].io && a.t > perPeer[p].t)) perPeer[p] = a;
       });
     });
+    peerIo = null;
     giocatori = Object.keys(perPeer).map(function (p) {
-      var g = perPeer[p]; g.label = g.io ? t("tu", p) : t("amico", p); return g;
+      var g = perPeer[p], nome = nomiPeer[p];
+      if (g.io) peerIo = p;
+      g.label = g.io ? (nome ? t("tuNome", nome) : t("tu", p)) : (nome || t("amico", p));
+      g.nomeCorto = nome || (g.io ? t("chatTu") : String(p));
+      return g;
     });
+    if (stanzaVista) notaStanza(stanzaVista);
+    if (chatDaApi) chatDalPannello(chatViste);
     giocatori.sort(function (a, b) { return a.peer - b.peer; });
     giocatori.forEach(aggiornaAnim);
     aggiornaGiocatori();
@@ -3083,6 +3294,12 @@
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         apiFallita = 0;
+        // api/posizioni c'e': la pagina e' servita dal pannello Python, dove
+        // «Pannello» e' la radice e le altre pagine del sito non esistono.
+        if (!document.documentElement.classList.contains("python")) {
+          document.documentElement.classList.add("python");
+          $("t-torna").href = "/"; $("a-marchio").href = "/"; $("a-nome").href = "/";
+        }
         return r.json();
       })
       .then(applica)
@@ -3094,6 +3311,154 @@
       });
   }
 
+  function esc(s) {
+    return String(s === undefined || s === null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  // ---------------------------------------------------------------- chat
+  //
+  // LA CHAT DELLA STANZA NELLA MAPPA (2026-10-11). Due sorgenti, come per le
+  // posizioni:
+  //   - sul SITO la logica e' js/chat.js (caricato qui sotto, se c'e'): la
+  //     mappa e' una scheda OSPITE, legge e scrive attraverso la scheda che
+  //     tiene il collegamento col relay - il pannello in partita, o la pagina
+  //     della stanza - sul BroadcastChannel "gen3pm-stanza". Da sola la mappa
+  //     non apre nessun collegamento;
+  //   - dal PANNELLO PYTHON js/chat.js non c'e': la chat arriva dentro
+  //     api/posizioni (client.py la scrive accanto alle posizioni) e si legge
+  //     soltanto.
+  var chatSes = null, chatDaApi = false, chatApi = [], chatRaw = null, chatErrore = "", chatErroreFino = 0;
+  function notaStanza(n) {
+    var tg = $("targa-stanza");
+    if (tg.hidden || tg.getAttribute("data-n") !== String(n)) { tg.hidden = false; tg.setAttribute("data-n", n); tg.textContent = t("stanzaN", n); }
+    $("chat-quale").textContent = "· " + t("stanzaN", n).toLowerCase();
+    chatCollega(n);
+  }
+  function chatCollega(n) {
+    if (!window.OwlChat || !n || (chatSes && chatSes.stanza === n)) return;
+    if (chatSes) chatSes.chiudi();
+    var mem = null;
+    try { sessionStorage.getItem("x"); mem = sessionStorage; } catch (e) { mem = null; }
+    chatSes = new OwlChat.Sessione({ stanza: n, peer: 0, nome: "", tipo: "mappa", invia: null,
+                                     canale: OwlChat.apriCanale(), storage: mem });
+    chatSes.onCambio = disegnaChat; chatSes.onStato = function (m) {
+      // i nomi che la scheda portante conosce valgono anche per le etichette
+      Object.keys(m.nomi || {}).forEach(function (p) { if (m.nomi[p].nome) nomiPeer[p] = m.nomi[p].nome; });
+      if (m.nome) nomiPeer[m.peer] = m.nome;
+      disegnaChat();
+    };
+    chatSes.onFine = disegnaChat;
+    chatSes.chiedi();
+    notaStanza(n);
+    disegnaChat();
+  }
+  function chatPortanteViva() {
+    return !!(chatSes && chatSes.portanteId && Date.now() - chatSes.portanteVisto < 6000);
+  }
+  function chatDalPannello(voci) {
+    var visti = {}, out = [];
+    voci.forEach(function (v) { if (v && v.id && !visti[v.id]) { visti[v.id] = 1; out.push(v); } });
+    out.sort(function (a, b) { return (a.t || 0) - (b.t || 0); });
+    var firma = out.map(function (v) { return v.id; }).join(",");
+    if (firma === chatDalPannello.firma) return;
+    chatDalPannello.firma = firma;
+    chatApi = out;
+    disegnaChat();
+  }
+  function chatRigaLuogo(pos) {
+    var k = chiaveDi(pos.g, pos.n);
+    var a = document.createElement("span");
+    a.className = "luogo";
+    a.textContent = "\u25CE " + (dati && dati.mappe[k] ? nomeMappaK(k) : k) + " (" + (pos.x - MAP_OFFSET) + "," + (pos.y - MAP_OFFSET) + ")";
+    a.onclick = function () { centraPunto(k, pos.x, pos.y); };
+    return a;
+  }
+  function disegnaChat() {
+    var box = $("chat-lista");
+    if (!box) return;
+    var inFondo = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    var voci = chatSes ? chatSes.store.voci : (chatApi || []);
+    box.innerHTML = "";
+    var EV = { entra: "evEntra", esce: "evEsce", amico: "evClub", amicofine: "evClubFine", spett: "evSpett", spettvia: "evSpettVia" };
+    voci.forEach(function (v) {
+      var r = document.createElement("div");
+      if (v.tipo === "ev") {
+        if (!EV[v.genere]) return;
+        r.className = "ev";
+        r.textContent = t(EV[v.genere], (chatSes && v.peer ? chatSes.nomeDi(v.peer) : "") || v.nome || ("peer " + v.peer));
+      } else {
+        var b = document.createElement("b");
+        b.textContent = (v.mio ? t("chatTu") : (v.nome || ("peer " + v.peer))) + " ";
+        b.style.color = v.mio ? "#3a8fd9" : colorePeer(v.peer);
+        r.appendChild(b);
+        if (v.pos) { r.appendChild(chatRigaLuogo(v.pos)); if (v.testo) r.appendChild(document.createTextNode(" · ")); }
+        if (v.testo) r.appendChild(document.createTextNode(v.testo));
+      }
+      box.appendChild(r);
+    });
+    if (!box.children.length) { var vuota = document.createElement("div"); vuota.className = "ev"; vuota.textContent = t("chatVuota"); box.appendChild(vuota); }
+    if (inFondo) box.scrollTop = box.scrollHeight;
+    var viva = chatPortanteViva();
+    $("chat-campo").disabled = !viva; $("chat-manda").disabled = !viva;
+    $("chat-campo").placeholder = t("chatPh");
+    $("chat-riga").style.display = (chatDaApi && !chatSes) ? "none" : "";
+    $("chat-nota").textContent = (chatErrore && Date.now() < chatErroreFino) ? chatErrore
+      : (viva ? "" : ((chatDaApi && !chatSes) ? t("chatLettura") : t("chatSpenta")));
+  }
+  $("chat-riga").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    if (!chatSes) return;
+    var r = chatSes.scrivi($("chat-campo").value);
+    if (r.ok) { $("chat-campo").value = ""; chatErrore = ""; }
+    else if (r.perche !== "vuoto") { chatErrore = t(r.perche === "troppi" ? "chatTroppi" : "chatAttesa"); chatErroreFino = Date.now() + 5000; }
+    disegnaChat();
+  });
+  // js/chat.js c'e' solo sul sito. Quando arriva, si chiede sul canale delle
+  // stanze «chi porta una stanza?»: la prima scheda che risponde dice quale.
+  (function () {
+    var q = null;
+    try { q = new URLSearchParams(location.search); } catch (e) { q = null; }
+    var sc = document.createElement("script");
+    sc.src = "js/chat.js";
+    sc.onload = function () {
+      var voluta = q ? parseInt(q.get("stanza") || "0", 10) : 0;
+      if (voluta >= 1 && voluta <= 65535) chatCollega(voluta);
+      try {
+        chatRaw = new BroadcastChannel(window.OwlChat.NOME_CANALE);
+        chatRaw.onmessage = function (ev) {
+          var m = ev.data;
+          if (!m || m.t !== "stato" || !m.stanza) return;
+          // si segue il pannello; una pagina di stanza solo se non si segue gia' nessuno
+          if (!chatSes || (m.tipo === "pannello" && chatSes.stanza !== m.stanza && !voluta)) chatCollega(m.stanza);
+        };
+        chatRaw.postMessage({ t: "chiedo", da: "mappa" });
+      } catch (e) { chatRaw = null; }
+      disegnaChat();
+    };
+    sc.onerror = function () { disegnaChat(); };     // pannello Python: si legge da api/posizioni
+    document.head.appendChild(sc);
+    setInterval(function () {
+      if (chatRaw && !chatPortanteViva()) { try { chatRaw.postMessage({ t: "chiedo", da: "mappa" }); } catch (e) {} }
+      disegnaChat();
+    }, 3000);
+  })();
+
+  // Centra la mappa su un punto (coordinate come nei pacchetti: col bordo di
+  // MAP_OFFSET tile) e lo segna per qualche secondo.
+  function centraPunto(key, x, y) {
+    if (!dati || !dati.mappe[key]) return false;
+    var tx = x - MAP_OFFSET, ty = y - MAP_OFFSET;
+    segui = ""; if ($("sel-segui")) $("sel-segui").value = "";
+    vaiA(key, tx, ty);
+    if (z < 3) z = 3;
+    puntoCondiviso = { key: key, tx: tx, ty: ty, fino: Date.now() + 9000 };
+    mostraMappa(key);
+    dirty = true;
+    return true;
+  }
+
   function aggiornaGiocatori() {
     var box = $("giocatori"), sel = $("sel-segui"), val = sel.value;
     if (!giocatori.length) { box.innerHTML = "<span class='vuoto'>" + t("nessunG") + "</span>"; return; }
@@ -3103,13 +3468,13 @@
     giocatori.forEach(function (g) {
       var eta = Math.round(Date.now() / 1000 - g.t);
       var st = (lang === "it" ? STATO_NOMI : STATO_EN)[g.stato] || "";
-      h += "<div class=giocatore><span class=pallino style='background:" + (g.io ? "#7fb2ff" : "#16a06e") + "'></span><span><b>"
-        + g.label + "</b> · " + nomeMappaK(chiaveDi(g.gruppo, g.numero)) + " (" + (g.x - MAP_OFFSET) + "," + (g.y - MAP_OFFSET) + ")"
+      h += "<div class=giocatore><span class=pallino style='background:" + coloreDi(g) + "'>" + esc(iniziale(g.nomeCorto)) + "</span><span><b>"
+        + esc(g.label) + "</b> · " + nomeMappaK(chiaveDi(g.gruppo, g.numero)) + " (" + (g.x - MAP_OFFSET) + "," + (g.y - MAP_OFFSET) + ")"
         + (st ? " · " + st : "") + " <span class=muto>" + (eta > 15 ? t("fermo", eta) : t("dalVivo")) + "</span></span></div>";
     });
     box.innerHTML = h;
     var opts = "<option value=''>—</option>";
-    giocatori.forEach(function (g) { opts += "<option value='" + g.peer + "'>" + g.label + "</option>"; });
+    giocatori.forEach(function (g) { opts += "<option value='" + g.peer + "'>" + esc(g.label) + "</option>"; });
     if (sel.innerHTML !== opts) { sel.innerHTML = opts; sel.value = val; }
   }
 
@@ -3205,6 +3570,10 @@
                mappe: dati ? Object.keys(dati.mappe).length : 0, porte: porteVisibili().length };
     },
     vai: function (key) { selezionata = key; centraSu(key, undefined, undefined, 2); mostraMappa(key); aggiornaNav(); dirty = true; disegna(); },
+    // una posizione condivisa in chat (coordinate dei pacchetti): la usa la
+    // pagina della stanza, che tiene questa mappa in un iframe
+    centra: function (key, x, y) { return centraPunto(key, x, y); },
+    chat: function () { return { stanza: chatSes ? chatSes.stanza : 0, viva: chatPortanteViva(), voci: (chatSes ? chatSes.store.voci : chatApi).length, daApi: chatDaApi }; },
     // apre la schedina di un personaggio senza doverlo cliccare: serve alle
     // prove automatiche (la schedina e' quella che si vede sulla mappa)
     persona: function (key, i, px, py) {

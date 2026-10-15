@@ -60,6 +60,12 @@
     ANNUNCIO_S: 2.0,         // riannuncio periodico (ENTER / ultimo stato)
     WATCHDOG_S: 120.0,       // nessun progresso -> sessione morta
     PARTNER_MUTO_S: 120.0,   // partner mai visto o morto senza LEAVE
+    // Dentro un'attivita' (dopo la prima riapertura del link: menu scambi,
+    // lotta) il gioco puo' stare fermo per minuti senza mandare niente (si
+    // sceglie la mossa, si pensa): non e' un partner morto. Prova fisica del
+    // 30/09: lotta ferma ~2 min al menu dei comandi, chiusa dai 120 s. Il
+    // partner che se ne va davvero lo dice (LEAVE / "link chiuso").
+    ATTIVITA_MUTO_S: 900.0,
     FANTASMA_S: 90.0,        // nessun GBA al bancone -> club fantasma
     // Dopo una "riconnessione" la scala nuova deve COMPLETARSI entro questo
     // tempo. Le riaperture vere (macchina degli scambi, lotta) tornano su in
@@ -741,8 +747,9 @@
     }
 
     // Partner muto: mai visto, o client di la' morto senza LEAVE.
-    if (adesso - this._partnerQuando > K.PARTNER_MUTO_S) {
-      this.log("[club ] L'AMICO NON SI FA SENTIRE da " + Math.round(K.PARTNER_MUTO_S) +
+    var limiteMuto = this.giri ? K.ATTIVITA_MUTO_S : K.PARTNER_MUTO_S;
+    if (adesso - this._partnerQuando > limiteMuto) {
+      this.log("[club ] L'AMICO NON SI FA SENTIRE da " + Math.round(limiteMuto) +
         " s: sessione abbandonata, si torna a camminare");
       this.motivoFine = "partner muto";
       this.abortita = true;
@@ -750,8 +757,9 @@
       return;
     }
 
-    if (adesso - this._progresso > K.WATCHDOG_S) {
-      this.log("[club ] NESSUN PROGRESSO da " + Math.round(K.WATCHDOG_S) +
+    var limiteProg = this.giri ? K.ATTIVITA_MUTO_S : K.WATCHDOG_S;
+    if (adesso - this._progresso > limiteProg) {
+      this.log("[club ] NESSUN PROGRESSO da " + Math.round(limiteProg) +
         " s: sessione abbandonata, si torna a camminare");
       this.motivoFine = "watchdog";
       this.abortita = true;

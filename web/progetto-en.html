@@ -1,175 +1,235 @@
 <!doctype html>
+<!-- GENERATO da tools/gen_en.py a partire da progetto.html: NON modificare a mano.
+     Si cambia progetto.html (il testo inglese e' li' dentro) e si rilancia lo script. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>gen3-poke-multiplayer — How the project works</title>
+<link rel="icon" href="img/favicon.png">
 <link rel="alternate" hreflang="it" href="progetto.html">
-<script src="js/lingua.js"></script>
+<script src="js/lingua.js?v=1.8.0"></script>
+<link rel="stylesheet" href="css/sito.css?v=1.8.0">
 <!--
-  English version of progetto.html: how the project works, and the credits.
-  Keep it in sync with the Italian page.
+  La pagina di spiegazione e dei crediti. Si limita a raccontare come
+  funziona il progetto e a nominare chi lo ha reso possibile. I fatti tecnici
+  qui dentro vengono da CLAUDE.md/NOTES.md del repository: se il progetto
+  cambia, questa pagina va aggiornata insieme.
+
+  Nuovo impaginato il 2026-10-11 (indice a sinistra, la catena fatta di
+  etichette, i quattro passi del multiboot in riquadri, i crediti in griglia):
+  il TESTO e' quello di prima. Le due lingue stanno in questo file;
+  progetto-en.html la genera tools/gen_en.py.
 -->
 <style>
-  :root {
-    --carta: #f3efe2; --scheda: #fbf8ee; --inchiostro: #22301f; --tenue: #5c6b5e;
-    --verde: #0d6b47; --verde-vivo: #17a56b; --bordo: #ded5bd; --bordo-scuro: #c9bfa4;
-    --ambra: #8a6d3b;
+  .eroe.largo { border-radius: 0; padding: 0; }
+  .eroe.largo::before, .eroe.largo::after { width: min(420px, 45%); }
+  .eroe.largo .dentro { max-width: 1000px; margin: 0 auto; padding: 44px 40px; }
+  .eroe.largo h1 { font-size: 38px; line-height: 1.1; letter-spacing: -.025em; max-width: 640px; }
+  .eroe.largo p { font-size: 16px; line-height: 1.6; color: rgba(234,245,238,.82); max-width: 640px; margin-top: 12px; }
+  .due-col { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 40px; max-width: 1000px; margin: 0 auto; padding: 32px 40px 44px; align-items: start; }
+  .indice { position: sticky; top: 20px; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; }
+  .indice .etichetta { margin-bottom: 8px; }
+  .indice a { padding: 6px 10px; border-radius: 8px; color: var(--testo2); text-decoration: none; }
+  .indice a:hover { background: var(--fondo2); }
+  .indice a.qui { background: var(--verde-chiaro); color: var(--verde2); font-weight: 700; }
+  .testo { display: flex; flex-direction: column; gap: 16px; font-size: 15px; line-height: 1.65; min-width: 0; }
+  .testo section { background: #fff; border: 1px solid var(--bordo); border-radius: 18px; padding: 22px 26px; scroll-margin-top: 16px; }
+  .testo h2 { margin: 0 0 8px; font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
+  .testo h3 { margin: 18px 0 6px; font-size: 16px; font-weight: 800; }
+  .testo p { margin: 0; }
+  .testo p + p { margin-top: 10px; }
+  .catena { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 12.5px var(--mono); margin-top: 4px; }
+  .catena > span { padding: 6px 10px; border-radius: 9px; font-weight: 600; background: var(--fondo2); color: var(--testo2); }
+  .catena i { font-style: normal; color: var(--tenue2); }
+  .anelli { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+  .anelli div { background: var(--pagina); border-radius: 12px; padding: 12px 14px; font-size: 14px; }
+  .passi-mb { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0; padding: 0; list-style: none; }
+  .passi-mb li { border-radius: 12px; padding: 12px 14px; font-size: 13.5px; line-height: 1.5; }
+  .passi-mb li b.n { display: block; font: 700 13px var(--mono); margin-bottom: 4px; }
+  .serve { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .serve li { display: flex; gap: 10px; }
+  .serve li::before { content: "✓"; display: grid; place-items: center; width: 22px; height: 22px; flex: none; margin-top: 2px; border-radius: 50%; background: var(--verde-chiaro); color: var(--verde2); font-size: 12px; font-weight: 800; }
+  .nota-calda { padding: 12px 14px; border-radius: 12px; background: #fff6ec; color: #6b5a45; font-size: 14px; }
+  .nota-fredda { margin-top: 12px !important; padding: 10px 14px; border-radius: 12px; background: var(--verde-chiaro); color: #1f4d36; font-size: 14px; }
+  .crediti { display: flex; flex-direction: column; }
+  .credito { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 14px; padding: 10px 0; border-top: 1px solid #f3eee2; font-size: 14px; }
+  .credito b { color: var(--verde2); }
+  .credito span { color: var(--testo2); }
+  .legale { margin-top: 14px !important; font-size: 13px; line-height: 1.55; color: var(--tenue); }
+  @media (max-width: 900px) {
+    .due-col { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 20px 16px 30px; }
+    /* l'indice diventa una riga di etichette che scorre */
+    .indice { position: static; flex-direction: row; overflow-x: auto; scrollbar-width: none; gap: 6px; }
+    .indice::-webkit-scrollbar { display: none; }
+    .indice .etichetta { display: none; }
+    .indice a { white-space: nowrap; background: #fff; border: 1px solid var(--bordo); height: 40px; line-height: 28px; }
+    .eroe.largo .dentro { padding: 30px 18px; }
+    .eroe.largo h1 { font-size: 29px; }
+    .passi-mb { grid-template-columns: 1fr 1fr; }
   }
-  * { box-sizing: border-box; margin: 0; }
-  body { background: var(--carta); color: var(--inchiostro);
-         font: 15px/1.65 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-         padding: 26px 16px 60px; }
-  main { max-width: 880px; margin: 0 auto; }
-  h1 { font-size: 26px; margin-bottom: 4px; }
-  .sotto { color: var(--tenue); margin-bottom: 22px; }
-  section { background: var(--scheda); border: 1px solid var(--bordo);
-            border-radius: 16px; padding: 20px 24px; margin-bottom: 16px; }
-  h2 { font-size: 18px; color: var(--verde); margin-bottom: 10px; }
-  h3 { font-size: 14.5px; margin: 14px 0 6px; }
-  p { margin: 8px 0; }
-  ul { margin: 8px 0 8px 22px; }
-  li { margin: 4px 0; }
-  code { background: #ece5d2; border-radius: 5px; padding: 1px 6px;
-         font: 12.5px/1.4 Consolas, monospace; }
-  .catena { background: #ece5d2; border-radius: 10px; padding: 12px 16px;
-            font: 13px/1.9 Consolas, monospace; overflow-x: auto; white-space: nowrap; }
-  a { color: var(--verde); }
-  .credito { display: grid; grid-template-columns: 220px 1fr; gap: 4px 14px; margin: 6px 0; }
-  .credito b { font-weight: 700; }
-  @media (max-width: 640px) { .credito { grid-template-columns: 1fr; } .credito span { margin-bottom: 6px; } }
-  .nota { border-left: 3px solid var(--ambra); padding-left: 12px; color: var(--tenue); font-size: 13.5px; }
-  footer { max-width: 880px; margin: 26px auto 0; color: var(--tenue); font-size: 13px; text-align: center; }
+  @media (max-width: 640px) {
+    .testo section { padding: 18px 16px; border-radius: 16px; }
+    .anelli, .passi-mb { grid-template-columns: 1fr; }
+    .credito { grid-template-columns: 1fr; gap: 2px; }
+    .indice a { height: 44px; line-height: 32px; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <div style="display:flex;justify-content:flex-end;margin-bottom:6px"><span id="lingua-slot"></span></div>
-  <h1>gen3-poke-multiplayer</h1>
-  <p class="sotto">Watch your friends walk around the Pokémon Emerald overworld, on original Game Boy Advance
-    hardware and cartridges, over the internet. This page explains how it really works.</p>
+<header class="testata">
+  <a class="marchio" href="index-en.html" aria-label="Home page">
+    <img class="o1" src="img/orma-treecko-scuro-bordo.png" alt="">
+    <img class="o2" src="img/orma-torchic-scuro-bordo.png" alt="">
+  </a>
+  <a class="nome-sito" href="index-en.html">gen3-poke-multiplayer</a>
+  <nav class="nav" aria-label="Pages">
+    <a href="gioca-en.html"><span class="l-it">Pannello</span><span class="l-en">Panel</span></a>
+    <a href="stanze-en.html"><span class="l-it">Stanze</span><span class="l-en">Rooms</span></a>
+    <a href="mappa.html"><span class="l-it">Mappa live</span><span class="l-en">Live map</span></a>
+    <a class="qui" href="progetto-en.html" aria-current="page"><span class="l-it">Come funziona</span><span class="l-en">How it works</span></a>
+  </nav>
+  <div class="pillole"><span id="lingua-slot"></span></div>
+</header>
 
-  <section>
-    <h2>The idea</h2>
-    <p>Pokémon Emerald has no feature to show another player walking on
-      your map: the link cable is only used for trades and battles in dedicated rooms. This
-      project adds that feature <b>without modifying either the cartridge or the save file</b>:
-      a small program is loaded into the console's volatile memory at every power-on,
-      reads your character's position, sends it to your friends over the internet, and draws their
-      characters in your game using the same functions the game uses to draw its own NPCs.
-      Nothing is left when you switch off: the GBA's working memory is volatile.</p>
-    <p class="nota">Supported: Pokémon Emerald <b>Italian</b> and <b>English (USA/Europe)</b>, on a real GBA and in mGBA. Both cartridges are tested on a real GBA.</p>
-  </section>
+<div class="eroe largo">
+  <div class="dentro">
+    <div class="sopra"><span class="l-it">Come funziona il progetto</span><span class="l-en">How the project works</span></div>
+    <h1>gen3-poke-multiplayer</h1>
+    <p><span class="l-it">Vedere gli amici camminare nell'overworld di Pokémon Smeraldo, su Game Boy Advance e cartuccia originali, attraverso internet. Questa pagina spiega come funziona davvero.</span><span class="l-en">Watch your friends walk around the Pokémon Emerald overworld, on original Game Boy Advance hardware and cartridges, over the internet. This page explains how it really works.</span></p>
+  </div>
+</div>
 
-  <section>
-    <h2>The chain, from one GBA to another</h2>
-    <div class="catena">
-      GBA ↔ link cable ↔ adapter (Raspberry Pi Pico with Celio firmware) ↔ USB ↔ browser or PC
-      ↔ internet (WebSocket/UDP) ↔ forwarding server (relay) ↔ … and from there, in reverse, to your friend's GBA
-    </div>
-    <p>Each link does one thing only:</p>
-    <ul>
-      <li><b>The link cable</b> is the standard 5-pin GBA cable. The adapter speaks to the GBA
-        the serial protocol the console has always used for multiplayer
-        (16-bit Multi-Player mode, the same as the Cable Club).</li>
-      <li><b>The adapter</b> is a Raspberry Pi Pico (RP2040) running the Celio project firmware,
-        extended for this project with a passthrough mode: it moves data between cable and USB without
-        interpreting it.</li>
-      <li><b>The browser</b> (Chrome or Edge, via WebUSB) or a program on the PC drives
-        the adapter, wraps game events into packets and sends them to the server.</li>
-      <li><b>The relay</b> is a small server that forwards packets between the players in the same
-        «room». It doesn't understand the content: it just delivers it.</li>
-    </ul>
-  </section>
+<div class="due-col">
+  <nav class="indice" id="indice" aria-label="On this page">
+    <span class="etichetta"><span class="l-it">In questa pagina</span><span class="l-en">On this page</span></span>
+    <a href="#idea" class="qui"><span class="l-it">L'idea</span><span class="l-en">The idea</span></a>
+    <a href="#catena"><span class="l-it">La catena</span><span class="l-en">The chain</span></a>
+    <a href="#multiboot"><span class="l-it">Il multiboot residente</span><span class="l-en">Resident multiboot</span></a>
+    <a href="#serve"><span class="l-it">Cosa serve per giocare</span><span class="l-en">What you need</span></a>
+    <a href="#crediti"><span class="l-it">Crediti</span><span class="l-en">Credits</span></a>
+  </nav>
 
-  <section>
-    <h2>How the program gets into the GBA (resident multiboot)</h2>
-    <p>The GBA has a built-in feature called <b>multiboot</b>: if you switch it on <b>without a
-      cartridge</b> but with the link cable plugged in, it accepts a small program over the cable and
-      runs it from RAM. This is the whole sequence to play:</p>
-    <ul>
-      <li>switch the GBA on with the cartridge slot <b>empty</b> and the cable plugged in;</li>
-      <li>the PC (or the browser) loads our program over the cable (~15 seconds, red screen);</li>
-      <li>insert the cartridge <b>while the console is on</b> (green screen) and the game boots normally,
-        with our program already resident in a corner of memory the game doesn't use;</li>
-      <li>from then on you just play: nothing to do inside the game, ever.</li>
-    </ul>
-    <p>The resident program hooks into the game by rewriting a pointer in RAM (the interrupt
-      vector, which the game itself keeps in writable memory) and from there it runs
-      once per frame, alongside the game, without touching a single instruction
-      of the cartridge — which is mask ROM, physically unwritable.</p>
-    <h3>How your friends are drawn</h3>
-    <p>The program reimplements nothing: thanks to the game's <b>decompilations</b>
-      (the pret project) we know the address of every original function, and the remote character
-      is created and moved by calling the same functions the game uses for its NPCs.
-      That's why your friend walks with the game's real animation. We send <b>actions</b>
-      («I took a step north»), not a stream of coordinates: ~12 bytes per
-      update are enough, and the system copes well with internet latency.</p>
-  </section>
+  <main class="testo">
+    <section id="idea">
+      <h2><span class="l-it">L'idea</span><span class="l-en">The idea</span></h2>
+      <p class="l-it">Pokémon Smeraldo non ha nessuna funzione per mostrare un altro giocatore che cammina sulla tua mappa: il cavo link serve solo a scambi e lotte in stanze dedicate. Questo progetto aggiunge quella funzione <b>senza modificare né la cartuccia né il salvataggio</b>: un piccolo programma viene caricato nella memoria volatile della console a ogni accensione, legge la posizione del tuo personaggio, la manda agli amici via internet, e disegna i loro personaggi nel tuo gioco usando le stesse funzioni con cui il gioco disegna i suoi abitanti. Allo spegnimento non resta traccia: la memoria di lavoro del GBA è volatile.</p>
+      <p class="l-en">Pokémon Emerald has no feature to show another player walking on your map: the link cable is only used for trades and battles in dedicated rooms. This project adds that feature <b>without modifying either the cartridge or the save file</b>: a small program is loaded into the console's volatile memory at every power-on, reads your character's position, sends it to your friends over the internet, and draws their characters in your game using the same functions the game uses to draw its own NPCs. Nothing is left when you switch off: the GBA's working memory is volatile.</p>
+      <p class="nota-fredda l-it">Supportati: Pokémon Smeraldo <b>italiano</b> e Pokémon Emerald <b>inglese (USA/Europa)</b>, su GBA vero e in mGBA. Tutte e due le cartucce sono provate su un GBA vero.</p>
+      <p class="nota-fredda l-en">Supported: Pokémon Emerald <b>Italian</b> and <b>English (USA/Europe)</b>, on a real GBA and in mGBA. Both cartridges are tested on a real GBA.</p>
+    </section>
 
-  <section>
-    <h2>What you need to play</h2>
-    <ul>
-      <li>a GBA (or GBA SP) and an original Pokémon Emerald cartridge, Italian or English;</li>
-      <li>the USB-to-link-cable adapter (Raspberry Pi Pico with the provided firmware)
-        and an original or compatible GBA link cable;</li>
-      <li>Chrome or Edge on a PC (for the browser route), with the WinUSB driver on Windows
-        (installed once with Zadig);</li>
-      <li>instead of a real GBA: the mGBA emulator with the provided script, for the Italian or English ROM —
-        real GBAs and emulators play together, in the same room.</li>
-    </ul>
-    <h3>What the project doesn't do</h3>
-    <p class="nota">Online trades and battles go through the game's Cable Club and
-      work both from the PC panel and from the browser (tested on real hardware on 27 August 2026). The project doesn't modify the ROM
-      (impossible: it's mask ROM) and doesn't touch the save file. It doesn't distribute the game
-      or any part of it: you need your own cartridge.</p>
-  </section>
+    <section id="catena">
+      <h2><span class="l-it">La catena, da un GBA all'altro</span><span class="l-en">The chain, from one GBA to another</span></h2>
+      <div class="catena">
+        <span style="background:#0f3b2d;color:#fff">GBA</span><i>↔</i>
+        <span><span class="l-it">cavo link</span><span class="l-en">link cable</span></span><i>↔</i>
+        <span style="background:#fff1e6;color:#a84816"><span class="l-it">adattatore (Pico + Celio)</span><span class="l-en">adapter (Pico + Celio)</span></span><i>↔</i>
+        <span>USB</span><i>↔</i>
+        <span style="background:#e8f1fb;color:#2a6fb0"><span class="l-it">browser o PC</span><span class="l-en">browser or PC</span></span><i>↔</i>
+        <span>internet (WebSocket/UDP)</span><i>↔</i>
+        <span style="background:#eaf6ef;color:#0f6b4a">relay</span>
+      </div>
+      <p style="margin-top:10px;font-size:13px;color:var(--tenue)"><span class="l-it">… e da lì, al contrario, fino al GBA dell'amico.</span><span class="l-en">… and from there, in reverse, to your friend's GBA.</span></p>
+      <p style="margin:14px 0 6px"><span class="l-it">Ogni anello fa una cosa sola:</span><span class="l-en">Each link does one thing only:</span></p>
+      <div class="anelli">
+        <div><span class="l-it"><b>Il cavo link</b> è il normale cavo a 5 contatti del GBA. L'adattatore parla al GBA il protocollo seriale che la console usa da sempre per il multigiocatore (modalità Multi-Player a 16 bit, la stessa del Cable Club).</span><span class="l-en"><b>The link cable</b> is the standard 5-pin GBA cable. The adapter speaks to the GBA the serial protocol the console has always used for multiplayer (16-bit Multi-Player mode, the same as the Cable Club).</span></div>
+        <div><span class="l-it"><b>L'adattatore</b> è un Raspberry Pi Pico (RP2040) con il firmware del progetto Celio, esteso per questo progetto con una modalità passante: gira i dati fra cavo e USB senza interpretarli.</span><span class="l-en"><b>The adapter</b> is a Raspberry Pi Pico (RP2040) running the Celio project firmware, extended for this project with a passthrough mode: it moves data between cable and USB without interpreting it.</span></div>
+        <div><span class="l-it"><b>Il browser</b> (Chrome o Edge, via WebUSB) oppure un programma sul PC pilota l'adattatore, incapsula gli eventi di gioco in pacchetti e li manda al server.</span><span class="l-en"><b>The browser</b> (Chrome or Edge, via WebUSB) or a program on the PC drives the adapter, wraps game events into packets and sends them to the server.</span></div>
+        <div><span class="l-it"><b>Il relay</b> è un piccolo server che smista i pacchetti fra i giocatori della stessa «stanza». Non capisce il contenuto: consegna e basta.</span><span class="l-en"><b>The relay</b> is a small server that forwards packets between the players in the same «room». It doesn't understand the content: it just delivers it.</span></div>
+      </div>
+    </section>
 
-  <section>
-    <h2>Credits</h2>
-    <p>This project exists because it builds on the public, documented work of many
-      people and communities. Thanks to all of them.</p>
-    <div class="credito"><b><a href="https://www.youtube.com/@Essometer">Essometer</a> · <a href="https://github.com/Celio-Link">Celio-Link</a></b>
-      <span>Essometer created Celio-Link. Its <a href="https://github.com/Celio-Link/Celio-Firmware">RP2040 firmware</a> connects original GBA hardware over USB. Parts of this project’s USB communication, online Cable Club sessions and mGBA bridge build on <a href="https://github.com/Celio-Link/Celio-Client">Celio-Client</a>, <a href="https://github.com/Celio-Link/Celio-Server">Celio-Server</a> and <a href="https://github.com/Celio-Link/Celio-mGBA-Link">Celio-mGBA-Link</a>. His YouTube demos: <a href="https://www.youtube.com/watch?v=pNdXG88-810">online trade</a> and <a href="https://www.youtube.com/watch?v=VG4h6XtFpLk">trade emulation</a>. Thank you for making the hardware link and online play possible.</span></div>
-    <div class="credito"><b>smashstacking</b>
-      <span>the GBA-USB adapter project the Celio firmware is tuned for.</span></div>
-    <div class="credito"><b><a href="https://github.com/agtbaskara/game-boy-pico-link-board">agtbaskara</a></b>
-      <span>the link board for the Raspberry Pi Pico (game-boy-pico-link-board).</span></div>
-    <div class="credito"><b><a href="https://github.com/weimanc/game-boy-zero-link-board">weimanc</a></b>
-      <span>the board with the compatible link connector (game-boy-zero-link-board).</span></div>
-    <div class="credito"><b><a href="https://github.com/pret">pret</a></b>
-      <span>the matching decompilations of Pokémon Emerald and FireRed (pokeemerald,
-      pokefirered): the address map without which none of this would be possible.
-      The Live map's data and images come from there too.</span></div>
-    <div class="credito"><b><a href="https://mgba.io">endrift and the mGBA project</a></b>
-      <span>the emulator with debugger and Lua scripting used throughout development, and the way
-      in for people who play on an emulator.</span></div>
-    <div class="credito"><b>Martin Korth</b>
-      <span>GBATEK, the reference technical documentation for the Game Boy Advance
-      (SIO, multiboot, timing).</span></div>
-    <div class="credito"><b>Raspberry Pi and Zephyr RTOS</b>
-      <span>the RP2040 microcontroller and the operating system the firmware runs on.</span></div>
-    <div class="credito"><b>devkitPro and GNU Arm Embedded</b>
-      <span>the toolchains used to build the payload, the multiboot stub and the decomp.</span></div>
-    <div class="credito"><b>The Celio-Link community on GBAtemp</b>
-      <span>was the first to crack the toughest hardware layer, and shared the results.</span></div>
-    <div class="credito"><b><a href="https://play.pokemonshowdown.com">Pokémon Showdown</a> and
-      <a href="https://pokemondb.net">Pokémon Database</a></b>
-      <span>the animated Black/White 2 sprites shown on the Live map.</span></div>
-    <div class="credito"><b>Claude (Anthropic)</b>
-      <span>the main source of the project's software — payload, extended firmware, networking, panels and
-      map — written in work sessions guided and tested by Lain.</span></div>
-    <div class="credito"><b>Lain</b>
-      <span>idea, hardware, all the field testing.</span></div>
-    <div class="credito"><b><a href="https://github.com/SickPick97">Hacke</a></b>
-      <span>the friend on the other side of the relay: the first to play it over the internet, and the remote testing.</span></div>
-    <p class="nota" style="margin-top:14px">Pokémon, Game Boy Advance and related names are
-      trademarks of Nintendo, Creatures Inc. and GAME FREAK inc. This is a non-profit fan
-      project, not affiliated with or endorsed by them; it does not distribute the game and requires
-      an original cartridge.</p>
-  </section>
+    <section id="multiboot">
+      <h2><span class="l-it">Come entra il programma nel GBA (il multiboot residente)</span><span class="l-en">How the program gets into the GBA (resident multiboot)</span></h2>
+      <p class="l-it">Il GBA ha una funzione di fabbrica chiamata <b>multiboot</b>: se lo accendi <b>senza cartuccia</b> ma con il cavo link collegato, accetta un piccolo programma dal cavo e lo esegue dalla RAM. La sequenza per giocare è tutta qui:</p>
+      <p class="l-en">The GBA has a built-in feature called <b>multiboot</b>: if you switch it on <b>without a cartridge</b> but with the link cable plugged in, it accepts a small program over the cable and runs it from RAM. This is the whole sequence to play:</p>
+      <ol class="passi-mb">
+        <li style="background:#f4f0e6"><b class="n" style="color:#6b7269">1</b><span class="l-it">accendi il GBA con lo slot cartuccia <b>vuoto</b> e il cavo collegato;</span><span class="l-en">switch the GBA on with the cartridge slot <b>empty</b> and the cable plugged in;</span></li>
+        <li style="background:#fdebe7"><b class="n" style="color:#b3392f">2</b><span class="l-it">il PC (o il browser) carica via cavo il nostro programma (~15 secondi, schermo rosso);</span><span class="l-en">the PC (or the browser) loads our program over the cable (~15 seconds, red screen);</span></li>
+        <li style="background:#eaf6ef"><b class="n" style="color:#0f6b4a">3</b><span class="l-it">inserisci la cartuccia <b>a console accesa</b> (schermo verde) e il gioco parte normalmente, con il nostro programma già residente in un angolo di memoria che il gioco non usa;</span><span class="l-en">insert the cartridge <b>while the console is on</b> (green screen) and the game boots normally, with our program already resident in a corner of memory the game doesn't use;</span></li>
+        <li style="background:#e8f1fb"><b class="n" style="color:#2a6fb0">4</b><span class="l-it">da quel momento giochi e basta: niente da fare dentro il gioco, mai.</span><span class="l-en">from then on you just play: nothing to do inside the game, ever.</span></li>
+      </ol>
+      <p class="l-it">Il programma residente si aggancia al gioco riscrivendo un puntatore in RAM (il vettore delle interruzioni, che il gioco stesso mantiene in memoria scrivibile) e da lì viene eseguito una volta per fotogramma, accanto al gioco, senza toccare una sola istruzione della cartuccia — che è ROM a maschera, fisicamente non scrivibile.</p>
+      <p class="l-en">The resident program hooks into the game by rewriting a pointer in RAM (the interrupt vector, which the game itself keeps in writable memory) and from there it runs once per frame, alongside the game, without touching a single instruction of the cartridge — which is mask ROM, physically unwritable.</p>
+      <h3><span class="l-it">Come vengono disegnati gli amici</span><span class="l-en">How your friends are drawn</span></h3>
+      <p class="l-it">Il programma non reimplementa niente: grazie alle <b>decompilazioni</b> del gioco (progetto pret) conosciamo l'indirizzo di ogni funzione originale, e il personaggio remoto viene creato e mosso chiamando le stesse funzioni che il gioco usa per i suoi abitanti. Per questo l'amico cammina con l'animazione vera del gioco. Si mandano <b>azioni</b> («ho fatto un passo verso nord»), non coordinate a raffica: bastano ~12 byte per aggiornamento e il sistema tollera bene la latenza di internet.</p>
+      <p class="l-en">The program reimplements nothing: thanks to the game's <b>decompilations</b> (the pret project) we know the address of every original function, and the remote character is created and moved by calling the same functions the game uses for its NPCs. That's why your friend walks with the game's real animation. We send <b>actions</b> («I took a step north»), not a stream of coordinates: ~12 bytes per update are enough, and the system copes well with internet latency.</p>
+    </section>
 
-  <footer><a href="index-en.html">‹ Back to the home page</a></footer>
-</main>
+    <section id="serve">
+      <h2><span class="l-it">Cosa serve per giocare</span><span class="l-en">What you need to play</span></h2>
+      <ul class="serve l-it">
+        <li><span>un GBA (o GBA SP) e una cartuccia originale di Pokémon Smeraldo, italiana o inglese;</span></li>
+        <li><span>l'adattatore USB-cavo link (Raspberry Pi Pico con il firmware in dotazione) e un cavo link GBA originale o compatibile;</span></li>
+        <li><span>Chrome o Edge su un PC (per la via browser), con il driver WinUSB su Windows (si installa una volta con Zadig);</span></li>
+        <li><span>in alternativa al GBA fisico: l'emulatore mGBA con lo script in dotazione, per la ROM italiana o inglese — GBA veri ed emulatori giocano insieme, nella stessa stanza.</span></li>
+      </ul>
+      <ul class="serve l-en">
+        <li><span>a GBA (or GBA SP) and an original Pokémon Emerald cartridge, Italian or English;</span></li>
+        <li><span>the USB-to-link-cable adapter (Raspberry Pi Pico with the provided firmware) and an original or compatible GBA link cable;</span></li>
+        <li><span>Chrome or Edge on a PC (for the browser route), with the WinUSB driver on Windows (installed once with Zadig);</span></li>
+        <li><span>instead of a real GBA: the mGBA emulator with the provided script, for the Italian or English ROM — real GBAs and emulators play together, in the same room.</span></li>
+      </ul>
+      <h3><span class="l-it">Cosa il progetto non fa</span><span class="l-en">What the project doesn't do</span></h3>
+      <p class="nota-calda l-it">Gli scambi e le lotte via internet passano dal Cable Club del gioco e si fanno <b>sia dal pannello per PC sia dal browser</b> (dal 26 agosto 2026; provati sul fisico il 27 agosto 2026), non da dentro l'emulatore. Il progetto non modifica la ROM (impossibile: è ROM a maschera) e non tocca il salvataggio. Non distribuisce il gioco né parti di esso: serve la propria cartuccia.</p>
+      <p class="nota-calda l-en">Online trades and battles go through the game's Cable Club and work <b>both from the PC panel and from the browser</b> (since 26 August 2026; tested on real hardware on 27 August 2026), not from inside the emulator. The project doesn't modify the ROM (impossible: it's mask ROM) and doesn't touch the save file. It doesn't distribute the game or any part of it: you need your own cartridge.</p>
+    </section>
+
+    <section id="crediti">
+      <h2><span class="l-it">Crediti</span><span class="l-en">Credits</span></h2>
+      <p style="margin-bottom:14px"><span class="l-it">Questo progetto esiste perché si appoggia sul lavoro, pubblico e documentato, di molte persone e comunità. Grazie a tutte.</span><span class="l-en">This project exists because it builds on the public, documented work of many people and communities. Thanks to all of them.</span></p>
+      <div class="crediti">
+        <div class="credito"><b><a href="https://www.youtube.com/@Essometer">Essometer</a> · <a href="https://github.com/Celio-Link">Celio-Link</a></b>
+          <span><span class="l-it">Essometer ha creato Celio-Link. Il suo <a href="https://github.com/Celio-Link/Celio-Firmware">firmware RP2040</a> collega il GBA originale via USB. Parti della comunicazione USB, della sessione del Cable Club online e del ponte mGBA di questo progetto si basano su <a href="https://github.com/Celio-Link/Celio-Client">Celio-Client</a>, <a href="https://github.com/Celio-Link/Celio-Server">Celio-Server</a> e <a href="https://github.com/Celio-Link/Celio-mGBA-Link">Celio-mGBA-Link</a>. Le sue demo su YouTube: <a href="https://www.youtube.com/watch?v=pNdXG88-810">scambio online</a> e <a href="https://www.youtube.com/watch?v=VG4h6XtFpLk">scambio emulato</a>. Grazie per aver reso possibili il collegamento hardware e il gioco online.</span><span class="l-en">Essometer created Celio-Link. Its <a href="https://github.com/Celio-Link/Celio-Firmware">RP2040 firmware</a> connects original GBA hardware over USB. Parts of this project’s USB communication, online Cable Club sessions and mGBA bridge build on <a href="https://github.com/Celio-Link/Celio-Client">Celio-Client</a>, <a href="https://github.com/Celio-Link/Celio-Server">Celio-Server</a> and <a href="https://github.com/Celio-Link/Celio-mGBA-Link">Celio-mGBA-Link</a>. His YouTube demos: <a href="https://www.youtube.com/watch?v=pNdXG88-810">online trade</a> and <a href="https://www.youtube.com/watch?v=VG4h6XtFpLk">trade emulation</a>. Thank you for making the hardware link and online play possible.</span></span></div>
+        <div class="credito"><b>smashstacking</b>
+          <span><span class="l-it">il progetto dell'adattatore GBA-USB su cui il firmware Celio è tarato.</span><span class="l-en">the GBA-USB adapter project the Celio firmware is tuned for.</span></span></div>
+        <div class="credito"><b><a href="https://github.com/agtbaskara/game-boy-pico-link-board">agtbaskara</a></b>
+          <span><span class="l-it">la scheda link per Raspberry Pi Pico (game-boy-pico-link-board).</span><span class="l-en">the link board for the Raspberry Pi Pico (game-boy-pico-link-board).</span></span></div>
+        <div class="credito"><b><a href="https://github.com/weimanc/game-boy-zero-link-board">weimanc</a></b>
+          <span><span class="l-it">la scheda con il connettore link compatibile (game-boy-zero-link-board).</span><span class="l-en">the board with the compatible link connector (game-boy-zero-link-board).</span></span></div>
+        <div class="credito"><b><a href="https://github.com/pret">pret</a></b>
+          <span><span class="l-it">le decompilazioni combacianti di Pokémon Smeraldo e Rosso Fuoco (pokeemerald, pokefirered): la mappa degli indirizzi senza cui niente di tutto questo sarebbe possibile. Anche i dati e le immagini della Mappa live vengono da lì.</span><span class="l-en">the matching decompilations of Pokémon Emerald and FireRed (pokeemerald, pokefirered): the address map without which none of this would be possible. The Live map's data and images come from there too.</span></span></div>
+        <div class="credito"><b><a href="https://mgba.io"><span class="l-it">endrift e il progetto mGBA</span><span class="l-en">endrift and the mGBA project</span></a></b>
+          <span><span class="l-it">l'emulatore con debugger e scripting Lua usato per tutto lo sviluppo, e la via d'ingresso per chi gioca da emulatore.</span><span class="l-en">the emulator with debugger and Lua scripting used throughout development, and the way in for people who play on an emulator.</span></span></div>
+        <div class="credito"><b>Martin Korth</b>
+          <span><span class="l-it">GBATEK, la documentazione tecnica di riferimento del Game Boy Advance (SIO, multiboot, timing).</span><span class="l-en">GBATEK, the reference technical documentation for the Game Boy Advance (SIO, multiboot, timing).</span></span></div>
+        <div class="credito"><b><span class="l-it">Raspberry Pi e Zephyr RTOS</span><span class="l-en">Raspberry Pi and Zephyr RTOS</span></b>
+          <span><span class="l-it">il microcontrollore RP2040 e il sistema operativo su cui gira il firmware.</span><span class="l-en">the RP2040 microcontroller and the operating system the firmware runs on.</span></span></div>
+        <div class="credito"><b><span class="l-it">devkitPro e GNU Arm Embedded</span><span class="l-en">devkitPro and GNU Arm Embedded</span></b>
+          <span><span class="l-it">le toolchain con cui si compilano il payload, lo stub multiboot e la decomp.</span><span class="l-en">the toolchains used to build the payload, the multiboot stub and the decomp.</span></span></div>
+        <div class="credito"><b><span class="l-it">La comunità Celio-Link su GBAtemp</span><span class="l-en">The Celio-Link community on GBAtemp</span></b>
+          <span><span class="l-it">ha sciolto per prima lo strato hardware più ostico e ne ha condiviso i risultati.</span><span class="l-en">was the first to crack the toughest hardware layer, and shared the results.</span></span></div>
+        <div class="credito"><b><a href="https://play.pokemonshowdown.com">Pokémon Showdown</a> <span class="l-it">e</span><span class="l-en">and</span> <a href="https://pokemondb.net">Pokémon Database</a></b>
+          <span><span class="l-it">gli sprite animati di Nero/Bianco 2 mostrati nella Mappa live.</span><span class="l-en">the animated Black/White 2 sprites shown on the Live map.</span></span></div>
+        <div class="credito"><b><a href="https://github.com/erikdkennedy/figtree">Figtree</a> <span class="l-it">e</span><span class="l-en">and</span> <a href="https://www.jetbrains.com/lp/mono/">JetBrains Mono</a></b>
+          <span><span class="l-it">i due caratteri del sito (Erik Kennedy; JetBrains), licenza SIL Open Font 1.1, serviti dal sito stesso.</span><span class="l-en">the site's two typefaces (Erik Kennedy; JetBrains), SIL Open Font License 1.1, served by the site itself.</span></span></div>
+        <div class="credito"><b>Claude (Anthropic)</b>
+          <span><span class="l-it">la scrittura del software del progetto — payload, firmware esteso, rete, pannelli e mappa — in sessioni di lavoro guidate e collaudate da Lain.</span><span class="l-en">the main source of the project's software — payload, extended firmware, networking, panels and map — written in work sessions guided and tested by Lain.</span></span></div>
+        <div class="credito"><b>Lain</b>
+          <span><span class="l-it">idea, hardware, tutte le prove sul campo.</span><span class="l-en">idea, hardware, all the field testing.</span></span></div>
+        <div class="credito"><b><a href="https://github.com/SickPick97">Hacke</a></b>
+          <span><span class="l-it">l'amico dall'altra parte del relay: il primo a giocarci via internet, e le prove a distanza.</span><span class="l-en">the friend on the other side of the relay: the first to play it over the internet, and the remote testing.</span></span></div>
+      </div>
+      <p class="legale"><span class="l-it">Pokémon, Game Boy Advance e i nomi correlati sono marchi di Nintendo, Creatures Inc. e GAME FREAK inc. Questo è un progetto amatoriale senza fini di lucro, non affiliato né approvato da loro; non distribuisce il gioco e richiede una cartuccia originale.</span><span class="l-en">Pokémon, Game Boy Advance and related names are trademarks of Nintendo, Creatures Inc. and GAME FREAK inc. This is a non-profit fan project, not affiliated with or endorsed by them; it does not distribute the game and requires an original cartridge.</span></p>
+    </section>
+    <a href="gioca-en.html" style="align-self:flex-start;font-size:14px;font-weight:700"><span class="l-it">‹ Torna al pannello</span><span class="l-en">‹ Back to the panel</span></a>
+  </main>
+</div>
+
+<script>
+/* L'indice segue la lettura: la voce della sezione che si sta guardando. */
+(function () {
+  var voci = document.querySelectorAll("#indice a"), sezioni = [];
+  Array.prototype.forEach.call(voci, function (a) { var s = document.getElementById(a.getAttribute("href").slice(1)); if (s) sezioni.push([s, a]); });
+  function segna() {
+    var scelta = sezioni[0];
+    sezioni.forEach(function (x) { if (x[0].getBoundingClientRect().top < 140) scelta = x; });
+    sezioni.forEach(function (x) { x[1].classList.toggle("qui", x === scelta); });
+  }
+  window.addEventListener("scroll", segna, { passive: true });
+  segna();
+})();
+</script>
 </body>
 </html>

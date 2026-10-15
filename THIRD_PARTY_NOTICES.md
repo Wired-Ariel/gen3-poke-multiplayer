@@ -18,6 +18,7 @@ other people's projects, under the licenses below: all compatible with GPL-3.0.
 | `hw/gbalink-fw/` | [Lorenzooone/gb-link-firmware-reconfigurable](https://github.com/Lorenzooone/gb-link-firmware-reconfigurable) | GPL-3.0 (`hw/gbalink-fw/LICENSE`) |
 | `hw/gbalink-fw/main.c`, `tusb_config.h`, `usb_descriptors.*` | [TinyUSB](https://github.com/hathach/tinyusb) — Copyright (c) 2019 Ha Thach | MIT (headers in the files) |
 | `hw/gbalink-fw/pio/` | [Raspberry Pi pico-examples](https://github.com/raspberrypi/pico-examples) — Copyright (c) 2020 Raspberry Pi (Trading) Ltd. | BSD-3-Clause (headers in the files) |
+| `web/fonts/*.woff2` | [Figtree](https://github.com/erikdkennedy/figtree) — Copyright 2022 The Figtree Project Authors; [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) — Copyright 2020 The JetBrains Mono Project Authors. latin and latin-ext subsets, served by the site itself (see `web/fonts/LICENZA.txt`) | SIL Open Font License 1.1 |
 
 ## References used to write our own code (no files copied)
 

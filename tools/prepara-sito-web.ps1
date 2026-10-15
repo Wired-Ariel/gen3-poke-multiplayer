@@ -4,9 +4,10 @@
 #
 # NOTA: file da tenere in ASCII puro (PowerShell 5.1 legge gli .ps1 come ANSI).
 #
-# Il sito e' statico: web\index.html + js + img + mbstub.gba (il programma che
-# il browser carica nel GBA via multiboot) + config.js con il relay e la stanza
-# di default. Si pubblica su qualunque hosting https (Cloudflare Pages, GitHub
+# Il sito e' statico: le pagine di web\ (ingresso, pannello, stanze, stanza,
+# come funziona - ognuna in italiano e in inglese) + js + css + fonts + img +
+# mbstub.gba (il programma che il browser carica nel GBA via multiboot) +
+# config.js con il relay e la stanza di default. Si pubblica su qualunque hosting https (Cloudflare Pages, GitHub
 # Pages, Netlify, un VPS con Caddy): WebUSB pretende https, oppure localhost.
 #
 # Uso:
@@ -58,18 +59,54 @@ foreach ($s in $sorgenti) {
     }
 }
 
+# --- le pagine inglesi sono GENERATE: devono essere quelle di adesso -----------
+#
+# Dal 2026-10-11 gioca, stanze, stanza e progetto tengono le due lingue nello
+# stesso file, e la gemella -en.html la scrive tools\gen_en.py. Pubblicare una
+# -en rimasta indietro vorrebbe dire dare a chi legge in inglese il sito di
+# ieri (bottoni che il JavaScript nuovo non trova piu'): si controlla qui, e
+# se non combacia ci si ferma.
+$python = if (Test-Path 'D:\Progettini\Python313\python.exe') {
+    'D:\Progettini\Python313\python.exe'
+} else {
+    (Get-Command python -ErrorAction SilentlyContinue).Source
+}
+if (-not $python) { throw "non trovo Python: serve per controllare le pagine inglesi (tools\gen_en.py --check)" }
+& $python (Join-Path $root "tools\gen_en.py") --check
+if ($LASTEXITCODE -ne 0) { throw "le pagine -en.html non sono aggiornate: lancia  python tools\gen_en.py  e riprova" }
+
 # --- copia -------------------------------------------------------------------
 if (Test-Path $Out) { Remove-Item -Recurse -Force $Out }
 New-Item -ItemType Directory -Path $Out | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $Out "js") | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $Out "img") | Out-Null
-foreach ($f in @("index.html", "index-en.html", "gioca.html", "gioca-en.html", "progetto.html", "progetto-en.html", "test.html", "mb_test.html", "bridge_test.html")) {
-    Copy-Item (Join-Path $web $f) (Join-Path $Out $f)
+foreach ($d in @("js", "img", "css", "fonts")) { New-Item -ItemType Directory -Path (Join-Path $Out $d) | Out-Null }
+$pagine = @("index.html", "index-en.html", "gioca.html", "gioca-en.html", "stanze.html", "stanze-en.html",
+            "stanza.html", "stanza-en.html", "progetto.html", "progetto-en.html",
+            "test.html", "mb_test.html", "bridge_test.html")
+foreach ($f in $pagine) {
+    $sorgente = Join-Path $web $f
+    if (-not (Test-Path $sorgente)) { throw "manca web\$f" }
+    Copy-Item $sorgente (Join-Path $Out $f)
 }
 Copy-Item (Join-Path $web "js\*.js") (Join-Path $Out "js\")
+Copy-Item (Join-Path $web "css\*.css") (Join-Path $Out "css\")
+# I FONT LOCALI (2026-10-11): niente risorse esterne, quindi stanno nel sito.
+# Senza, le pagine ricadono sui font di sistema: funzionano, ma non sono
+# quelle disegnate - e nessuno se ne accorgerebbe guardando il log.
+$font = @(Get-ChildItem (Join-Path $web "fonts\*.woff2") -ErrorAction SilentlyContinue)
+if ($font.Count -lt 4) { throw "in web\fonts mancano i font (.woff2): ne trovo $($font.Count), ne servono 4 (vedi web\fonts\LICENZA.txt)" }
+Copy-Item (Join-Path $web "fonts\*") (Join-Path $Out "fonts\")
 Copy-Item (Join-Path $web "img\*.png") (Join-Path $Out "img\")
 New-Item -ItemType Directory -Force -Path (Join-Path $Out "img\prove") | Out-Null
 Copy-Item (Join-Path $web "img\prove\*.png") (Join-Path $Out "img\prove\")
+# Ogni file che una pagina chiede deve esserci: un link a un .js o a un .css
+# dimenticato qui sopra sarebbe una pagina rotta solo in produzione.
+foreach ($f in $pagine) {
+    $testo = Get-Content -Raw -Encoding UTF8 (Join-Path $Out $f)
+    foreach ($m in [regex]::Matches($testo, '(?:src|href)="((?:js|css|img|fonts)/[^"?#]+)')) {
+        $rel = $m.Groups[1].Value -replace '/', '\'
+        if (-not (Test-Path (Join-Path $Out $rel))) { throw "$f chiede $($m.Groups[1].Value), che nel sito assemblato non c'e'" }
+    }
+}
 Copy-Item $mbstub (Join-Path $Out "mbstub.gba")
 
 # --- lo script per chi gioca in emulatore (2026-08-26) -----------------------
@@ -142,6 +179,13 @@ $mappaDati = Join-Path $root "net\mappa"
 if (-not (Test-Path $mappaHtml)) { throw "manca net\mappa.html" }
 if (-not (Test-Path (Join-Path $mappaDati "dati.json"))) {
     throw "manca net\mappa\dati.json: genera i dati della mappa con  D:\Progettini\Python313\python.exe tools\gen_mappa.py"
+}
+# nomi.json (2026-10-11): i soli nomi delle mappe, per la chat ("posizione:
+# Ciclamipoli"). Lo scrive gen_mappa.py insieme a dati.json; se i dati sono di
+# prima, lo si ricava qui da dati.json senza rigenerare tutto.
+if (-not (Test-Path (Join-Path $mappaDati "nomi.json"))) {
+    & $python (Join-Path $root "tools\gen_mappa.py") --solo-nomi $mappaDati
+    if ($LASTEXITCODE -ne 0) { throw "non riesco a scrivere net\mappa\nomi.json (tools\gen_mappa.py --solo-nomi)" }
 }
 Copy-Item $mappaHtml (Join-Path $Out "mappa.html")
 Copy-Item $mappaDati (Join-Path $Out "mappa") -Recurse

@@ -390,6 +390,17 @@
     </section>
   </div>
 
+  <!-- LA CHAT DELLA STANZA, IN SOLA LETTURA (2026-10-11). client.py riceve i
+       T_CHAT, li scrive nel registro come "[chat ] nome: testo" e li mette nel
+       file delle posizioni; qui si mostrano gli ultimi. Per SCRIVERE serve il
+       sito (il pannello web o la pagina della stanza, anche da spettatore). -->
+  <section class="pannello" id="chat-sez" style="margin-top:18px" hidden>
+    <h2>Chat della stanza <span id="chat-stanza" style="font:12.5px var(--mono);color:var(--tenue2)"></span></h2>
+    <p class="aiuto" style="margin-bottom:10px">Sola lettura: quello che gli amici scrivono dal sito arriva anche qui.
+      Per rispondere apri il sito e premi «Guarda soltanto» (non occupa un posto in stanza).</p>
+    <div id="chat-lista" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:5px;font-size:13.5px;line-height:1.45;word-break:break-word"></div>
+  </section>
+
   <section class="registro">
     <div class="barra-log">
       <h2>Registro</h2>
@@ -669,6 +680,52 @@ function aggiungiRighe(righe) {
 function pulisciLog() { $("log").innerHTML = ""; }
 
 $("solo-gioca").addEventListener("change", pulisciLog);
+
+/* La chat in sola lettura: le voci stanno in /api/posizioni, dentro la vista di
+ * ogni client (client.py, handle_chat). Si fondono per id. */
+let chatFirma = "";
+async function leggiChat() {
+  try {
+    const r = await fetch("/api/posizioni", { cache: "no-store" });
+    if (!r.ok) return;
+    const d = await r.json();
+    const visti = {}, voci = [];
+    let stanza = 0, qualcuno = false;
+    (d.viste || []).forEach(v => {
+      if (!("chat" in v)) return;
+      qualcuno = true;
+      if (v.stanza) stanza = v.stanza;
+      (v.chat || []).forEach(m => { if (m && m.id && !visti[m.id]) { visti[m.id] = 1; voci.push(m); } });
+    });
+    if (!qualcuno) return;
+    voci.sort((a, b) => (a.t || 0) - (b.t || 0));
+    const firma = voci.map(m => m.id).join(",");
+    $("chat-sez").hidden = false;
+    $("chat-stanza").textContent = stanza ? "· stanza " + stanza : "";
+    if (firma === chatFirma) return;
+    chatFirma = firma;
+    const box = $("chat-lista");
+    const inFondo = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    box.innerHTML = "";
+    voci.forEach(m => {
+      const riga = document.createElement("div");
+      const ora = document.createElement("span");
+      const t = new Date((m.t || 0) * 1000);
+      ora.textContent = ("0" + t.getHours()).slice(-2) + ":" + ("0" + t.getMinutes()).slice(-2) + " ";
+      ora.style.cssText = "font:11.5px var(--mono);color:var(--tenue2)";
+      const chi = document.createElement("b");
+      chi.textContent = (m.nome || ("peer " + m.peer)) + " ";
+      chi.style.color = "var(--verde)";
+      riga.appendChild(ora); riga.appendChild(chi);
+      riga.appendChild(document.createTextNode(
+        (m.pos ? "(posizione: mappa " + m.pos.g + "." + m.pos.n + " " + m.pos.x + "," + m.pos.y + ") " : "") + (m.testo || "")));
+      box.appendChild(riga);
+    });
+    if (inFondo) box.scrollTop = box.scrollHeight;
+  } catch (e) { /* il pannello si sta chiudendo: pazienza */ }
+}
+leggiChat();
+setInterval(leggiChat, 2000);
 
 tick();
 setInterval(tick, 500);

@@ -17,7 +17,8 @@
 <meta property="og:locale" content="it_IT">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="alternate" hreflang="en" href="index-en.html">
-<script src="js/lingua.js?v=1.7.3"></script>
+<script src="js/lingua.js?v=1.8.0"></script>
+<link rel="stylesheet" href="css/font.css?v=1.8.0">
 <!--
   Pagina d'ingresso pubblica. Il pannello di gioco vero e' gioca.html,
   la spiegazione lunga e i crediti completi sono in progetto.html.
@@ -25,10 +26,10 @@
 -->
 <style>
   :root {
-    --verde-cupo: #0f3428; --verde: #0f6b4a; --verde-vivo: #16a06e; --verde-chiaro: #3fd68f;
-    --carta: #f2ede1; --scheda: #fffdf7; --bordo: #dfd7c4; --inchiostro: #16211c;
-    --tenue: #5f685f; --ambra: #c07a12; --codice: #ece5d2;
-    --mono: Consolas, "Cascadia Mono", "Courier New", monospace;
+    --verde-cupo: #0f3b2d; --verde: #0f6b4a; --verde-vivo: #16a06e; --verde-chiaro: #3fd68f;
+    --carta: #f7f4ec; --scheda: #fff; --bordo: #e7e0cf; --inchiostro: #10241c;
+    --tenue: #5f685f; --ambra: #c07a12; --codice: #f4f0e6;
+    --mono: "JetBrains Mono", Consolas, "Cascadia Mono", "Courier New", monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -43,7 +44,7 @@
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body { margin: 0; background: var(--carta); color: var(--inchiostro);
-         font: 16px/1.6 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; }
+         font: 16px/1.6 "Figtree", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; }
   a { color: var(--verde); }
   .muro { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
   code { background: var(--codice); border-radius: 5px; padding: 1px 6px; font: 13px/1.4 var(--mono); }
@@ -115,13 +116,12 @@
 <body>
 <!-- BANNER DELLA VERSIONE (2026-09-27): si cambia VERSIONE e testo a ogni rilascio. -->
 <div id="banner-versione" style="background:#1f4d36;color:#f2f7f3;font:14px/1.45 system-ui,-apple-system,'Segoe UI',sans-serif;padding:10px 16px;display:flex;gap:12px;align-items:flex-start;justify-content:center;flex-wrap:wrap;position:relative;z-index:50">
-  <span style="background:#f2c14e;color:#1f2a22;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap">Aggiornato alla versione 1.7.3</span>
-  <span style="max-width:760px;flex:1 1 320px">28 settembre 2026: l'amico non compare più spostato di qualche pixel quando entra in scena mentre stai camminando (per esempio uscendo dalla saletta del Cable Club).
-    Serve ricaricare il gioco nel GBA dal sito, e a chi gioca in emulatore riscaricare lo script.
-    Nella saletta resta il modo di prima (i passi possono sfasarsi); scambi e lotte funzionano.</span>
-  <button type="button" aria-label="Chiudi" onclick="try{localStorage.setItem('banner-versione','1.7.3')}catch(e){};this.parentNode.hidden=true" style="background:none;border:1px solid rgba(242,247,243,.5);color:inherit;border-radius:6px;padding:2px 9px;cursor:pointer;font:inherit">×</button>
+  <span style="background:#f2c14e;color:#1f2a22;font-weight:700;border-radius:999px;padding:2px 10px;white-space:nowrap">Aggiornato alla versione 1.8.0</span>
+  <span style="max-width:760px;flex:1 1 320px"><b>Tutte le animazioni dell'amico</b> (salti dai gradini, bici da corsa e acrobatica, pesca, Surf, volo) e <b>chat della stanza</b>, in un sito nuovo.
+    Il GBA prende il gioco nuovo da solo; chi usa l'emulatore deve <b>riscaricare lo script</b>. Le animazioni si vedono se siete aggiornati tutti e due.</span>
+  <button type="button" aria-label="Chiudi" onclick="try{localStorage.setItem('banner-versione','1.8.0-anim')}catch(e){};this.parentNode.hidden=true" style="background:none;border:1px solid rgba(242,247,243,.5);color:inherit;border-radius:6px;padding:2px 9px;cursor:pointer;font:inherit">×</button>
 </div>
-<script>try{if(localStorage.getItem('banner-versione')==='1.7.3')document.getElementById('banner-versione').hidden=true}catch(e){}</script>
+<script>try{if(localStorage.getItem('banner-versione')==='1.8.0-anim')document.getElementById('banner-versione').hidden=true}catch(e){}</script>
 
 
 <header class="testa">
@@ -290,7 +290,7 @@
 
 <footer>
   <div class="muro">
-    <div><a href="gioca.html"><b>Pannello di gioco</b></a> · <a href="mappa.html">Mappa live</a> · <a href="progetto.html">Come funziona e crediti</a> · <a class="js-github" href="#">GitHub</a></div>
+    <div><a href="gioca.html"><b>Pannello di gioco</b></a> · <a href="stanze.html">Stanze</a> · <a href="mappa.html">Mappa live</a> · <a href="progetto.html">Come funziona e crediti</a> · <a class="js-github" href="#">GitHub</a></div>
     <div>Pokémon, Game Boy Advance e i nomi correlati sono marchi di Nintendo, Creatures Inc. e GAME FREAK inc.
       Progetto amatoriale senza fini di lucro, non affiliato né approvato da loro. Non distribuisce il gioco:
       serve la propria cartuccia originale.</div>

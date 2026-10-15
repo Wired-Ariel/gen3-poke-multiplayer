@@ -100,6 +100,16 @@
     // rientro con codice nuovo (pagina ricaricata col BYE perso) viene
     // rifiutato per qualche secondo e poi entra da solo, e non va gridato.
     this.onNumeroOccupato = opts.onNumeroOccupato || null;
+    // LA CHAT DELLA STANZA (2026-10-11, js/chat.js). Il bridge non la legge:
+    // passa il corpo dei T_CHAT a chi lo ha chiesto e spedisce quelli che gli
+    // danno. In piu' racconta tre fatti che conosce gia' e che la chat mette
+    // nella linea del tempo: un amico che entra o esce (onAmico) e il Cable
+    // Club, nostro o di un altro (onClub).
+    this.onChat = opts.onChat || null;       // (peerId, corpo Uint8Array)
+    this.onAmico = opts.onAmico || null;     // ("entra" | "esce", peerId)
+    this.onClub = opts.onClub || null;       // ("inizio" | "fine" | "amico" | "amicofine", peerId)
+    this.clubAmici = {};                     // peerId -> true: lo abbiamo sentito al club
+    this.chatInviati = 0; this.chatRicevuti = 0;
     this.presoDa = 0; this.presoUltimo = 0; this.presoDetto = false; this.rifiutiNumero = 0;
     this.watchInviati = 0;
     this.timerWatch = null;
@@ -193,6 +203,16 @@
     // conserva niente: se abbiamo gia' una fotografia la si rimanda subito.
     this.rimandaPresenza();
     this.sendPubblica();
+  };
+
+  /* Un T_CHAT verso la stanza. Il seq dell'header resta 0: la chat ha il suo
+   * dedup (l'id del messaggio) e non deve consumare i numeri dei passi. Vale
+   * anche da spettatore: e' l'unica cosa che uno spettatore puo' dire. */
+  OwlBridge.prototype.sendChat = function (corpo) {
+    if (!corpo || !corpo.length) return false;
+    var ok = this.sendRelay(R.pack(R.T.CHAT, this.peerId, this.room, 0, corpo));
+    if (ok) this.chatInviati++;
+    return !!ok;
   };
 
   /* Il segno "stanza aperta". Acceso: si rinnova a ogni chiamata. Spento dopo
@@ -398,6 +418,8 @@
       delete this.lastSeq[p.peerId];
       delete this.peerPos[p.peerId];
       delete this.peers[p.peerId];
+      delete this.clubAmici[p.peerId];
+      if (this.onAmico && room !== undefined) this.onAmico("esce", p.peerId);
       // Lo slot avatar torna libero, e il VIA parte TIMBRATO con lo slot che
       // l'amico occupava (identico a client.py). Senza slot, niente despawn.
       var byeSlot = this.peerSlots[p.peerId];
@@ -422,6 +444,12 @@
       return;
     }
 
+    if (p.kind === R.T.CHAT) {
+      this.chatRicevuti++;
+      if (this.onChat) this.onChat(p.peerId, new Uint8Array(p.body));
+      return;
+    }
+
     if (p.kind !== R.T.EVENT || p.body.length < EVENT_SIZE) return;
     // Il primo evento di un peer mai visto vale come "ci sono, e tu?": va
     // guardato PRIMA di acceptSeq, che e' la funzione che registra il peer.
@@ -432,7 +460,10 @@
     this.peerRoom[p.peerId] = mapKeyOf(event);
     this.received++;
     this.healAndDeliver(p.peerId, event);
-    if (peerNuovo) this.rimandaPresenza(true);
+    if (peerNuovo) {
+      this.rimandaPresenza(true);
+      if (this.onAmico) this.onAmico("entra", p.peerId);
+    }
   };
 
   /* --- la ricucitura dei passi persi (heal_and_deliver, identica a client.py) --- */
@@ -676,6 +707,7 @@
     this.clubSessions++;
     if (this.clubPartner !== null) sess.setPartner(this.clubPartner);
     this.sendClub(C.proto.clubEnter(sess.epoca));
+    if (this.onClub) this.onClub("inizio", this.clubPartner);
     dev.onClubStatus = function (st) {
       if (self.club === sess) { sess.onDeviceStatus(st); self._clubDopo(); }
     };
@@ -725,6 +757,14 @@
           "pacchetto sono di versioni diverse - aggiornateli su ENTRAMBI i lati", null, true);
       }
       return;
+    }
+    // Per la linea del tempo della chat: chi abbiamo sentito al club, detto
+    // sulle TRANSIZIONI (gli annunci si ripetono, l'evento no).
+    if (p.sub === P.CLUB_LEAVE) {
+      if (this.clubAmici[peerId]) { delete this.clubAmici[peerId]; if (this.onClub) this.onClub("amicofine", peerId); }
+    } else if ((p.sub === P.CLUB_ENTER || p.sub === P.CLUB_STATUS) && !this.clubAmici[peerId]) {
+      this.clubAmici[peerId] = true;
+      if (this.onClub) this.onClub("amico", peerId);
     }
     if (this.club && this.clubPartner !== null && peerId !== this.clubPartner) {
       // Il club e' a DUE: in una stanza da 3-4, il terzo che parlasse di
@@ -800,6 +840,7 @@
     this.clubPartner = null;
     if (this.clubTimer) { T.clear(this.clubTimer); this.clubTimer = null; }
     var esito = sess.abortita ? "ABBANDONATA (" + (sess.motivoFine || "watchdog") + ")" : "conclusa";
+    if (this.onClub) this.onClub("fine", null);
     this.log("[club ] sessione " + esito + " | " + sess.riassunto());
     if (this.clubDrop) {
       this.log("[club ] eventi di camminata buttati durante il club: " + this.clubDrop +
@@ -846,7 +887,12 @@
       // la corsa dalla camminata: avatarState non la distingue, resta NORMAL
       // in entrambi i casi. Solo da PASSO/SYNC/GIRA: gli eventi di STATO
       // portano speed 0 fisso e azzererebbero la corsa a ogni battito.
-      nuovo.speed = e[2];
+      //
+      // DAL 2026-10-10 quel byte porta la MOVEMENT ACTION del mittente (o
+      // una posa), non piu' la classe: per la mappa lo si riporta alla
+      // classe che conosce. 0x35-0x38 sono PLAYER_RUN_*; sotto 4 e' un
+      // mittente vecchio, che manda ancora la classe.
+      nuovo.speed = e[2] < 4 ? e[2] : ((e[2] >= 0x35 && e[2] <= 0x38) ? 1 : 0);
     }
     return nuovo;
   };
@@ -941,6 +987,8 @@
       wireSent: this.wireSent, copiesSkipped: this.copiesSkipped,
       rttUltimo: this.rttUltimo, rttMin: this.rttMin, rttMedio: this.rttMedio, rttMax: this.rttMax,
       club: !!this.club, clubSessions: Math.max(0, this.clubSessions),
+      clubAmici: Object.keys(this.clubAmici).map(Number),
+      chatInviati: this.chatInviati, chatRicevuti: this.chatRicevuti,
       amici: this.amiciVivi()
     };
   };

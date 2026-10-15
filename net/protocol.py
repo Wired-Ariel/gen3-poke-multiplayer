@@ -59,6 +59,20 @@ T_TAKEN = 9   # "il tuo peer-id e' GIA' IN USO in questa stanza" (2026-09-27).
               # 0 = lo usa un giocatore, 1 = uno spettatore. Il relay lo manda
               # al massimo una volta al secondo per peer.
 
+T_CHAT = 10   # LA CHAT DELLA STANZA (2026-10-11). Il relay lo inoltra a TUTTA la
+              # stanza, SPETTATORI COMPRESI, e anche uno spettatore lo puo'
+              # mandare: e' l'eccezione voluta a "uno spettatore non parla"
+              # (T_EVENT e T_CLUB da spettatore restano rifiutati). Il corpo e'
+              # JSON utf-8 e il relay NON lo legge: guarda solo quanto e' lungo
+              # (CHAT_CORPO_MAX) e quanti ne arrivano (relay.py, CHAT_MAX in
+              # CHAT_FINESTRA_S secondi per peer). Tre forme, vedi chat_unpack:
+              #   messaggio  {"id","nome","testo","ts","rispondeA"?,"pos"?}
+              #   scrive     {"scrive":true,"nome"}        «sta scrivendo...»
+              #   ciao       {"ciao":1|0,"nome","ruolo"}   nome e ruolo di chi
+              #              c'e' (1) o se ne va (0): e' cosi' che il nome
+              #              viaggia, e che uno spettatore si fa vedere.
+              # Il relay non tiene lo storico: chi entra legge da li' in poi.
+
 TYPE_NAMES = {
     T_HELLO: "HELLO",
     T_EVENT: "EVENT",
@@ -70,6 +84,7 @@ TYPE_NAMES = {
     T_PUBLIC: "PUBLIC",
     T_LIST: "LIST",
     T_TAKEN: "TAKEN",
+    T_CHAT: "CHAT",
 }
 
 # --- corpo dei T_CLUB --------------------------------------------------------
@@ -301,6 +316,99 @@ def club_unpack(body):
     if sub in (CLUB_ENTER, CLUB_LEAVE) and len(body) >= 5:
         return sub, epoca, None
     return None
+
+
+# --- corpo dei T_CHAT ---------------------------------------------------------
+# Gemello di web/js/chat.js (OwlChat.pack / OwlChat.unpack): si toccano insieme.
+CHAT_TESTO_MAX = 280     # caratteri del testo
+CHAT_NOME_MAX = 16       # caratteri del nome
+CHAT_CITA_MAX = 80       # caratteri della citazione dentro una risposta
+CHAT_ID_MAX = 24         # caratteri dell'id (lo sorteggia chi scrive)
+# Il datagramma deve stare COMODO nell'MTU (1500 - 28 di IP/UDP - 11 di OWL1):
+# 280 caratteri latini sono ~300-560 byte, e solo un messaggio di sole emoji
+# arriva al tetto - li' chat_pack accorcia il testo finche' ci sta.
+CHAT_CORPO_MAX = 1200
+
+
+def _chat_pulisci(testo, massimo):
+    """Una riga di testo: niente caratteri di controllo, niente a capo, tagliata."""
+    if not isinstance(testo, str):
+        return ""
+    pulito = "".join(" " if (ord(c) < 32 or ord(c) == 127) else c for c in testo)
+    return pulito.strip()[:massimo]
+
+
+def _chat_intero(v, lo, hi):
+    return isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
+
+
+def chat_normalizza(d):
+    """Da un dizionario qualunque a una delle tre forme, oppure None.
+
+    Ritorna un dizionario NUOVO con la chiave "tipo" ("msg", "scrive", "ciao")
+    e solo i campi previsti, gia' puliti e tagliati: chi lo usa non deve
+    fidarsi di niente di cio' che arriva dalla rete."""
+    if not isinstance(d, dict):
+        return None
+    nome = _chat_pulisci(d.get("nome", ""), CHAT_NOME_MAX)
+    if d.get("scrive") is True:
+        return {"tipo": "scrive", "nome": nome}
+    if "ciao" in d:
+        return {"tipo": "ciao", "nome": nome, "ciao": 1 if d.get("ciao") else 0,
+                "ruolo": "s" if d.get("ruolo") == "s" else "g"}
+    ident = _chat_pulisci(d.get("id", ""), CHAT_ID_MAX)
+    testo = _chat_pulisci(d.get("testo", ""), CHAT_TESTO_MAX)
+    ts = d.get("ts")
+    if not ident or not isinstance(ts, (int, float)) or isinstance(ts, bool):
+        return None
+    out = {"tipo": "msg", "id": ident, "nome": nome, "testo": testo, "ts": int(ts)}
+    pos = d.get("pos")
+    if isinstance(pos, dict) and _chat_intero(pos.get("g"), 0, 255) \
+            and _chat_intero(pos.get("n"), 0, 255) \
+            and _chat_intero(pos.get("x"), -32768, 32767) \
+            and _chat_intero(pos.get("y"), -32768, 32767):
+        out["pos"] = {"g": pos["g"], "n": pos["n"], "x": pos["x"], "y": pos["y"]}
+    ris = d.get("rispondeA")
+    if isinstance(ris, dict):
+        rid = _chat_pulisci(ris.get("id", ""), CHAT_ID_MAX)
+        if rid:
+            out["rispondeA"] = {"id": rid,
+                                "nome": _chat_pulisci(ris.get("nome", ""), CHAT_NOME_MAX),
+                                "testo": _chat_pulisci(ris.get("testo", ""), CHAT_CITA_MAX)}
+    if not testo and "pos" not in out:
+        return None                       # un messaggio vuoto non e' un messaggio
+    return out
+
+
+def chat_pack(d):
+    """Il corpo di un T_CHAT: JSON utf-8 compatto, mai oltre CHAT_CORPO_MAX.
+    Ritorna None se il dizionario non e' una delle tre forme."""
+    import json
+    n = chat_normalizza(d)
+    if n is None:
+        return None
+    n.pop("tipo")
+    if "ciao" not in n and "testo" not in n:
+        n["scrive"] = True
+    while True:
+        corpo = json.dumps(n, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        if len(corpo) <= CHAT_CORPO_MAX or not n.get("testo"):
+            return corpo if len(corpo) <= CHAT_CORPO_MAX else None
+        n["testo"] = n["testo"][:-8]
+
+
+def chat_unpack(body):
+    """Dal corpo di un T_CHAT a una delle tre forme (vedi chat_normalizza),
+    oppure None: troppo lungo, non utf-8, non JSON, non un oggetto, campi
+    mancanti. Un corpo malformato non deve far cadere nessuno."""
+    import json
+    if len(body) > CHAT_CORPO_MAX:
+        return None
+    try:
+        d = json.loads(bytes(body).decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    return chat_normalizza(d)
 
 
 def pack(kind, peer_id, room_id, seq, body=b""):

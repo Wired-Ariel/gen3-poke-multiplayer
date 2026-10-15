@@ -1,0 +1,133 @@
+<!doctype html>
+<!-- GENERATO da tools/gen_en.py a partire da stanze.html: NON modificare a mano.
+     Si cambia stanze.html (il testo inglese e' li' dentro) e si rilancia lo script. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>gen3-poke-multiplayer — Rooms</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="img/favicon.png">
+<link rel="alternate" hreflang="it" href="stanze.html">
+<script src="js/lingua.js?v=1.8.0"></script>
+<link rel="stylesheet" href="css/sito.css?v=1.8.0">
+<!--
+  LE STANZE (2026-10-11): scegliere o creare una stanza prima di giocare.
+  L'elenco e' quello delle stanze APERTE che il relay gia' pubblica (relay.py,
+  T_PUBLIC / T_LIST; relay_ws.py lo serve su GET /ws?stanze): qui gli si da'
+  una faccia. Questa pagina non apre nessuna partita: scrive la stanza nelle
+  impostazioni (le stesse del pannello) e porta alla pagina della stanza.
+
+  NIENTE RISORSE ESTERNE. Le due lingue stanno in questo file: stanze-en.html
+  la genera tools/gen_en.py.
+-->
+<style>
+  .griglia-stanze { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
+  .entra { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+  .entra input { width: 260px; max-width: 100%; height: 50px; padding: 0 16px; border: none; border-radius: 12px; font: 600 17px var(--mono); }
+  .entra input:focus { outline: 3px solid var(--arancio); outline-offset: 1px; }
+  .eroe .esito { color: #ffd9c2; }
+  .eroe .esito.bene { color: var(--menta); }
+  .elenco { padding: 0; overflow: hidden; }
+  .elenco .su { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 16px 20px; }
+  .elenco .su b { font-size: 17px; font-weight: 800; }
+  .elenco .su > span { font-size: 12.5px; color: var(--tenue2); }
+  .riga-stanza { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 14px 20px; border-top: 1px solid #f3eee2; }
+  .riga-stanza .n { font: 700 19px var(--mono); }
+  .riga-stanza .quanti { font-size: 12px; color: var(--tenue); margin-top: 4px; }
+  .riga-stanza .azioni { display: flex; gap: 6px; }
+  .riga-stanza .piena { display: inline-flex; align-items: center; height: 36px; padding: 0 12px; border-radius: 10px; background: var(--fondo2); color: var(--tenue2); font-size: 12.5px; font-weight: 600; }
+  .riga-stanza .btn { height: 36px; }
+  .riga-stanza .tua { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--verde-chiaro); color: var(--verde2); font: 700 11px var(--sans); vertical-align: middle; }
+  .elenco .vuoto { padding: 26px 20px 30px; border-top: 1px solid #f3eee2; text-align: center; font-size: 13.5px; line-height: 1.6; color: var(--tenue); }
+  .ultima { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+  .ultima b { font: 700 24px var(--mono); }
+  .ultima .btn { margin-left: auto; height: 36px; }
+  .riga-int { display: flex; align-items: center; gap: 12px; }
+  @media (max-width: 900px) { .griglia-stanze { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 640px) {
+    .entra input { width: 100%; height: 52px; }
+    .entra .btn { flex: 1 1 100%; }
+    .riga-stanza { grid-template-columns: 1fr; gap: 10px; padding: 14px 15px; }
+    .riga-stanza .azioni .btn, .riga-stanza .piena { flex: 1; height: 44px; justify-content: center; }
+    .elenco .su { padding: 14px 15px; }
+    .ultima .btn { height: 44px; }
+  }
+</style>
+</head>
+<body>
+<header class="testata">
+  <a class="marchio" href="index-en.html" aria-label="Home page">
+    <img class="o1" src="img/orma-treecko-scuro-bordo.png" alt="">
+    <img class="o2" src="img/orma-torchic-scuro-bordo.png" alt="">
+  </a>
+  <a class="nome-sito" href="index-en.html">gen3-poke-multiplayer</a>
+  <nav class="nav" aria-label="Pages">
+    <a href="gioca-en.html"><span class="l-it">Pannello</span><span class="l-en">Panel</span></a>
+    <a class="qui" href="stanze-en.html" aria-current="page"><span class="l-it">Stanze</span><span class="l-en">Rooms</span></a>
+    <a href="mappa.html"><span class="l-it">Mappa live</span><span class="l-en">Live map</span></a>
+    <a href="progetto-en.html"><span class="l-it">Come funziona</span><span class="l-en">How it works</span></a>
+  </nav>
+  <div class="pillole">
+    <span class="pillola" id="pill-relay"><i></i><span id="pill-relay-testo">Relay</span></span>
+    <span id="lingua-slot"></span>
+  </div>
+</header>
+
+<main class="muro">
+  <div class="griglia-stanze">
+    <div class="colonna">
+      <section class="eroe">
+        <div class="dentro">
+          <div class="sopra"><span class="l-it">Prima di giocare</span><span class="l-en">Before you play</span></div>
+          <h1><span class="l-it">Entra in una stanza</span><span class="l-en">Join a room</span></h1>
+          <p><span class="l-it">Si vedono solo i giocatori con lo stesso numero. Hai un invito? Scrivi il numero. Se no, scegline una aperta qui sotto o creane una.</span><span class="l-en">Only players with the same number see each other. Got an invite? Type the number. If not, pick an open one below or create one.</span></p>
+          <form class="entra" id="form-entra">
+            <input type="number" id="numero" min="1" max="65535" inputmode="numeric" placeholder="e.g. 37904" aria-label="Room number">
+            <button class="btn arancio" type="submit"><span class="l-it">Entra</span><span class="l-en">Join</span></button>
+            <button class="btn vetro" type="button" id="btn-nuova"><span class="l-it">Crea stanza nuova</span><span class="l-en">Create a new room</span></button>
+          </form>
+          <div class="esito" id="esito-entra" role="status"></div>
+        </div>
+      </section>
+
+      <section class="scheda elenco">
+        <div class="su"><b><span class="l-it">Stanze aperte</span><span class="l-en">Open rooms</span></b><span id="elenco-conta"></span></div>
+        <div id="elenco"></div>
+      </section>
+    </div>
+
+    <div class="colonna">
+      <section class="scheda" id="scheda-ultima" hidden>
+        <p class="etichetta"><span class="l-it">La tua ultima stanza</span><span class="l-en">Your last room</span></p>
+        <div class="ultima"><b id="ultima-numero">—</b>
+          <button class="btn invito" id="btn-ultima" type="button"><span class="l-it">Torna qui</span><span class="l-en">Go back</span></button></div>
+        <p class="piccolo" id="ultima-nota" style="margin:4px 0 0"></p>
+      </section>
+      <section class="scheda">
+        <div class="riga-int">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:15px;font-weight:700" id="aperta-etichetta"><span class="l-it">Mostra la mia stanza nell'elenco</span><span class="l-en">Show my room in the list</span></div>
+            <p class="piccolo" style="margin:3px 0 0"><span class="l-it">Chiunque potrà entrare fino a 4 giocatori. Spegnila e la stanza sparisce dall'elenco entro 15 secondi.</span><span class="l-en">Anyone will be able to join, up to 4 players. Turn it off and the room leaves the list within 15 seconds.</span></p>
+          </div>
+          <button class="interruttore" id="int-aperta" type="button" aria-pressed="false" aria-labelledby="aperta-etichetta"></button>
+        </div>
+        <p class="piccolo" id="aperta-nota" style="margin:10px 0 0"></p>
+      </section>
+      <section class="scheda tratteggio">
+        <div style="font-size:14px;font-weight:700"><span class="l-it">Non è una password</span><span class="l-en">It's not a password</span></div>
+        <p class="piccolo" style="margin:4px 0 0"><span class="l-it">Chi conosce il numero entra. Per giocare solo con gli amici, crea una stanza nuova e lasciala fuori dall'elenco.</span><span class="l-en">Anyone who knows the number can join. To play only with friends, create a new room and keep it off the list.</span></p>
+      </section>
+      <section class="scheda tratteggio">
+        <div style="font-size:14px;font-weight:700"><span class="l-it">Entrare, guardare, giocare</span><span class="l-en">Join, watch, play</span></div>
+        <p class="piccolo" style="margin:4px 0 0"><span class="l-it"><b>Entra</b> scrive la stanza nelle impostazioni e apre la sua pagina: lì leggi e scrivi in chat e vedi chi c'è. Per comparire nel gioco degli altri serve il GBA: dal <a href="gioca-en.html">Pannello</a>, premi Gioca. <b>Guarda</b> apre la stessa pagina senza cambiare la tua stanza. Chi guarda non occupa nessuno dei 4 posti.</span><span class="l-en"><b>Join</b> writes the room into your settings and opens its page: there you read and write in the chat and see who's in. To show up in the others' game you need the GBA: from the <a href="gioca-en.html">Panel</a>, press Play. <b>Watch</b> opens the same page without changing your room. Watching doesn't take any of the 4 seats.</span></p>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script src="config.js?v=1.8.0"></script>
+<script src="js/relay.js?v=1.8.0"></script>
+<script src="js/sito.js?v=1.8.0"></script>
+<script src="js/stanze.js?v=1.8.0"></script>
+</body>
+</html>

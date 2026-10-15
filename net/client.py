@@ -56,9 +56,9 @@ from ws_link import WsRelay, e_ws_url  # noqa: E402
 from protocol import (  # noqa: E402
     CLUB_DATA, CLUB_ENTER, CLUB_LEAVE, CLUB_REQ, CLUB_STATUS,
     EV_CLUB, EV_STATUS, EVENT_SIZE, IMPRONTA_LUA, IMPRONTA_SORGENTI,
-    IMPRONTA_WEB, T_BYE, T_CLUB,
+    IMPRONTA_WEB, T_BYE, T_CHAT, T_CLUB,
     T_EVENT, T_HELLO, T_PING, T_PONG, T_TAKEN, VERSIONE_CLUB,
-    club_block_riga, club_enter, club_leave, club_unpack,
+    chat_unpack, club_block_riga, club_enter, club_leave, club_unpack,
     extract_map_key, make_leave_event, nome_stato, pack, unpack,
 )
 
@@ -278,6 +278,18 @@ class Bridge:
         self.pos_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "posizioni")
         self.pos_path = os.path.join(self.pos_dir, "posizioni-%d.json" % self.peer_id)
         self.pos_ultima_scrittura = 0.0
+        # LA CHAT DELLA STANZA (2026-10-11, T_CHAT): qui si LEGGE soltanto.
+        # Ogni messaggio diventa una riga "[chat ] nome: testo" del registro e
+        # finisce, con gli ultimi CHAT_TENUTI, nello stesso file delle
+        # posizioni: il pannello e la Mappa live lo mostrano da li'. Il dedup
+        # e' sull'id del messaggio (su UDP un datagramma puo' arrivare due
+        # volte, e il seq dell'header e' dei passi, non della chat).
+        self.chat = []
+        self.chat_visti = {}      # id -> True, in ordine d'arrivo
+        self.chat_nomi = {}       # peer_id -> nome detto in chat
+        self.chat_ricevuti = 0
+        self.chat_doppi = 0
+        self.chat_illeggibili = 0
         self.club_versione_detta = False   # la denuncia si fa UNA volta
 
         self.out_seq = 0
@@ -661,6 +673,10 @@ class Bridge:
                 self.deliver(make_leave_event(room), slot)
             return
 
+        if kind == T_CHAT:
+            self.handle_chat(peer_id, body)
+            return
+
         if kind == T_CLUB:
             # La sessione del club ha il SUO dedup (numeri di serie degli
             # stati, sequenze dei blocchi): il filtro accept_seq qui farebbe
@@ -927,9 +943,64 @@ class Bridge:
             # distingue, resta NORMAL in entrambi i casi (payload main.c:954).
             # Solo da PASSO/SYNC/GIRA: EmitStatus manda speed 0 fisso
             # (main.c:1095) e azzererebbe la corsa a ogni battito di stato.
-            nuovo["speed"] = event[2]
+            #
+            # DAL 2026-10-10 quel byte porta la MOVEMENT ACTION del mittente
+            # (o una posa), non piu' la classe: per la mappa lo si riporta
+            # alla classe che conosce. 0x35-0x38 sono PLAYER_RUN_*; sotto 4 e'
+            # un mittente vecchio, che manda ancora la classe.
+            v = event[2]
+            nuovo["speed"] = v if v < 4 else (1 if 0x35 <= v <= 0x38 else 0)
         self.pos_sporche = True
         return nuovo
+
+    CHAT_TENUTI = 50
+
+    def handle_chat(self, peer_id, body):
+        """Un T_CHAT dalla stanza: si legge e si mostra, non si risponde.
+
+        Le tre forme sono in protocol.chat_unpack. Il "sta scrivendo" qui non
+        serve; il "ciao" porta il nome di chi c'e' (anche degli spettatori)."""
+        m = chat_unpack(body)
+        if m is None:
+            self.chat_illeggibili += 1
+            if self.chat_illeggibili == 1:
+                self.log("[chat ] messaggio di chat illeggibile dal peer %d "
+                         "(versioni diverse?): ignorato" % peer_id)
+            return
+        if m["nome"]:
+            self.chat_nomi[peer_id] = m["nome"]
+        if m["tipo"] != "msg":
+            return
+        if m["id"] in self.chat_visti:
+            self.chat_doppi += 1
+            return
+        self.chat_visti[m["id"]] = True
+        if len(self.chat_visti) > 400:
+            for k in list(self.chat_visti)[:200]:
+                del self.chat_visti[k]
+        self.chat_ricevuti += 1
+        chi = m["nome"] or ("peer %d" % peer_id)
+        voce = {"id": m["id"], "peer": peer_id, "nome": chi, "testo": m["testo"],
+                "ts": m["ts"], "t": time.time()}
+        if "pos" in m:
+            voce["pos"] = m["pos"]
+        if "rispondeA" in m:
+            voce["rispondeA"] = m["rispondeA"]
+        self.chat.append(voce)
+        del self.chat[:-self.CHAT_TENUTI]
+        self.pos_sporche = True
+        if "pos" in m:
+            riga = "%s ha condiviso la posizione: mappa %d.%d (%d,%d)" % (
+                chi, m["pos"]["g"], m["pos"]["n"], m["pos"]["x"], m["pos"]["y"])
+            if m["testo"]:
+                riga += " - " + m["testo"]
+        else:
+            riga = "%s: %s" % (chi, m["testo"])
+        # La console di Windows non sa scrivere tutto (cp1252): cio' che non
+        # sa diventa "?" invece di un'eccezione che fermerebbe la partita.
+        cod = getattr(sys.stdout, "encoding", None) or "utf-8"
+        riga = riga.encode(cod, errors="replace").decode(cod, errors="replace")
+        self.log("[chat ] " + riga)
 
     def scrivi_posizioni(self, now):
         """Al massimo 10 volte al secondo, solo se e' cambiato qualcosa,
@@ -939,7 +1010,7 @@ class Bridge:
         # cosi' il suo `t` dice "questo client e' vivo" e il pannello puo'
         # ignorare le viste di client chiusi (o dei test) senza confonderle
         # con un giocatore fermo.
-        if self.pos_io is None and not self.pos_amici:
+        if self.pos_io is None and not self.pos_amici and not self.chat:
             return
         if now < self.pos_prossima:
             return
@@ -959,6 +1030,10 @@ class Bridge:
         dati = {"peer": self.peer_id, "io": self.pos_io,
                 "amici": {str(k): v for k, v in self.pos_amici.items()},
                 "t": time.time()}
+        if self.chat or self.chat_nomi:
+            dati["stanza"] = self.room
+            dati["chat"] = self.chat
+            dati["nomi"] = {str(k): v for k, v in self.chat_nomi.items()}
         tmp = self.pos_path + ".tmp"
         try:
             os.makedirs(self.pos_dir, exist_ok=True)

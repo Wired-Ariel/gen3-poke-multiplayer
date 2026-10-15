@@ -1343,6 +1343,19 @@ DIR_DA_MOVIMENTO = {"MOVEMENT_TYPE_FACE_UP": "su", "MOVEMENT_TYPE_FACE_LEFT": "s
 # Mappe
 # --------------------------------------------------------------------------
 
+def scrivi_nomi(out, mappe):
+    """nomi.json: SOLO i nomi delle mappe, {"gruppo.numero": [inglese, italiano]}.
+
+    Serve alla chat del sito (2026-10-11): una posizione condivisa si mostra col
+    nome del luogo, e per saperlo non si puo' far scaricare a ogni pagina il
+    megabyte di dati.json. L'italiano e' quello letto dalla cartuccia (nome_it);
+    dove manca resta null e la pagina usa l'inglese, come la Mappa live."""
+    nomi = {k: [v.get("nome") or k, v.get("nome_it") or None] for k, v in mappe.items()}
+    (out / "nomi.json").write_text(
+        json.dumps(nomi, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    return len(nomi)
+
+
 def main():
     solo_esterni = "--solo-esterni" in sys.argv
     t0 = time.time()
@@ -2575,6 +2588,7 @@ def main():
         if not v.get("miraggio"):
             v.pop("miraggio", None)
     (OUT / "dati.json").write_text(json.dumps(dati, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    scrivi_nomi(OUT, mappe)
     tot = sum(f.stat().st_size for f in OUT.rglob("*") if f.is_file())
     print("scritto %s: %d mappe, %d specie, %.1f MB in tutto (%.0f s)"
           % (OUT, len(mappe), len(specie), tot / 1e6, time.time() - t0))
@@ -2582,4 +2596,12 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--solo-nomi" in sys.argv:
+        # Rifa' soltanto nomi.json da un dati.json gia' generato (non servono
+        # ne' la decomp ne' la ROM). Opzionale: la cartella dei dati.
+        resto = [a for a in sys.argv[1:] if a != "--solo-nomi"]
+        cartella = Path(resto[0]) if resto else OUT
+        n = scrivi_nomi(cartella, json.loads((cartella / "dati.json").read_text(encoding="utf-8"))["mappe"])
+        print("scritto %s: %d mappe" % (cartella / "nomi.json", n))
+        sys.exit(0)
     sys.exit(main())

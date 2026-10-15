@@ -629,7 +629,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(self.pannello.posizioni())
             return
 
-        m = re.fullmatch(r"/mappa/(dati\.json|(?:img|icone|sprite|oe|item|front)/[A-Za-z0-9._-]+\.png"
+        m = re.fullmatch(r"/mappa/(dati\.json|nomi\.json|(?:img|icone|sprite|oe|item|front)/[A-Za-z0-9._-]+\.png"
                          r"|bw/[A-Za-z0-9._-]+\.gif)", percorso)
         if m:
             strada = os.path.join(QUI, "mappa", *m.group(1).split("/"))
@@ -649,6 +649,26 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(corpo)
             return
+
+        # I FONT del sito (2026-10-11): mappa.html li chiede come fonts/x.woff2.
+        # Stanno in web/fonts/ accanto a net/ (nel repository); nei pacchetti
+        # che non li portano la risposta e' 404 e la pagina ricade sui font di
+        # sistema. Stessa disciplina delle immagini: un nome piatto e basta.
+        if percorso.startswith("/fonts/") and percorso.count("/") == 2:
+            nome = percorso[len("/fonts/"):]
+            if re.fullmatch(r"[A-Za-z0-9._-]+\.woff2", nome or ""):
+                for cartella in (os.path.join(QUI, "fonts"), os.path.join(QUI, "..", "web", "fonts")):
+                    strada = os.path.join(cartella, nome)
+                    if os.path.exists(strada):
+                        with open(strada, "rb") as f:
+                            corpo = f.read()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "font/woff2")
+                        self.send_header("Content-Length", str(len(corpo)))
+                        self.send_header("Cache-Control", "max-age=86400")
+                        self.end_headers()
+                        self.wfile.write(corpo)
+                        return
 
         # Le immagini della pagina (net/img/): il pannello sta su loopback ma
         # avvia programmi, quindi niente path traversal - solo un nome piatto

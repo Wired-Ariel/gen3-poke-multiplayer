@@ -14,6 +14,7 @@
 <script src="js/relay.js"></script>
 <script src="js/club.js"></script>
 <script src="js/bridge.js"></script>
+<script src="js/chat.js"></script>
 <script>
 (function () {
   var out = [], ok = 0, ko = 0, EV = OwlBridge.EV;
@@ -1172,6 +1173,263 @@
       || { subito: subito, dopo: dopo, tutte: chiamate, rifiuti: b.rifiutiNumero };
   });
 
+
+  // =========================================================================
+  // LA CHAT DELLA STANZA (2026-10-11): js/chat.js + i ganci in bridge.js
+  // =========================================================================
+  (function () {
+    var C = OwlChat, R = OwlRelay;
+    function utf8(s) { return new TextEncoder().encode(s); }
+    function testo(b) { return new TextDecoder().decode(b); }
+    // Un orologio finto e un canale finto (due "schede" nella stessa pagina).
+    function orologio(t0) { var o = { t: t0 || 1700000000000 }; o.now = function () { return o.t; }; return o; }
+    function canali() {
+      var tutti = [];
+      return function () {
+        var c = { onmessage: null, postMessage: function (m) { var io = c; m = JSON.parse(JSON.stringify(m)); tutti.forEach(function (x) { if (x !== io && x.onmessage) x.onmessage({ data: m }); }); }, close: function () {} };
+        tutti.push(c); return c;
+      };
+    }
+    function memoria() { var d = {}; return { getItem: function (k) { return k in d ? d[k] : null; }, setItem: function (k, v) { d[k] = String(v); }, dati: d }; }
+
+    t("chat: T_CHAT e' il tipo 10 e l'header lo porta come gli altri", function () {
+      var p = R.unpack(R.pack(R.T.CHAT, 7, 4242, 0, utf8('{"x":1}')));
+      return (R.T.CHAT === 10 && R.T_NOMI[10] === "CHAT" && p.kind === 10 && p.peerId === 7 && p.roomId === 4242 && testo(p.body) === '{"x":1}') || p;
+    });
+    t("chat: pack/unpack di un messaggio, con risposta e posizione", function () {
+      var b = C.pack({ id: "a-1", nome: "Lain", testo: "ci sei?", ts: 1700000000123,
+                       rispondeA: { id: "b-9", nome: "Marta", testo: "arrivo" }, pos: { g: 0, n: 9, x: 14, y: 9 } });
+      var m = C.unpack(b);
+      return (eq(m, { tipo: "msg", id: "a-1", nome: "Lain", testo: "ci sei?", ts: 1700000000123,
+                      pos: { g: 0, n: 9, x: 14, y: 9 }, rispondeA: { id: "b-9", nome: "Marta", testo: "arrivo" } })) || m;
+    });
+    t("chat: un corpo scritto da protocol.py (chat_pack) si legge uguale", function () {
+      // json.dumps(..., ensure_ascii=False, separators=(",", ":")) di Python, ordine delle chiavi suo
+      var py = '{"id":"m-1","nome":"Marta","testo":"Ci vediamo al Centro Pokémon","ts":1760000000000,"pos":{"g":0,"n":2,"x":20,"y":13}}';
+      var m = C.unpack(utf8(py));
+      return (m && m.tipo === "msg" && m.testo === "Ci vediamo al Centro Pokémon" && m.pos.n === 2 && m.ts === 1760000000000) || m;
+    });
+    t("chat: le tre forme (messaggio, scrive, ciao) e niente altro", function () {
+      var s = C.unpack(C.pack({ scrive: true, nome: "Gio" })), c = C.unpack(C.pack({ ciao: 1, nome: "Sara", ruolo: "s" })),
+          via = C.unpack(C.pack({ ciao: 0, nome: "Sara", ruolo: "s" }));
+      return (eq(s, { tipo: "scrive", nome: "Gio" }) && eq(c, { tipo: "ciao", nome: "Sara", ciao: 1, ruolo: "s" }) && via.ciao === 0 &&
+              C.pack({ id: "x", testo: "", ts: 1 }) === null && C.pack({ testo: "senza id", ts: 1 }) === null &&
+              C.unpack(utf8("[1,2]")) === null && C.unpack(utf8("non json")) === null && C.unpack(new Uint8Array([0xFF, 0xFE])) === null) ||
+             { s: s, c: c, via: via };
+    });
+    t("chat: testo a 280 caratteri, nome a 16, citazione a 80, niente a capo ne' controlli", function () {
+      var m = C.normalizza({ id: "y", nome: "N".repeat(40), ts: 5.9, testo: "riga\nuno\u0000" + "z".repeat(400),
+                             rispondeA: { id: "q", nome: "Gio", testo: "q".repeat(300) }, estraneo: { a: 1 },
+                             pos: { g: "0", n: 9, x: 1, y: 1 } });
+      return (m.nome.length === 16 && m.testo.length === 280 && m.testo.indexOf("\n") < 0 && m.testo.indexOf("\u0000") < 0 &&
+              m.rispondeA.testo.length === 80 && m.ts === 5 && !("estraneo" in m) && !("pos" in m)) || m;
+    });
+    t("chat: il datagramma sta nell'MTU (corpo <= 1200 byte) anche con 280 emoji", function () {
+      var b = C.pack({ id: "e", nome: "Lain", testo: "😀".repeat(400), ts: 1 });
+      var m = C.unpack(b);
+      var normale = C.pack({ id: "n", nome: "Lain", testo: "a".repeat(280), ts: 1700000000000 });
+      return (b.length <= 1200 && Array.from(m.testo).length <= 280 && Array.from(m.testo).length > 200 && normale.length < 360 &&
+              C.unpack(new Uint8Array(1201)) === null) || { byte: b.length, car: Array.from(m.testo).length, normale: normale.length };
+    });
+
+    t("chat store: dedup sull'id (la consegna UDP puo' duplicare)", function () {
+      var s = new C.Store({ stanza: 1 });
+      var a = s.aggiungi({ id: "a", tipo: "msg", peer: 2, testo: "uno", ts: 1000, arrivo: 1000 });
+      var b = s.aggiungi({ id: "a", tipo: "msg", peer: 2, testo: "uno", ts: 1000, arrivo: 1001 });
+      var c = s.aggiungi({ id: "a", tipo: "msg", peer: 2, testo: "uno", ts: 1000, arrivo: 1002, mio: true });
+      return (a === "nuovo" && b === "doppio" && c === "aggiornato" && s.voci.length === 1 && s.voci[0].mio === true && s.doppi === 2) || [a, b, c, s.voci.length];
+    });
+    t("chat store: ordine sul ts del mittente, corretto con l'ora di arrivo", function () {
+      var s = new C.Store({ stanza: 1 });
+      s.aggiungi({ id: "b", tipo: "msg", peer: 2, ts: 100500, arrivo: 101000 });   // partito dopo, arrivato prima
+      s.aggiungi({ id: "a", tipo: "msg", peer: 3, ts: 100000, arrivo: 101200 });   // partito prima, arrivato dopo
+      s.aggiungi({ id: "futuro", tipo: "msg", peer: 4, ts: 99999999, arrivo: 101300 });   // orologio avanti: vale l'arrivo
+      s.aggiungi({ id: "ieri", tipo: "msg", peer: 5, ts: 5, arrivo: 101400 });            // orologio indietro di oltre 15 s: vale l'arrivo
+      var ordine = s.voci.map(function (v) { return v.id; });
+      return (eq(ordine, ["a", "b", "futuro", "ieri"]) && C.Store.quando(100000, 101200) === 100000 &&
+              C.Store.quando(99999999, 101300) === 101300 && C.Store.quando(5, 30000) === 30000) || ordine;
+    });
+    t("chat store: tiene gli ultimi 200 e li ritrova in sessionStorage, per stanza", function () {
+      var mem = memoria(), s = new C.Store({ stanza: 77, storage: mem });
+      for (var i = 0; i < 230; i++) s.aggiungi({ id: "m" + i, tipo: "msg", peer: 2, testo: "n" + i, ts: 1000 + i, arrivo: 1000 + i });
+      var s2 = new C.Store({ stanza: 77, storage: mem }), altra = new C.Store({ stanza: 78, storage: mem });
+      return (s.voci.length === 200 && s.voci[0].id === "m30" && !s.perId.m0 && s2.voci.length === 200 && s2.voci[199].id === "m229" &&
+              altra.voci.length === 0 && "gen3pm.chat.77" in mem.dati) || [s.voci.length, s2.voci.length, altra.voci.length];
+    });
+
+    t("chat sessione: scrivo -> parte un T_CHAT e la voce e' mia; l'altro la riceve col mio nome", function () {
+      var o = orologio(), usciti = [];
+      var io = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: function (b) { usciti.push(b); return true; }, now: o.now });
+      var lui = new C.Sessione({ stanza: 9, peer: 22, nome: "Marta", invia: function () { return true; }, now: o.now });
+      var arrivati = [];
+      lui.onMessaggio = function (v) { arrivati.push(v); };
+      var r = io.scrivi("  ciao a tutti  ");
+      lui.ricevi(11, usciti[0]);
+      lui.ricevi(11, usciti[0]);                 // doppione
+      var v = lui.store.voci[0];
+      return (r.ok && r.voce.mio === true && r.voce.testo === "ciao a tutti" && lui.store.voci.length === 1 && v.nome === "Lain" &&
+              v.peer === 11 && v.mio === false && lui.nomeDi(11) === "Lain" && arrivati.length === 1 && lui.nomeDi(99) === "peer 99" &&
+              io.scrivi("   ").perche === "vuoto") || { r: r, v: v, n: arrivati.length };
+    });
+    t("chat sessione: limite di 5 messaggi in 10 s, per chi scrive e per chi riceve", function () {
+      var o = orologio(), usciti = [];
+      var io = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: function (b) { usciti.push(b); return true; }, now: o.now });
+      var esiti = [];
+      for (var i = 0; i < 7; i++) { esiti.push(io.scrivi("n" + i).ok); o.t += 100; }
+      var attesa = io.scrivi("ancora").attesa;
+      o.t += 10000;
+      var dopo = io.scrivi("dopo dieci secondi").ok;
+      // chi riceve: 7 messaggi (id diversi) di un client che il limite non lo rispetta
+      var o2 = orologio(), lui = new C.Sessione({ stanza: 9, peer: 22, nome: "Marta", invia: function () { return true; }, now: o2.now });
+      for (var k = 0; k < 7; k++) { lui.ricevi(33, C.pack({ id: "spam" + k, nome: "X", testo: "s" + k, ts: o2.t })); o2.t += 50; }
+      var presi = lui.store.voci.length;
+      o2.t += 10000;
+      lui.ricevi(33, C.pack({ id: "calmo", nome: "X", testo: "ok", ts: o2.t }));
+      return (eq(esiti, [true, true, true, true, true, false, false]) && usciti.length === 6 && attesa > 9000 && attesa <= 10000 && dopo &&
+              presi === 5 && lui.frenati === 2 && lui.store.voci.length === 6) || { esiti: esiti, usciti: usciti.length, attesa: attesa, presi: presi, frenati: lui.frenati };
+    });
+    t("chat sessione: senza collegamento non si scrive (e non si finge)", function () {
+      var io = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: function () { return false; } });
+      var r = io.scrivi("c'e' nessuno?");
+      var solo = new C.Sessione({ stanza: 9, peer: 12, nome: "Solo" });   // ne' relay ne' altre schede
+      return (!r.ok && r.perche === "scollegato" && io.store.voci.length === 0 && io.nonInviati === 1 && solo.scrivi("x").perche === "scollegato") || r;
+    });
+    t("chat sessione: @nome -> menzione; risposta con citazione; posizione dal bridge", function () {
+      var o = orologio(), usciti = [];
+      var marta = new C.Sessione({ stanza: 9, peer: 22, nome: "Marta", invia: function (b) { usciti.push(b); return true; }, now: o.now,
+                                   posMia: function () { return { g: 0, n: 2, x: 20, y: 13 }; } });
+      var lain = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: function () { return true; }, now: o.now });
+      marta.scrivi("@lain vieni al Centro"); lain.ricevi(22, usciti[0]);
+      marta.scrivi("lain senza chiocciola"); lain.ricevi(22, usciti[1]);
+      var primo = lain.store.voci[0];
+      marta.scrivi("eccomi", { rispondeA: { id: primo.id, nome: "Lain", testo: "dove sei?" } }); lain.ricevi(22, usciti[2]);
+      marta.scrivi("", { pos: true }); lain.ricevi(22, usciti[3]);
+      var senzaPos = new C.Sessione({ stanza: 9, peer: 5, invia: function () { return true; } }).scrivi("", { pos: true });
+      var v = lain.store.voci;
+      return (v[0].menzione === true && !v[1].menzione && v[2].rispondeA.testo === "dove sei?" && eq(v[3].pos, { g: 0, n: 2, x: 20, y: 13 }) &&
+              v[3].testo === "" && senzaPos.perche === "posizione" && C.menziona("ehi @peer 11!", "", 11) && !C.menziona("@peer 110", "", 11)) || v;
+    });
+    t("chat sessione: «sta scrivendo» al massimo ogni 3 s, e scade da solo", function () {
+      var o = orologio(), usciti = [];
+      var io = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: function (b) { usciti.push(b); return true; }, now: o.now });
+      var lui = new C.Sessione({ stanza: 9, peer: 22, nome: "Marta", invia: function () { return true; }, now: o.now });
+      var a = io.staScrivendo(), b = io.staScrivendo();
+      o.t += 3000; var c = io.staScrivendo();
+      lui.ricevi(11, usciti[0]);
+      var chi = lui.chiScrive();
+      o.t += 5000; lui.battito();
+      return (a && !b && c && usciti.length === 2 && eq(chi, ["Lain"]) && lui.chiScrive().length === 0 && lui.store.voci.length === 0) || { a: a, b: b, c: c, chi: chi };
+    });
+    t("chat sessione: il «ciao» porta nome e ruolo; lo spettatore compare, e sparisce se tace", function () {
+      var o = orologio(), usciti = [];
+      var io = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: function (b) { usciti.push(b); return true; }, now: o.now });
+      io.ricevi(90, C.pack({ ciao: 1, nome: "Sara", ruolo: "s" }));
+      var risposto = usciti.length === 1 && C.unpack(usciti[0]).tipo === "ciao" && C.unpack(usciti[0]).nome === "Lain";
+      io.ricevi(90, C.pack({ ciao: 1, nome: "Sara", ruolo: "s" }));       // ripetuto: nessun secondo evento
+      var spett = io.spettatori(), eventi = io.store.voci.filter(function (v) { return v.tipo === "ev"; });
+      io.ricevi(22, C.pack({ ciao: 1, nome: "Marta", ruolo: "g" }));
+      o.t += 40000; io.battito();
+      return (risposto && eq(spett, [{ peer: 90, nome: "Sara" }]) && eventi.length === 1 && eventi[0].genere === "spett" &&
+              io.spettatori().length === 0 && io.nomeDi(22) === "Marta") || { risposto: risposto, spett: spett, eventi: eventi };
+    });
+    t("chat vista: messaggi raggruppati per persona; i filtri Tutto / Messaggi / Eventi", function () {
+      var s = new C.Store({ stanza: 1 });
+      s.aggiungi({ id: "1", tipo: "msg", peer: 2, testo: "a", ts: 1000, arrivo: 1000 });
+      s.aggiungi({ id: "2", tipo: "msg", peer: 2, testo: "b", ts: 2000, arrivo: 2000 });
+      s.aggiungi({ id: "e", tipo: "ev", genere: "entra", peer: 3, ts: 3000, arrivo: 3000 });
+      s.aggiungi({ id: "3", tipo: "msg", peer: 2, testo: "c", ts: 4000, arrivo: 4000 });
+      s.aggiungi({ id: "4", tipo: "msg", peer: 3, testo: "d", ts: 5000, arrivo: 5000 });
+      var primi = function (f, ev) { return C.vista(s.voci, f, ev).map(function (x) { return x.v.id + (x.primo ? "*" : ""); }); };
+      return (eq(primi("tutto"), ["1*", "2", "e*", "3*", "4*"]) && eq(primi("messaggi"), ["1*", "2", "3", "4*"]) &&
+              eq(primi("eventi"), ["e*"]) && eq(primi("tutto", false), ["1*", "2", "3", "4*"])) || primi("tutto");
+    });
+    t("chat fra schede: l'ospite scrive attraverso la portante, e tutte e due vedono la stessa storia", function () {
+      var o = orologio(), nuovo = canali(), usciti = [];
+      var pannello = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", tipo: "pannello", canale: nuovo(), now: o.now,
+                                      invia: function (b) { usciti.push(b); return true; }, statoStanza: function () { return { inPartita: true }; } });
+      pannello.scrivi("prima dell'ospite");
+      var ospite = new C.Sessione({ stanza: 9, peer: 500, nome: "", tipo: "mappa", canale: nuovo(), now: o.now });
+      var altraStanza = new C.Sessione({ stanza: 10, peer: 501, tipo: "mappa", canale: nuovo(), now: o.now });
+      var stati = [];
+      ospite.onStato = function (m) { stati.push(m.stanzaStato); };
+      ospite.chiedi(); altraStanza.chiedi();
+      var storia = ospite.store.voci.length;
+      var r = ospite.scrivi("dalla mappa");
+      pannello.ricevi(22, C.pack({ id: "z-1", nome: "Marta", testo: "vi leggo", ts: o.t }));
+      var testi = function (s) { return s.store.voci.map(function (v) { return v.testo + (v.mio ? "*" : ""); }); };
+      return (storia === 1 && r.ok && usciti.length === 2 && C.unpack(usciti[1]).testo === "dalla mappa" && C.unpack(usciti[1]).nome === "Lain" &&
+              eq(testi(pannello), ["prima dell'ospite*", "dalla mappa*", "vi leggo"]) && eq(testi(ospite), testi(pannello)) &&
+              ospite.peer === 11 && ospite.nomeDi(22) === "Marta" && stati.length >= 1 && stati[0].inPartita === true &&
+              altraStanza.store.voci.length === 0 && altraStanza.portanteId === null) ||
+             { storia: storia, r: r, usciti: usciti.length, pannello: testi(pannello), ospite: testi(ospite), altra: altraStanza.store.voci.length };
+    });
+    t("chat fra schede: la portante chiude -> l'ospite lo sa e non scrive nel vuoto", function () {
+      var nuovo = canali();
+      var pannello = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", tipo: "pannello", canale: nuovo(), invia: function () { return true; } });
+      var ospite = new C.Sessione({ stanza: 9, peer: 500, tipo: "mappa", canale: nuovo() });
+      var finita = 0; ospite.onFine = function () { finita++; };
+      ospite.chiedi();
+      var prima = ospite.portanteId !== null;
+      pannello.chiudi();
+      return (prima && finita === 1 && ospite.portanteId === null && ospite.scrivi("ehi").perche === "scollegato") || { prima: prima, finita: finita };
+    });
+    t("chat: gli eventi di gioco stanno nella stessa linea del tempo, una volta sola", function () {
+      var o = orologio(), s = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: function () { return true; }, now: o.now });
+      s.evento("entra", 22, "Marta"); s.evento("entra", 22, "Marta");      // lo stesso fatto visto due volte
+      o.t += 60000; s.evento("esce", 22, "Marta");
+      var g = s.store.voci.map(function (v) { return v.tipo + ":" + v.genere; });
+      return eq(g, ["ev:entra", "ev:esce"]) || g;
+    });
+
+    // --- i ganci nel bridge -------------------------------------------------
+    t("chat bridge: sendChat manda un T_CHAT con seq 0 e non consuma i numeri dei passi", function () {
+      var mandati = [], b = new OwlBridge({ peerId: 11, room: 9, log: function () {} });
+      b.link = { send: function (x) { mandati.push(R.unpack(x)); return true; } };
+      b.onDeviceEvent(ev(2, 1, 5, 5, 2, 1));
+      var seqPrima = b.outSeq;
+      var okChat = b.sendChat(C.pack({ id: "a", nome: "Lain", testo: "ciao", ts: 1 }));
+      b.onDeviceEvent(ev(1, 1, 5, 6, 2, 2));
+      var chat = mandati[1];
+      return (okChat && chat.kind === R.T.CHAT && chat.seq === 0 && chat.roomId === 9 && chat.peerId === 11 && b.outSeq === seqPrima + 1 &&
+              mandati[2].seq === seqPrima + 1 && b.chatInviati === 1 && b.sendChat(null) === false) || { chat: chat, seq: b.outSeq, prima: seqPrima };
+    });
+    t("chat bridge: un T_CHAT in arrivo va a onChat e NON tocca il gioco ne' il dedup dei passi", function () {
+      var b = fake(1), presi = [];
+      b.onChat = function (peer, corpo) { presi.push([peer, C.unpack(corpo).testo]); };
+      var corpo = C.pack({ id: "m", nome: "Marta", testo: "ehi", ts: 5 });
+      b.onRelayMessage(R.pack(R.T.CHAT, 22, 1, 0, corpo));
+      b.onRelayMessage(R.pack(R.T.CHAT, 22, 1, 0, corpo));       // il dedup e' della chat, non del bridge
+      b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 0, ev(2, 1, 5, 5)));
+      return (eq(presi, [[22, "ehi"], [22, "ehi"]]) && b.out.length === 1 && b.received === 1 && b.chatRicevuti === 2 && b.lastSeq[22] === 0) || { presi: presi, out: b.out.length };
+    });
+    t("chat bridge: anche da SPETTATORE si puo' scrivere (WATCH + T_CHAT, nessun evento)", function () {
+      var mandati = [], b = new OwlBridge({ peerId: 90, room: 9, spettatore: true, log: function () {} });
+      b.link = { send: function (x) { mandati.push(R.unpack(x).kind); return true; } };
+      b.sendHello();
+      b.sendChat(C.pack({ ciao: 1, nome: "Sara", ruolo: "s" }));
+      return eq(mandati, [R.T.WATCH, R.T.CHAT]) || mandati;
+    });
+    t("chat bridge: «entra» al primo evento di un amico, «esce» al suo BYE (e di nuovo «entra» se torna)", function () {
+      var b = fake(1), fatti = [];
+      b.onAmico = function (cosa, peer) { fatti.push(cosa + ":" + peer); };
+      b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 1, ev(2, 1, 5, 5)));
+      b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 2, ev(1, 1, 5, 6)));
+      b.onRelayMessage(R.pack(R.T.BYE, 22, 1, 0));
+      b.onRelayMessage(R.pack(R.T.BYE, 33, 1, 0));               // mai visto: nessun «esce»
+      b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 9, ev(2, 1, 5, 5)));
+      return eq(fatti, ["entra:22", "esce:22", "entra:22"]) || fatti;
+    });
+    t("chat bridge: il club di un amico si dice sulle transizioni, non a ogni riannuncio", function () {
+      var P = OwlClub.proto, b = new OwlBridge({ peerId: 11, room: 9, spettatore: true, log: function () {} }), fatti = [];
+      b.onClub = function (cosa, peer) { fatti.push(cosa + ":" + peer); };
+      b.onRelayMessage(R.pack(R.T.CLUB, 22, 9, 1, P.clubEnter(1234)));
+      b.onRelayMessage(R.pack(R.T.CLUB, 22, 9, 2, P.clubEnter(1234)));
+      b.onRelayMessage(R.pack(R.T.CLUB, 22, 9, 3, P.clubLeave(1234)));
+      b.onRelayMessage(R.pack(R.T.CLUB, 22, 9, 4, P.clubLeave(1234)));
+      return (eq(fatti, ["amico:22", "amicofine:22"]) && b.snapshot().clubAmici.length === 0) || fatti;
+    });
+  })();
+
   function stampa(extra) {
     document.getElementById("out").innerHTML = out.join("\n") + (extra || "") + "\n\nRISULTATO: " + ok + " ok, " + ko + " ko" + (ko ? "  <span class=ko>FALLITO</span>" : "  <span class=ok>TUTTO VERDE</span>");
     window.__risultato = { ok: ok, ko: ko };
@@ -1186,6 +1444,11 @@
   var ricevutiB = [], ricevutiA = [];
   var A = new OwlBridge({ peerId: 1001, room: stanza, copies: 2, device: { sendEvent: function (e) { ricevutiA.push(new Uint8Array(e)); return Promise.resolve(); } }, log: function () {} });
   var B = new OwlBridge({ peerId: 1002, room: stanza, copies: 2, device: { sendEvent: function (e) { ricevutiB.push(new Uint8Array(e)); return Promise.resolve(); } }, log: function () {} });
+  // La chat, attraverso gli stessi due bridge (2026-10-11).
+  var chatA = new OwlChat.Sessione({ stanza: stanza, peer: 1001, nome: "Lain", invia: function (b) { return A.sendChat(b); } });
+  var chatB = new OwlChat.Sessione({ stanza: stanza, peer: 1002, nome: "Marta", invia: function (b) { return B.sendChat(b); } });
+  A.onChat = function (peer, corpo) { chatA.ricevi(peer, corpo); };
+  B.onChat = function (peer, corpo) { chatB.ricevi(peer, corpo); };
   var aperti = 0;
   function collega(br) {
     var l = new OwlRelay.RelayLink(OwlRelay.normalizzaUrl(relayUrl) + "?stanza=" + stanza, {
@@ -1202,6 +1465,7 @@
     if (fase === 0 && aperti === 2) {
       fase = 1;
       A.sendPing(); B.sendPing();
+      chatA.scrivi("ci sei? è la chat, dal relay vero");
       A.onDeviceEvent(ev(2, 4, 10, 16, 2, 40));        // SYNC
       A.onDeviceEvent(ev(1, 4, 12, 16, 2, 42));        // PASSO a due tile: B deve RICUCIRE
       A.onDeviceEvent(ev(5, 1, 12, 16, 2, 43));        // STATO lotta
@@ -1228,6 +1492,12 @@
       t("INTEGRATA: la presenza rimandata arriva a chi entra (SYNC, non PASSO)", function () {
         return (eq(descr(ricevutiA[1]), [2, 1, 5, 5]) && B.presenzeRimandate >= 1 && A.presenzeRimandate >= 1)
           || { secondo: ricevutiA[1] ? descr(ricevutiA[1]) : null, presenzeB: B.presenzeRimandate, presenzeA: A.presenzeRimandate };
+      });
+      t("INTEGRATA: la chat passa da relay_ws.py + relay.py (A scrive, B legge, col nome), e non torna ad A", function () {
+        var v = chatB.store.voci[0];
+        return (v && v.testo === "ci sei? è la chat, dal relay vero" && v.nome === "Lain" && v.peer === 1001 && !v.mio &&
+                chatA.store.voci.length === 1 && chatA.store.voci[0].mio === true && B.chatRicevuti === 1 && A.chatRicevuti === 0) ||
+               { b: chatB.store.voci, a: chatA.store.voci, ricB: B.chatRicevuti, ricA: A.chatRicevuti };
       });
       t("INTEGRATA: i PONG tornano (RTT misurato)", function () { return (A.rtts.length >= 1 && B.rtts.length >= 1) || [A.rtts.length, B.rtts.length]; });
       A.link.close();                                     // A chiude: B deve ricevere il VIA

@@ -96,6 +96,29 @@ FUNCTIONS = {
     "ObjectEventTurn":
         "void (*)(void *objectEvent, u8 direction)",
 
+    # --- tutte le animazioni dell'amico (2026-10-10) ---------------------------
+    # La POSA di chi pesca, annaffia o usa una mossa di campo non e' una movement
+    # action: il gioco la mette con StartSpriteAnim da un task. Il mittente manda
+    # il numero dell'animazione, chi riceve la riavvia sullo sprite del remoto.
+    "StartSpriteAnim":
+        "void (*)(void *sprite, u8 animNum)",
+    # Per riconoscere quei tre stati dal PROPRIO object event: gPlayerAvatar.flags
+    # non li conosce (pescando resta ON_FOOT), la grafica si'.
+    "GetPlayerAvatarGraphicsIdByStateId":
+        "u8 (*)(u8 state)",
+    # VOLO: l'animazione di chi parte e' un field effect (FLDEFF_USE_FLY), non
+    # un'azione: si guarda se e' attivo e lo si racconta una volta.
+    "FieldEffectActiveListContains":
+        "bool8 (*)(u8 fldEff)",
+    # Le grafiche di pesca e annaffiatoio hanno paletteSlot = PALSLOT_PLAYER:
+    # metterle a un remoto riscrive la palette del giocatore LOCALE. Con queste
+    # due si rimette a posto la sua e si da' al remoto lo slot degli NPC speciali
+    # (lo stesso delle grafiche del rivale che usa in tutti gli altri stati).
+    "PatchObjectPalette":
+        "void (*)(u16 paletteTag, u8 paletteSlot)",
+    "LoadSpecialObjectReflectionPalette":
+        "void (*)(u16 tag, u8 slot)",
+
     # --- route adiacenti (Fase 7) --------------------------------------------
     # Il gioco carica in memoria una STRISCIA della mappa connessa (7 tile, 8 a
     # EAST: InitBackupMapLayoutConnections, fieldmap.c:133-343) e disegna

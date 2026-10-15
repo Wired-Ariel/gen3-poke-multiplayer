@@ -1,0 +1,15 @@
+I font in questa cartella sono serviti dal sito stesso (niente risorse esterne).
+
+Figtree            (figtree-latin.woff2, figtree-latin-ext.woff2)
+  Copyright 2022 The Figtree Project Authors (https://github.com/erikdkennedy/figtree)
+JetBrains Mono     (jetbrains-mono-latin.woff2, jetbrains-mono-latin-ext.woff2)
+  Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
+
+Entrambi sono distribuiti con la SIL Open Font License, Version 1.1:
+https://openfontlicense.org/open-font-license-official-text/
+
+I file sono i sottoinsiemi "latin" e "latin-ext" in formato WOFF2 (font
+variabili: peso 400-800 per Figtree, 400-700 per JetBrains Mono), scaricati
+il 2026-10-11 da fonts.gstatic.com. La licenza permette di usarli, copiarli e
+ridistribuirli, anche dentro altro software, purche' non siano venduti da soli
+e questa nota di copyright e la licenza li accompagnino.

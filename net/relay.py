@@ -26,8 +26,8 @@ import time
 sys.path.insert(0, __file__.rsplit("\\", 1)[0].rsplit("/", 1)[0])
 
 from protocol import (  # noqa: E402
-    HEADER_SIZE, T_BYE, T_CLUB, T_EVENT, T_HELLO, T_LIST, T_PING, T_PONG,
-    T_PUBLIC, T_TAKEN, T_WATCH, TYPE_NAMES, pack, unpack,
+    CHAT_CORPO_MAX, HEADER_SIZE, T_BYE, T_CHAT, T_CLUB, T_EVENT, T_HELLO,
+    T_LIST, T_PING, T_PONG, T_PUBLIC, T_TAKEN, T_WATCH, TYPE_NAMES, pack, unpack,
 )
 
 # IL NUMERO GIA' IN USO (2026-09-27, richiesta di Lain: «verifica che il peer
@@ -67,6 +67,18 @@ PUBBLICA_S = 15.0
 ELENCO_MAX = 30
 LOOPBACK = ("127.0.0.1", "::1")
 
+# LA CHAT DELLA STANZA (2026-10-11, T_CHAT). Il relay la inoltra a tutta la
+# stanza, spettatori compresi, SENZA leggerla: gli bastano l'intestazione e due
+# numeri. Un corpo oltre CHAT_CORPO_MAX non e' un messaggio nostro e si butta;
+# e ogni peer ha un tetto di CHAT_MAX datagrammi ogni CHAT_FINESTRA_S secondi.
+# Dieci e non cinque perche' nello stesso tipo viaggiano anche i segnali di
+# servizio (un «ciao» ogni 10 s col nome, uno «sta scrivendo» ogni 3 s al
+# massimo): il limite dei 5 MESSAGGI in 10 s lo applicano i client, sia chi
+# scrive sia chi riceve (web/js/chat.js), che il JSON lo aprono comunque. Qui
+# serve solo a impedire che un client rotto o maleducato inondi la stanza.
+CHAT_MAX = 10
+CHAT_FINESTRA_S = 10.0
+
 
 class Peer:
     def __init__(self, addr, peer_id):
@@ -100,6 +112,10 @@ class Peer:
         # silenzio, dove "chi taceva dopo un EVENT" e "chi taceva dopo un
         # PING" sono due guasti diversi (vedi sweep).
         self.last_kind = None
+        # Gli istanti dei suoi ultimi T_CHAT inoltrati (il tetto di CHAT_MAX in
+        # CHAT_FINESTRA_S), e se il freno e' gia' stato detto nel log.
+        self.chat_tempi = []
+        self.chat_frenato = False
 
 
 class Relay:
@@ -116,6 +132,9 @@ class Relay:
         self._rientri = {}   # peer_id -> [istanti degli ultimi rientri]
         self._ping_pong_detto = set()
         self.pubbliche = {}  # room_id -> scadenza (monotonic) del segno T_PUBLIC
+        self.chat_inoltrati = 0   # T_CHAT passati alla stanza
+        self.chat_frenati = 0     # T_CHAT buttati dal tetto di frequenza
+        self.chat_scartati = 0    # T_CHAT buttati perche' troppo lunghi o fuori stanza
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # NIENTE SO_REUSEADDR: su Windows vuol dire "ruba la porta a chi ce l'ha
@@ -462,6 +481,36 @@ class Relay:
                 # sbagliata, mentre era giusta. Formato uguale a quello che
                 # l'utente scrive in --room.
                 self.log("peer %d -> stanza %d, %d byte"
+                         % (peer_id, room_id, len(body)))
+            return
+
+        if kind == T_CHAT:
+            # LA CHAT: a tutta la stanza, spettatori compresi, e la puo' mandare
+            # anche uno spettatore - e' l'unica cosa che uno spettatore puo'
+            # dire. Il corpo non si apre (vedi CHAT_MAX). Chi e' rimasto fuori
+            # dalla stanza (piena, o numero gia' in uso) non parla: non
+            # riceverebbe nemmeno le risposte.
+            self.move_to_room(peer, room_id)
+            if not room_id or peer.room != room_id or len(body) > CHAT_CORPO_MAX:
+                self.chat_scartati += 1
+                return
+            adesso = time.monotonic()
+            peer.chat_tempi = [t for t in peer.chat_tempi
+                               if adesso - t < CHAT_FINESTRA_S]
+            if len(peer.chat_tempi) >= CHAT_MAX:
+                self.chat_frenati += 1
+                if not peer.chat_frenato:
+                    peer.chat_frenato = True
+                    self.log("peer %d scrive TROPPO in chat (piu' di %d in %d s): "
+                             "freno i suoi messaggi finche' non rallenta"
+                             % (peer.peer_id, CHAT_MAX, CHAT_FINESTRA_S))
+                return
+            peer.chat_frenato = False
+            peer.chat_tempi.append(adesso)
+            self.chat_inoltrati += 1
+            self.broadcast(peer, data)
+            if self.verbose:
+                self.log("peer %d -> chat della stanza %d, %d byte"
                          % (peer_id, room_id, len(body)))
             return
 

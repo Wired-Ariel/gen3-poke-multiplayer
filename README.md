@@ -59,8 +59,9 @@ hardware link and online Cable Club possible. Our addition is the shared overwor
 ## What it does (and doesn't)
 
 **It does:**
-- show **up to 3 friends** (4 players in total) walking, running, cycling and surfing on your
-  map, with animation, footsteps and interpolation **from the original engine**;
+- show **up to 3 friends** (4 players in total) on your map doing what they really do: walking,
+  running, jumping ledges, Mach and Acro Bike tricks, fishing, Surf, Fly, diving and waterfalls,
+  with animation, footsteps and interpolation **from the original engine**;
 - follow map changes: when a friend crosses a route border you see them arrive,
   when they enter a house they disappear and reappear when they come out;
 - go to sleep by itself in battles, menus and special screens, and wake up when you
@@ -68,7 +69,7 @@ hardware link and online Cable Club possible. Our addition is the shared overwor
 - **trades and battles over the internet** through the game's Cable Club (tested on real
   hardware, from the website and from the PC panel);
 - let real GBAs, mGBA emulators and browser spectators play together **in the same room**;
-- provide a **Live map** of Hoenn showing where everyone is.
+- provide a **Live map** of Hoenn showing where everyone is, and a **room chat** on the website.
 
 **It doesn't:**
 - modify the cartridge (it's mask ROM: physically impossible), and it **never writes the

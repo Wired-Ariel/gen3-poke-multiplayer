@@ -559,7 +559,11 @@ end
 
 local function describeEvent(raw)
     local DIR   = { [0] = "-", [1] = "giu", [2] = "su", [3] = "sx", [4] = "dx" }
-    local SPEED = { [0] = "cammina", [1] = "corre", [2] = "bici", [3] = "surf" }
+    -- Dal 2026-10-10 il byte porta la movement action del mittente (>= 4), una
+-- posa (0xC0 | animNum) o il volo (0xF0); sotto 4 e' la classe di un mittente
+-- vecchio. Chi non e' in tabella viene stampato in esadecimale.
+local SPEED = setmetatable({ [0] = "cammina", [1] = "corre", [2] = "bici", [3] = "surf", [0xF0] = "VOLO", [0xFF] = "fermo" },
+    { __index = function(_, v) return (v >= 0xC0) and ("posa " .. (v & 0x3F)) or ("azione %02X"):format(v) end })
     local TYPE  = { [1] = "PASSO", [2] = "SYNC", [3] = "GIRA", [4] = "VIA" }
 
     -- Il nibble alto del tipo e' lo SLOT del mittente (fino a 4 giocatori,

@@ -19,7 +19,14 @@
   // Il riaggancio passa da Battito (js/battito.js): con la scheda nascosta un
   // setTimeout della pagina puo' partire con un minuto di ritardo. Senza
   // battito.js si ricade sul timer normale.
-  var T = root.Battito || {
+  //
+  // SI CHIAMA `Orologio`, NON `T` (2026-10-11). Fino a oggi si chiamava T come
+  // la tabella dei tipi qui sotto: due `var T` nella stessa funzione, e la
+  // seconda vinceva. `T.setTimeout` non esisteva, la onclose lanciava
+  // un'eccezione subito dopo aver scritto «riprovo fra N s», e la
+  // riconnessione automatica non partiva MAI (dal 27/09, quando e' entrato
+  // Battito). Trovato leggendo, verificato spegnendo e riaccendendo relay_ws.
+  var Orologio = root.Battito || {
     setTimeout: function (f, ms) { return root.setTimeout(f, ms); },
     clear: function (h) { if (h) root.clearTimeout(h); }
   };
@@ -35,9 +42,12 @@
   // relay_ws.py da loopback: qui c'e' per completezza della tabella.
   // TAKEN (9, 2026-09-27): «il tuo peer-id e' gia' in uso in questa stanza»,
   // dal relay a chi arriva col numero di un altro client vivo (net/protocol.py).
-  var T = { HELLO: 0, EVENT: 1, PING: 2, PONG: 3, BYE: 4, WATCH: 5, CLUB: 6, PUBLIC: 7, LIST: 8, TAKEN: 9 };
+  // CHAT (10, 2026-10-11): la chat della stanza. Corpo JSON utf-8 (js/chat.js),
+  // inoltrato a tutta la stanza, spettatori compresi, e scrivibile anche da
+  // uno spettatore.
+  var T = { HELLO: 0, EVENT: 1, PING: 2, PONG: 3, BYE: 4, WATCH: 5, CLUB: 6, PUBLIC: 7, LIST: 8, TAKEN: 9, CHAT: 10 };
   var T_NOMI = { 0: "HELLO", 1: "EVENT", 2: "PING", 3: "PONG", 4: "BYE",
-                 5: "WATCH", 6: "CLUB", 7: "PUBLIC", 8: "LIST", 9: "TAKEN" };
+                 5: "WATCH", 6: "CLUB", 7: "PUBLIC", 8: "LIST", 9: "TAKEN", 10: "CHAT" };
 
   function pack(kind, peerId, roomId, seq, body) {
     var n = body ? body.length : 0;
@@ -135,13 +145,13 @@
       var attesa = Math.min(10000, 1000 * Math.pow(2, Math.min(self.tentativi - 1, 4)));
       self.log("[rete ] relay " + (eraAperta ? "CADUTO" : "NON RAGGIUNGIBILE") + " (" + (motivo || self.url) + "): riprovo fra " + (attesa / 1000) + " s");
       self.onClose(eraAperta ? "caduto" : "non raggiungibile");
-      self.timerRiconn = T.setTimeout(function () { self.timerRiconn = null; if (self.voluta) self.connect(); }, attesa);
+      self.timerRiconn = Orologio.setTimeout(function () { self.timerRiconn = null; if (self.voluta) self.connect(); }, attesa);
     };
   };
 
   RelayLink.prototype.close = function () {
     this.voluta = false;
-    if (this.timerRiconn) { T.clear(this.timerRiconn); this.timerRiconn = null; }
+    if (this.timerRiconn) { Orologio.clear(this.timerRiconn); this.timerRiconn = null; }
     var ws = this.ws;
     this.ws = null;
     this.aperta = false;
