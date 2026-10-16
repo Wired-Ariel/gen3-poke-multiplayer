@@ -6,8 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="img/favicon.png">
 <link rel="alternate" hreflang="en" href="gioca-en.html">
-<script src="js/lingua.js?v=1.8.0"></script>
-<link rel="stylesheet" href="css/sito.css?v=1.8.0">
+<script src="js/lingua.js?v=1.9.0"></script>
+<link rel="stylesheet" href="css/sito.css?v=1.9.0">
 <!--
   Il pannello gen3-poke-multiplayer NEL BROWSER (2026-08-23; nuovo disegno e
   chat della stanza il 2026-10-11). Qui non c'e' nessun programma dietro: il
@@ -140,14 +140,14 @@
 <body>
 <!-- BANNER DELLA VERSIONE (2026-09-27): si cambia VERSIONE e testo a ogni rilascio. -->
 <div id="banner-versione">
-  <span class="v"><span class="l-it">Aggiornato alla versione 1.8.0</span><span class="l-en">Updated to version 1.8.0</span></span>
-  <span class="t l-it"><b>Tutte le animazioni dell'amico</b> (salti dai gradini, bici da corsa e acrobatica, pesca, Surf, volo) e <b>chat della stanza</b>, in un sito nuovo.
-    Il GBA prende il gioco nuovo da solo; chi usa l'emulatore deve <b>riscaricare lo script</b>. Le animazioni si vedono se siete aggiornati tutti e due.</span>
-  <span class="t l-en"><b>All of your friend's animations</b> (ledge jumps, Mach and Acro Bike, fishing, Surf, Fly) and <b>room chat</b>, in a new site.
-    The GBA picks up the new game by itself; emulator players must <b>download the script again</b>. You see the animations when both of you are up to date.</span>
-  <button type="button" aria-label="Chiudi" data-en-aria-label="Close" onclick="try{localStorage.setItem('banner-versione','1.8.0-anim')}catch(e){};this.parentNode.hidden=true">×</button>
+  <span class="v"><span class="l-it">Aggiornato alla versione 1.9.0</span><span class="l-en">Updated to version 1.9.0</span></span>
+  <span class="t l-it"><b>Emote nel gioco</b> («!», «?», cuore sopra la tua testa) e <b>la squadra di ogni allenatore</b> nella pagina della stanza, con PS, mosse e strumenti: cosa mostrare della tua lo scegli tu.
+    Il GBA prende il gioco nuovo da solo; chi usa l'emulatore deve <b>riscaricare lo script</b>. Emote e squadre si vedono se siete aggiornati tutti e due.</span>
+  <span class="t l-en"><b>In-game emotes</b> («!», «?», a heart over your head) and <b>every trainer's party</b> on the room page, with HP, moves and items: you choose what to show of yours.
+    The GBA picks up the new game by itself; emulator players must <b>download the script again</b>. You see emotes and parties when both of you are up to date.</span>
+  <button type="button" aria-label="Chiudi" data-en-aria-label="Close" onclick="try{localStorage.setItem('banner-versione','1.9.0')}catch(e){};this.parentNode.hidden=true">×</button>
 </div>
-<script>try{if(localStorage.getItem('banner-versione')==='1.8.0-anim')document.getElementById('banner-versione').hidden=true}catch(e){}</script>
+<script>try{if(localStorage.getItem('banner-versione')==='1.9.0')document.getElementById('banner-versione').hidden=true}catch(e){}</script>
 
 <header class="testata">
   <a class="marchio" id="marchio" href="index.html" aria-label="Pagina iniziale" data-en-aria-label="Home page">
@@ -251,6 +251,13 @@
               <label class="campo"><span><span class="l-it">Il tuo nome in chat</span><span class="l-en">Your name in chat</span></span>
                 <input type="text" id="nome-chat" maxlength="16" autocomplete="nickname" spellcheck="false" placeholder="vuoto = peer N" data-en-placeholder="empty = peer N">
                 <small class="guida"><span class="l-it">Come ti vedono gli altri in chat, nell'elenco dei giocatori e sulla Mappa live. Al massimo 16 caratteri. Se lo lasci vuoto sei «peer» e il tuo numero.</span><span class="l-en">How the others see you in the chat, in the player list and on the Live map. 16 characters at most. Leave it empty and you're «peer» plus your number.</span></small></label>
+              <label class="campo"><span><span class="l-it">La tua squadra nella stanza</span><span class="l-en">Your party in the room</span></span>
+                <select id="squadra-privacy">
+                  <option value="tutta" data-en="everything">tutto</option>
+                  <option value="base" data-en="species and levels only">solo specie e livelli</option>
+                  <option value="niente" data-en="nothing">niente</option>
+                </select>
+                <small class="guida"><span class="l-it">Che cosa vedono gli altri della tua squadra. <b>Tutto</b>: anche soprannomi, PS, mosse, strumenti, natura, sesso e stato. Il filtro è qui, nella tua pagina: quello che togli <b>non arriva neanche al relay</b>. Tu la tua squadra la vedi sempre per intero.</span><span class="l-en">What the others see of your party. <b>Everything</b>: also nicknames, HP, moves, held items, nature, gender and status. The filter is here, in your page: what you leave out <b>never even reaches the relay</b>. You always see your own party in full.</span></small></label>
               <div class="campo larga aperte">
                 <label class="spunta"><input type="checkbox" id="stanza-aperta">
                   <span><span class="l-it"><b>Stanza aperta</b>: la tua stanza compare nell'elenco delle stanze e <b>chiunque può entrare</b> (fino a 4 giocatori). Resta aperta finché la spunta c'è e tu sei in partita. Vale anche per lo <b>script dell'emulatore</b> scaricato da questa pagina; dentro mGBA si cambia con <code>aperta(true)</code> o dal pannello L+R+B.</span><span class="l-en"><b>Open room</b>: your room shows up in the room list and <b>anyone can join</b> (up to 4 players). It stays open while the box is ticked and you are in a game. It also applies to the <b>emulator script</b> downloaded from this page; inside mGBA use <code>aperta(true)</code> or the L+R+B panel.</span></span></label>
@@ -373,17 +380,17 @@
   </footer>
 </main>
 
-<script src="config.js?v=1.8.0"></script>
-<script src="js/sio.js?v=1.8.0"></script>
-<script src="js/device.js?v=1.8.0"></script>
-<script src="js/multiboot.js?v=1.8.0"></script>
-<script src="js/battito.js?v=1.8.0"></script>
-<script src="js/relay.js?v=1.8.0"></script>
-<script src="js/club.js?v=1.8.0"></script>
-<script src="js/bridge.js?v=1.8.0"></script>
-<script src="js/sito.js?v=1.8.0"></script>
-<script src="js/chat.js?v=1.8.0"></script>
-<script src="js/chat-ui.js?v=1.8.0"></script>
-<script src="js/app.js?v=1.8.0"></script>
+<script src="config.js?v=1.9.0"></script>
+<script src="js/sio.js?v=1.9.0"></script>
+<script src="js/device.js?v=1.9.0"></script>
+<script src="js/multiboot.js?v=1.9.0"></script>
+<script src="js/battito.js?v=1.9.0"></script>
+<script src="js/relay.js?v=1.9.0"></script>
+<script src="js/club.js?v=1.9.0"></script>
+<script src="js/bridge.js?v=1.9.0"></script>
+<script src="js/sito.js?v=1.9.0"></script>
+<script src="js/chat.js?v=1.9.0"></script>
+<script src="js/chat-ui.js?v=1.9.0"></script>
+<script src="js/app.js?v=1.9.0"></script>
 </body>
 </html>

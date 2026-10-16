@@ -55,10 +55,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ws_link import WsRelay, e_ws_url  # noqa: E402
 from protocol import (  # noqa: E402
     CLUB_DATA, CLUB_ENTER, CLUB_LEAVE, CLUB_REQ, CLUB_STATUS,
-    EV_CLUB, EV_STATUS, EVENT_SIZE, IMPRONTA_LUA, IMPRONTA_SORGENTI,
+    CARD_SIZE, EV_CARD, EV_CLUB, EV_EMOTE, EV_PARTY, EV_STATUS, EVENT_SIZE,
+    PARTY_CHUNKS, PARTY_REC,
+    IMPRONTA_LUA, IMPRONTA_SORGENTI,
     IMPRONTA_WEB, T_BYE, T_CHAT, T_CLUB,
     T_EVENT, T_HELLO, T_PING, T_PONG, T_TAKEN, VERSIONE_CLUB,
-    chat_unpack, club_block_riga, club_enter, club_leave, club_unpack,
+    card_put_chunk, chat_unpack, club_block_riga, club_enter, club_leave, club_unpack,
+    party_details, party_details_put_chunk, party_from_card, squadra_in_uscita,
     extract_map_key, make_leave_event, nome_stato, pack, unpack,
 )
 
@@ -287,6 +290,16 @@ class Bridge:
         self.chat = []
         self.chat_visti = {}      # id -> True, in ordine d'arrivo
         self.chat_nomi = {}       # peer_id -> nome detto in chat
+        # LA SQUADRA NELLA SCHEDA (2026-10-16): le schede ricomposte dai pezzi
+        # EV_CARD, degli amici (dalla rete) e nostra (dal GBA, chiave "io").
+        self.schede = {}          # peer_id | "io" -> [bytearray(96), pezzi, squadra]
+        # I DETTAGLI (EV_PARTY): peer_id | "io" -> [bytearray(6*28), pezzi, {i: dettagli}]
+        self.dettagli = {}
+        # La privacy di CHI GIOCA: "tutta", "base" (niente dettagli), "niente".
+        self.squadra = getattr(args, "squadra", "tutta")
+        self.squadra_trattenuti = 0
+        self.emote_consegnate = 0
+        self.emote_senza_avatar = 0
         self.chat_ricevuti = 0
         self.chat_doppi = 0
         self.chat_illeggibili = 0
@@ -453,6 +466,18 @@ class Bridge:
         # tale: il payload dell'amico non saprebbe che farsene (e peggio,
         # tenterebbe di interpretarlo). Diventa l'avvio della sessione club.
         # Arriva in tre copie: club_start e' idempotente.
+        if event and event[0] == EV_CARD:
+            self._pezzo_scheda("io", event)
+        if event and event[0] == EV_PARTY:
+            self._pezzo_dettagli("io", event)
+        if event and event[0] in (EV_CARD, EV_PARTY) and self.squadra != "tutta":
+            # LA PRIVACY (2026-10-16): la decide chi gioca, e i dati trattenuti
+            # non arrivano neanche al relay. La propria squadra resta visibile qui.
+            filtrato = squadra_in_uscita(event, self.squadra)
+            if filtrato is None:
+                self.squadra_trattenuti += 1
+                return
+            event = filtrato
         if event and event[0] == EV_CLUB:
             # ANCHE l'avviso del NOSTRO GBA rispetta la quarantena dopo un
             # club appena chiuso. Non e' un caso raro: il payload ri-latcha
@@ -643,6 +668,8 @@ class Bridge:
             # avatar, non quello dello slot 0. Un amico senza slot non ha
             # niente da despawnare. Il set degli avvisi si svuota: con uno
             # slot appena liberato il prossimo quarto amico lo prende.
+            self.schede.pop(peer_id, None)
+            self.dettagli.pop(peer_id, None)
             slot = self.peer_slots.pop(peer_id, None)
             if slot is not None:
                 self.slot_free.append(slot)
@@ -794,12 +821,22 @@ class Bridge:
                 self.stato_amici[peer_id] = event[1]
                 self.log("[stato ] amico %d -> %s  (dalla rete, verso il GBA)"
                          % (peer_id, nome_stato(event[1])))
+            if kind == EV_CARD:
+                self._pezzo_scheda(peer_id, event)
+            if kind == EV_PARTY:
+                # solo per il sito: al GBA non servono, e il filo e' stretto
+                self._pezzo_dettagli(peer_id, event)
+                return
             if kind == self.EV_LEAVE_POS:
                 self.pos_amici.pop(peer_id, None)
                 self.pos_sporche = True
             else:
-                self.pos_amici[peer_id] = self._aggiorna_pos(
-                    self.pos_amici.get(peer_id), event)
+                # un pezzo di scheda non ha posizione: per un amico appena
+                # arrivato _aggiorna_pos rende None, e un None nel file delle
+                # posizioni non e' un amico (vedi bridge.js, 2026-10-16)
+                nuova = self._aggiorna_pos(self.pos_amici.get(peer_id), event)
+                if nuova is not None:
+                    self.pos_amici[peer_id] = nuova
             self.deliver(event, slot)
             return
 
@@ -989,6 +1026,17 @@ class Bridge:
         self.chat.append(voce)
         del self.chat[:-self.CHAT_TENUTI]
         self.pos_sporche = True
+        # L'EMOTE NEL GIOCO (2026-10-16): sopra l'avatar di chi l'ha mandata,
+        # se ne ha uno qui (lo spettatore e il quarto amico no). Una volta per
+        # messaggio: il dedup sull'id e' gia' passato.
+        if "emote" in m:
+            voce["emote"] = m["emote"]
+            slot = self.peer_slots.get(peer_id)
+            if slot is None:
+                self.emote_senza_avatar += 1
+            else:
+                self.deliver(bytes((EV_EMOTE, m["emote"])) + bytes(EVENT_SIZE - 2), slot)
+                self.emote_consegnate += 1
         if "pos" in m:
             riga = "%s ha condiviso la posizione: mappa %d.%d (%d,%d)" % (
                 chi, m["pos"]["g"], m["pos"]["n"], m["pos"]["x"], m["pos"]["y"])
@@ -1001,6 +1049,48 @@ class Bridge:
         cod = getattr(sys.stdout, "encoding", None) or "utf-8"
         riga = riga.encode(cod, errors="replace").decode(cod, errors="replace")
         self.log("[chat ] " + riga)
+
+    def _pezzo_scheda(self, chi, event):
+        """Un pezzo di scheda (EV_CARD): si ricompone, e quando ci sono i
+        quattro pezzi della squadra la si rilegge. Si annuncia nel registro
+        solo quando CAMBIA (il giro della scheda si ripete ogni pochi secondi)."""
+        s = self.schede.get(chi)
+        if s is None:
+            s = self.schede[chi] = [bytearray(CARD_SIZE), 0, None]
+        s[1] |= card_put_chunk(s[0], event)
+        if s[1] & PARTY_CHUNKS != PARTY_CHUNKS:
+            return
+        squadra = party_from_card(s[0])
+        if squadra == s[2]:
+            return
+        s[2] = squadra
+        self.pos_sporche = True
+        if squadra:
+            self.log("[squadra] %s: %s" % (
+                "la tua" if chi == "io" else "amico %s" % chi,
+                ", ".join(("uovo" if m["uovo"] else "#%d lv%d" % (m["specie"], m["lv"]))
+                          + ("*" if m["cromatico"] else "") + (" (ko)" if m["ko"] else "")
+                          for m in squadra)))
+
+    def _pezzo_dettagli(self, chi, event):
+        """Un pezzo dei dettagli (EV_PARTY): quando un Pokemon ha i suoi 4
+        pezzi lo si rilegge. Nel registro una riga sola quando cambia."""
+        d = self.dettagli.get(chi)
+        if d is None:
+            d = self.dettagli[chi] = [bytearray(6 * PARTY_REC), 0, {}]
+        d[1] |= party_details_put_chunk(d[0], event)
+        i = event[1] >> 2
+        if event[1] >= 24 or (d[1] >> (i * 4)) & 0xF != 0xF:
+            return
+        nuovo = party_details(d[0][i * PARTY_REC:(i + 1) * PARTY_REC])
+        if d[2].get(i) == nuovo:
+            return
+        d[2][i] = nuovo
+        self.pos_sporche = True
+        self.log("[squadra] %s, Pokemon %d: lv%d PS %d/%d stato %s strumento %d mosse %s natura %s sesso %s"
+                 % ("tuo" if chi == "io" else "amico %s" % chi, i + 1, nuovo["lv"], nuovo["ps"],
+                    nuovo["psMax"], nuovo["stato"] or "-", nuovo["strumento"],
+                    "/".join(str(m) for m in nuovo["mosse"]), nuovo["natura"], nuovo["sesso"] or "-"))
 
     def scrivi_posizioni(self, now):
         """Al massimo 10 volte al secondo, solo se e' cambiato qualcosa,
@@ -1030,6 +1120,9 @@ class Bridge:
         dati = {"peer": self.peer_id, "io": self.pos_io,
                 "amici": {str(k): v for k, v in self.pos_amici.items()},
                 "t": time.time()}
+        squadre = {str(k): v[2] for k, v in self.schede.items() if v[2]}
+        if squadre:
+            dati["squadre"] = squadre
         if self.chat or self.chat_nomi:
             dati["stanza"] = self.room
             dati["chat"] = self.chat
@@ -1815,6 +1908,11 @@ def main():
                          "su mGBA la perdita misurata sul fisico. Non e' --loss, "
                          "che agisce verso il relay ed e' curabile dalla "
                          "ricucitura dell'altro")
+    ap.add_argument("--squadra", choices=("tutta", "base", "niente"), default="tutta",
+                    help="che cosa della TUA squadra vede la stanza: tutta (anche "
+                         "soprannomi, PS, mosse, strumenti, natura, sesso, stato), "
+                         "base (specie e livelli), niente. Il filtro e' qui: i dati "
+                         "trattenuti non arrivano neanche al relay")
     ap.add_argument("--niente-ricucitura", action="store_true",
                     help="spegne la ricucitura dei passi persi in questo client. "
                          "Serve SOLO a collaudare il rammendo del payload (con "

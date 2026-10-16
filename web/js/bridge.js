@@ -36,7 +36,44 @@
     clear: function (h) { if (h) root.clearInterval(h); }
   };
   var EVENT_SIZE = 12;
-  var EV = { STEP: 1, SYNC: 2, TURN: 3, LEAVE: 4, STATUS: 5, CARD: 6, CLUB: 7 };
+  var EV = { STEP: 1, SYNC: 2, TURN: 3, LEAVE: 4, STATUS: 5, CARD: 6, CLUB: 7, EMOTE: 8, PARTY: 9 };
+  /* LA SQUADRA NELLA SCHEDA (2026-10-16): il payload la scrive nei byte che
+   * Smeraldo lascia a zero nella parte link della scheda, che viaggia gia' in
+   * 14 pezzi da 7 byte (EVENT_CARD). Layout = CARD_PARTY_* di payload/main.c,
+   * gemello di party_from_card in net/protocol.py. */
+  var CARD_SIZE = 96, CARD_CHUNK = 7, CARD_OFF = [2, 6, 7, 8, 9, 10, 11];
+  var PARTY_LV = 0x44, PARTY_SHINY = 0x4A, PARTY_KO = 0x4B, PARTY_SPECIES = 0x54;
+  var SPECIES_EGG = 412;
+  // i pezzi che contengono la squadra: 0x44-0x4B e 0x54-0x5F
+  var PARTY_CHUNKS = (1 << 9) | (1 << 10) | (1 << 12) | (1 << 13);
+  /* I DETTAGLI (EVENT_PARTY, tipo 9): un record da 28 byte per Pokemon, in 4
+   * pezzi (dir = pezzo, 0..23). Layout = PARTY_REC di payload/main.c, gemello
+   * di party_details in net/protocol.py. */
+  var PARTY_REC = 28;
+  // byte della squadra dentro la scheda (CARD_PARTY_*): la privacy «niente» li azzera
+  function inSquadra(o) { return (o >= 0x44 && o < 0x4C) || (o >= 0x54 && o < 0x60); }
+  function dettagliDaRecord(r) {
+    function u16(o) { return r[o] | (r[o + 1] << 8); }
+    return { soprannome: Array.prototype.slice.call(r, 0, 10), lv: r[10], stato: r[11],
+             ps: u16(12), psMax: u16(14), strumento: u16(16),
+             mosse: [u16(18), u16(20), u16(22), u16(24)],
+             natura: r[26] < 25 ? r[26] : null, sesso: r[27] === 0 ? "m" : (r[27] === 0xFE ? "f" : null) };
+  }
+
+  /* I 96 byte di una scheda -> [{specie, lv, cromatico, ko}] o null se dentro
+   * non c'e' una squadra (payload vecchio, o partita senza Pokemon). Una specie
+   * fuori dal gioco vuol dire byte che non sono una squadra: si butta tutto. */
+  function squadraDaScheda(b) {
+    var out = [];
+    for (var i = 0; i < 6; i++) {
+      var sp = b[PARTY_SPECIES + i * 2] | (b[PARTY_SPECIES + i * 2 + 1] << 8);
+      if (!sp) continue;
+      if (sp > SPECIES_EGG) return null;
+      out.push({ specie: sp, lv: b[PARTY_LV + i], cromatico: !!((b[PARTY_SHINY] >> i) & 1),
+                 ko: !!((b[PARTY_KO] >> i) & 1), uovo: sp === SPECIES_EGG });
+    }
+    return out.length ? out : null;
+  }
   var HEAL_MAX = 3;
   var DIR_DX = { 1: 0, 2: 0, 3: -1, 4: 1 };   // giu, su, sx, dx (sDirDelta* del payload)
   var DIR_DY = { 1: 1, 2: -1, 3: 0, 4: 0 };
@@ -130,6 +167,17 @@
     this.peerRoom = {};       // peerId -> mappa del suo ultimo evento
     this.peerPos = {};        // peerId -> {map, x, y} (catena dichiarata, per la ricucitura)
     this.peers = {};          // peerId -> {map, x, y, dir, stato, genere, avatar, visto}
+    // Le schede in arrivo (degli amici) e in uscita (la nostra), ricomposte
+    // pezzo per pezzo: peerId (o "io") -> {b: Uint8Array(96), pezzi, squadra}.
+    this.schede = {};
+    this.squadreViste = 0;
+    // I dettagli: peerId (o "io") -> {b: Uint8Array(168), pezzi, mon: [dettagli|null x6]}
+    this.dettagli = {};
+    // LA PRIVACY (2026-10-16): che cosa della MIA squadra parte verso la stanza.
+    // "tutta", "base" (specie e livelli), "niente". Si cambia al volo (setSquadra).
+    this.squadra = opts.squadra || "tutta";
+    this.squadraTrattenuti = 0;
+    this.emoteConsegnate = 0; this.emoteSenzaAvatar = 0;
     this.mapKey = null;       // la nostra ultima mappa
     this.posIo = null;        // {map, x, y, dir, stato, ...}
     this.statoIo = null;
@@ -339,6 +387,17 @@
       this.clubStart("il TUO GBA e' entrato al Cable Club", true);
       return;
     }
+    if (e[0] === EV.CARD) this._pezzoScheda("io", e);
+    if (e[0] === EV.PARTY) this._pezzoDettagli("io", e);
+    if ((e[0] === EV.CARD || e[0] === EV.PARTY) && this.squadra !== "tutta") {
+      // la privacy la decide chi gioca: cio' che si trattiene non arriva al relay,
+      // e la propria squadra resta visibile qui
+      if (e[0] === EV.PARTY) { this.squadraTrattenuti++; return; }
+      if (this.squadra === "niente") {
+        e = new Uint8Array(e);
+        for (var q = 0; q < CARD_CHUNK; q++) if (inSquadra(e[1] * CARD_CHUNK + q)) e[CARD_OFF[q]] = 0;
+      }
+    }
     if (e[0] === EV.STATUS) {
       if (e[1] !== this.statoIo) {
         this.statoIo = e[1];
@@ -419,6 +478,8 @@
       delete this.peerPos[p.peerId];
       delete this.peers[p.peerId];
       delete this.clubAmici[p.peerId];
+      delete this.schede[p.peerId];
+      delete this.dettagli[p.peerId];
       if (this.onAmico && room !== undefined) this.onAmico("esce", p.peerId);
       // Lo slot avatar torna libero, e il VIA parte TIMBRATO con lo slot che
       // l'amico occupava (identico a client.py). Senza slot, niente despawn.
@@ -466,6 +527,75 @@
     }
   };
 
+  /* --- la scheda ricomposta e la squadra (2026-10-16) ----------------------- */
+
+  OwlBridge.prototype._pezzoScheda = function (chi, e) {
+    var idx = e[1];
+    if (idx >= 14) return;
+    var s = this.schede[chi] || (this.schede[chi] = { b: new Uint8Array(CARD_SIZE), pezzi: 0, squadra: null });
+    for (var k = 0; k < CARD_CHUNK && idx * CARD_CHUNK + k < CARD_SIZE; k++) s.b[idx * CARD_CHUNK + k] = e[CARD_OFF[k]];
+    s.pezzi |= 1 << idx;
+    if ((s.pezzi & PARTY_CHUNKS) !== PARTY_CHUNKS) return;
+    var sq = squadraDaScheda(s.b);
+    if (JSON.stringify(sq) === JSON.stringify(s.squadra)) return;
+    s.squadra = sq;
+    this.squadreViste++;
+    if (sq) this.log("[squadra] " + (chi === "io" ? "la tua" : "amico " + chi) + ": " +
+      sq.map(function (m) { return (m.uovo ? "uovo" : "#" + m.specie + " lv" + m.lv) + (m.cromatico ? "*" : "") + (m.ko ? " (ko)" : ""); }).join(", "));
+    if (this.onPos) this.onPos();
+  };
+  OwlBridge.prototype._pezzoDettagli = function (chi, e) {
+    var idx = e[1];
+    if (idx >= 24) return;
+    var d = this.dettagli[chi] || (this.dettagli[chi] = { b: new Uint8Array(6 * PARTY_REC), pezzi: 0, mon: [null, null, null, null, null, null] });
+    for (var k = 0; k < CARD_CHUNK; k++) d.b[idx * CARD_CHUNK + k] = e[CARD_OFF[k]];
+    d.pezzi |= 1 << idx;
+    var i = idx >> 2;
+    if (((d.pezzi >> (i * 4)) & 15) !== 15) return;
+    var nuovo = dettagliDaRecord(d.b.subarray(i * PARTY_REC, (i + 1) * PARTY_REC));
+    if (JSON.stringify(nuovo) === JSON.stringify(d.mon[i])) return;
+    d.mon[i] = nuovo;
+    if (this.onPos) this.onPos();
+  };
+  OwlBridge.prototype.dettagliDi = function (chi) {
+    var d = this.dettagli[chi];
+    return d ? d.mon.slice() : null;
+  };
+  OwlBridge.prototype.setSquadra = function (modo) {
+    this.squadra = (modo === "base" || modo === "niente") ? modo : "tutta";
+  };
+  OwlBridge.prototype.squadraDi = function (chi) {
+    var s = this.schede[chi];
+    return s ? s.squadra : null;
+  };
+  /* La parte della scheda con la squadra e' arrivata tutta? Distingue «la
+   * squadra non c'e'» (privacy «niente»: byte a zero) da «non e' ancora
+   * arrivata»: per squadraDi sono tutte e due null. */
+  OwlBridge.prototype.schedaVista = function (chi) {
+    var s = this.schede[chi];
+    return !!s && (s.pezzi & PARTY_CHUNKS) === PARTY_CHUNKS;
+  };
+
+  /* --- le emote verso il GBA (2026-10-16) -----------------------------------
+   * Arrivano dalla chat (chat.js, onEmote / onEmoteMia): il bridge le scrive
+   * al GBA come EVENT_EMOTE. Di un amico: timbrata col SUO slot, se ne ha uno
+   * (senza avatar non c'e' una testa su cui metterla). La mia: bit 7, sopra il
+   * mio personaggio. */
+  OwlBridge.prototype.emoteDi = function (peerId, e) {
+    if (this.spettatore || !(e >= 0 && e <= 2)) return false;
+    var slot = this.peerSlots[peerId];
+    if (slot === undefined) { this.emoteSenzaAvatar++; return false; }
+    this.deliver(new Uint8Array([EV.EMOTE, e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), slot);
+    this.emoteConsegnate++;
+    return true;
+  };
+  OwlBridge.prototype.emoteMia = function (e) {
+    if (this.spettatore || !(e >= 0 && e <= 2)) return false;
+    this.deliver(new Uint8Array([EV.EMOTE, 0x80 | e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), 0);
+    this.emoteConsegnate++;
+    return true;
+  };
+
   /* --- la ricucitura dei passi persi (heal_and_deliver, identica a client.py) --- */
 
   OwlBridge.prototype.slotFor = function (peerId) {
@@ -496,8 +626,19 @@
           this.log("[stato ] amico " + peerId + " -> " + G.nomeStato(event[1]) + "  (dalla rete, verso il GBA)");
         }
       }
+      if (kind === EV.CARD) this._pezzoScheda(peerId, event);
+      // i dettagli sono solo per il sito: al GBA non servono, e il filo e' stretto
+      if (kind === EV.PARTY) { this._pezzoDettagli(peerId, event); return; }
+      // Un pezzo di scheda non ha posizione: _aggiornaPos rende quella di
+      // prima, che per un amico appena arrivato e' undefined - e un amico
+      // `undefined` in peers faceva cadere amiciVivi (e la lista giocatori).
+      // Puo' succedere: la scheda parte anche da soli, e uno spettatore che
+      // entra ne riceve un pezzo prima del primo SYNC.
       if (kind === EV.LEAVE) delete this.peers[peerId];
-      else this.peers[peerId] = this._aggiornaPos(this.peers[peerId], event);
+      else {
+        var np = this._aggiornaPos(this.peers[peerId], event);
+        if (np) this.peers[peerId] = np;
+      }
       this.deliver(event, slot);
       if (this.onPos) this.onPos();
       return;
@@ -933,7 +1074,8 @@
     var out = [], t = Date.now();
     for (var id in this.peers) {
       var p = this.peers[id];
-      if (t - p.visto < 12000) out.push({ peerId: parseInt(id, 10), pos: p });
+      if (p && t - p.visto < 12000) out.push({ peerId: parseInt(id, 10), pos: p, squadra: this.squadraDi(id), dettagli: this.dettagliDi(id),
+                                               schedaVista: this.schedaVista(id) });
     }
     return out;
   };
@@ -989,6 +1131,9 @@
       club: !!this.club, clubSessions: Math.max(0, this.clubSessions),
       clubAmici: Object.keys(this.clubAmici).map(Number),
       chatInviati: this.chatInviati, chatRicevuti: this.chatRicevuti,
+      squadraIo: this.squadraDi("io"), dettagliIo: this.dettagliDi("io"), squadreViste: this.squadreViste,
+      squadraTrattenuti: this.squadraTrattenuti,
+      emoteConsegnate: this.emoteConsegnate, emoteSenzaAvatar: this.emoteSenzaAvatar,
       amici: this.amiciVivi()
     };
   };
@@ -996,4 +1141,6 @@
   root.OwlBridge = OwlBridge;
   root.OwlBridge.EV = EV;
   root.OwlBridge.makeLeaveEvent = makeLeaveEvent;
+  root.OwlBridge.squadraDaScheda = squadraDaScheda;
+  root.OwlBridge.dettagliDaRecord = dettagliDaRecord;
 })(typeof window !== "undefined" ? window : globalThis);

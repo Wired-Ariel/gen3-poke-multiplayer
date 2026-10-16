@@ -183,6 +183,32 @@ details.avanzate[open] { padding-bottom: 12px; }
 .giocatori .chi b small { font: 500 11.5px var(--mono); color: var(--tenue2); }
 .giocatori .chi span { display: block; font-size: 12px; line-height: 1.35; color: var(--tenue); overflow-wrap: anywhere; }
 .giocatori .eta { font: 11.5px var(--mono); color: var(--tenue2); flex: none; }
+/* la squadra (2026-10-16): le icone del gioco, il livello sotto */
+.giocatori .chi .squadra-fila { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 4px; }
+.squadra-fila .mon { position: relative; display: inline-flex; flex-direction: column; align-items: center; width: 34px; }
+.squadra-fila .mon img { width: 32px; height: 32px; image-rendering: pixelated; }
+.squadra-fila .mon .senza { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; font: 600 10px var(--mono); color: var(--tenue2); }
+.squadra-fila .mon small { font: 600 10px/1 var(--mono); color: var(--tenue); }
+.squadra-fila .mon.ko img { filter: grayscale(1); opacity: .55; }
+/* i dettagli della squadra (2026-10-16) */
+.squadra-dettagli { margin-top: 4px; }
+.squadra-dettagli summary { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--verde2); }
+.squadra-dettagli ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.squadra-dettagli li { display: flex; gap: 6px; align-items: flex-start; }
+.squadra-dettagli li img { width: 32px; height: 32px; flex: none; image-rendering: pixelated; }
+.squadra-dettagli .testo { min-width: 0; flex: 1; }
+.giocatori .squadra-dettagli .testo b { white-space: normal; font-size: 13px; }
+.giocatori .squadra-dettagli .testo span { display: inline; }
+.giocatori .squadra-dettagli .testo .sesso { font-size: 15px; font-weight: 800; line-height: 1; }
+.squadra-dettagli .sesso.m { color: #3a8fd9; }
+.squadra-dettagli .sesso.f { color: #d9467a; }
+.squadra-dettagli .tenue { display: block; font-size: 11.5px; color: var(--tenue); }
+.squadra-dettagli .ps { display: flex; align-items: center; gap: 6px; font: 600 11px var(--mono); color: var(--tenue); flex-wrap: wrap; }
+.squadra-dettagli .barra-ps { display: inline-block; width: 70px; }
+.squadra-dettagli .stato { padding: 0 6px; border-radius: 6px; background: #f4e3c4; color: #7a4d00; font: 700 10.5px var(--sans); }
+.squadra-dettagli .mosse { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.giocatori .squadra-dettagli .mosse span { display: inline-block; padding: 1px 6px; border-radius: 6px; background: var(--pagina); border: 1px solid var(--riga); font-size: 11px; color: var(--inchiostro); }
+.squadra-fila .mon.cromatico::after { content: "\2605"; position: absolute; top: -2px; right: 0; font-size: 10px; color: #d39a12; }
 .giocatori.stretti li { padding: 4px 0; }
 .giocatori.stretti li:hover { background: none; }
 .giocatori.stretti .posto-libero { padding: 4px 0; }
@@ -254,6 +280,39 @@ details.avanzate[open] { padding-bottom: 12px; }
 .chat-riga .pos:disabled, .chat-riga .manda:disabled, .chat-rapide button:disabled { opacity: .5; cursor: not-allowed; }
 .chat-riga .manda { height: 44px; padding: 0 20px; border: none; border-radius: 12px; background: var(--arancio); color: #fff; font: 800 14px var(--sans); cursor: pointer; box-shadow: 0 3px 0 var(--arancio-ombra); }
 .chat-avviso { font-size: 12px; color: var(--tenue); min-height: 0; }
+/* le emote (2026-10-16): il riquadro del gioco, mai l'emoji */
+.emo { display: inline-grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 8px; background: #fff;
+       border: 2px solid #23302a; box-shadow: 0 2px 0 #23302a; font: 900 18px/1 var(--sans); }
+.emo.mini { width: 18px; height: 18px; border-radius: 5px; border-width: 1.5px; box-shadow: none; font-size: 11px; vertical-align: -4px; margin-left: 2px; }
+/* la barra della chat grande: titolo e aiuto a sinistra, tre bottoni a destra */
+.chat-emote { display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 14px; border-radius: 14px; background: var(--pagina); }
+.chat-emote .testo { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.chat-emote .testo b { font-size: 13px; font-weight: 800; }
+.chat-emote .aiuto { font-size: 12px; line-height: 1.4; color: var(--tenue); text-wrap: pretty; }
+.chat-emote .tasti { display: flex; gap: 6px; flex: none; }
+.chat-emote button { display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 14px 0 6px; border: 1px solid var(--bordo2); border-radius: 12px;
+                     background: #fff; font: 700 13px var(--sans); color: var(--inchiostro); cursor: pointer; }
+.chat-emote button:hover:not(:disabled) { border-color: var(--verde); }
+.chat-emote.spenta { opacity: .7; }
+.chat-emote button:disabled, .chat-emote-mini button:disabled { opacity: .4; cursor: not-allowed; }
+.chat-emote.spenta button:disabled { opacity: 1; }
+/* le chat piccole: tre tasti quadrati accanto al campo, solo il simbolo */
+.chat-emote-mini { display: flex; gap: 6px; flex: none; }
+.chat-emote-mini button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; background: none; cursor: pointer; }
+.chat-emote-mini button .emo { width: 30px; height: 30px; border-width: 1.5px; box-shadow: 0 1.5px 0 #23302a; font-size: 15px; }
+.chat-emote-mini.spenta { opacity: .7; }
+/* un'emote in chat: riquadro, nome, e che cosa e' successo nel gioco */
+.bolla.emote { display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 6px; }
+.bolla.emote .emo { width: 38px; height: 38px; border-radius: 9px; font-size: 22px; }
+.bolla.emote .cosa { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.bolla.emote .cosa b { font-size: 13px; font-weight: 700; }
+.bolla.emote .nota { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.35; color: var(--tenue); }
+.bolla.emote .nota i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.chat-msg.mio .bolla.emote { flex-direction: row-reverse; padding: 6px 6px 6px 12px; background: var(--verde-chiaro); border-color: var(--verde-bordo); color: var(--inchiostro); }
+.chat-msg.mio .bolla.emote .cosa { align-items: flex-end; text-align: right; }
+.chat-msg.mio .bolla.emote .cosa b { color: var(--verde2); }
+.chat-msg.mio .bolla.emote .nota { color: #3b6b55; }
+.chat.stretta .bolla.emote .emo { width: 32px; height: 32px; font-size: 18px; }
 .chat-avviso.male { color: var(--rosso); font-weight: 600; }
 
 /* la chat stretta (colonna del pannello, Mappa live, chat piccola sulla mappa) */
@@ -268,6 +327,10 @@ details.avanzate[open] { padding-bottom: 12px; }
 .chat.stretta .chat-riga input[type=text], .chat.stretta .chat-riga .pos { height: 42px; }
 .chat.stretta .chat-riga .manda { height: 42px; padding: 0 16px; background: var(--verde2); box-shadow: none; font: 700 13px var(--sans); }
 .chat.stretta .chat-riga .pos { padding: 0 11px; }
+/* con i tre tasti delle emote accanto al campo, «Posizione» resta solo ◎ (il nome e' nel title) */
+.chat.stretta .chat-riga .pos .parola { display: none; }
+.chat.stretta .chat-riga .pos { min-width: 42px; padding: 0; }
+.chat.stretta .chat-riga { gap: 6px; }
 
 /* la chat a righe (dentro la mappa): "nome testo" e basta */
 .chat.righe .chat-lista { padding: 8px 14px; gap: 5px; min-height: 0; }
@@ -277,6 +340,123 @@ details.avanzate[open] { padding-bottom: 12px; }
 .chat.righe .chat-piede { border-top: 0; padding: 8px 10px 10px; }
 .chat.righe .chat-riga input[type=text] { height: 36px; padding: 0 12px; border-radius: 10px; font-size: 13px; background: rgba(255,255,255,.9); }
 .chat.righe .chat-riga .manda { height: 36px; padding: 0 12px; border-radius: 10px; font-size: 12.5px; box-shadow: none; }
+
+/* ---------------------------------------------------------------- squadre */
+/* (2026-10-16, secondo giro) Gli sprite sempre a pixel netti e a misura
+ * intera: icone 32, frontali 64 o 128, strumenti 24. */
+img.pixel { image-rendering: pixelated; }
+/* le etichette dei tipi: il colore del gioco, il bordo sotto piu' scuro */
+.tipo { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 5px; background: var(--tc, #a8a878);
+        border-bottom: 2px solid color-mix(in oklch, var(--tc, #a8a878) 68%, #000); color: #fff; font: 800 11px/1 var(--sans);
+        letter-spacing: .06em; text-transform: uppercase; text-shadow: 1px 1px 0 rgba(0,0,0,.4); white-space: nowrap; }
+.tipo.piccola { height: 18px; padding: 0 6px; border-radius: 4px; font-size: 10px; }
+.etichetta-stato { padding: 1px 7px; border-radius: 6px; background: #f4e3c4; color: #7a4d00; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.etichetta-stato.ko { background: var(--fondo2); color: var(--tenue); }
+.barra-ps { display: block; width: 100%; height: 6px; border-radius: 3px; background: var(--riga); overflow: hidden; }
+.barra-ps i { display: block; height: 100%; background: #2fae5b; }
+.barra-ps i.meta { background: #e3b11a; }
+.barra-ps i.poco { background: #d9463a; }
+.barra-ps.grande { width: 220px; max-width: 100%; height: 9px; border-radius: 5px; background: var(--bordo); }
+.sesso { font-weight: 800; }
+.sesso.m { color: #3a8fd9; }
+.sesso.f { color: #d9467a; }
+
+/* l'elenco degli allenatori: ogni riga una scheda (bottone nella pagina della stanza) */
+.giocatori li > .gioc { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; text-align: left; color: var(--inchiostro); font-family: var(--sans); }
+.giocatori .gioc .testa { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.giocatori .conta { font: 600 11px var(--mono); color: var(--tenue2); flex: none; }
+.giocatori .gioc .squadra-fila { display: flex; flex-wrap: wrap; gap: 2px; }
+.giocatori.si-sceglie li { padding: 0; }
+.giocatori.si-sceglie li:hover { background: none; }
+.giocatori.si-sceglie .gioc { padding: 10px; border: 1.5px solid transparent; border-radius: 14px; background: #fff; cursor: pointer; }
+.giocatori.si-sceglie .gioc:hover { border-color: var(--verde-bordo); }
+.giocatori.si-sceglie .gioc[aria-pressed="true"] { background: var(--verde-chiaro); border-color: var(--verde); }
+.sq-nota { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--tenue2); }
+.sq-nota i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.sq-nota.mia { color: #2a6fb0; }
+
+/* la scheda al centro */
+.sq-testa { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.sq-testa h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+.sq-testa .meta { font-size: 13px; color: var(--tenue); }
+.sq-testa .fonte { margin-left: auto; font: 12px var(--mono); color: var(--tenue3); }
+.sq-vuota { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 360px; padding: 24px;
+            border: 1.5px dashed var(--bordo2); border-radius: 16px; text-align: center; }
+.sq-vuota .segno { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--fondo2); font-size: 24px; color: var(--tenue2); }
+.sq-vuota b { font-size: 16px; font-weight: 800; }
+.sq-vuota span:last-child { max-width: 340px; font-size: 13.5px; line-height: 1.5; color: var(--tenue); }
+.sq-griglia { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.sq-mon { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 2px solid var(--riga); border-radius: 14px; background: #fff;
+          text-align: left; font-family: var(--sans); color: var(--inchiostro); min-width: 0; }
+button.sq-mon { cursor: pointer; }
+button.sq-mon:hover { border-color: var(--verde-bordo); }
+.sq-mon.scelta, button.sq-mon.scelta:hover { border-color: var(--verde); background: #f3faf6; }
+.sq-mon .alto { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sq-mon .foto { position: relative; display: grid; place-items: center; width: 64px; height: 64px; flex: none; border-radius: 12px; background: var(--pagina); }
+.sq-mon .stella { position: absolute; top: 2px; right: 4px; font-size: 13px; color: #d39a12; }
+.sq-mon.ko .foto img, .sq-dettaglio .cornice.ko img { filter: grayscale(1); opacity: .55; }
+.sq-mon .info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.sq-mon .nome { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.sq-mon .nome b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sq-mon .nome .sesso { font-size: 14px; }
+.sq-mon .lv { font: 600 12px var(--mono); color: var(--tenue); }
+.sq-mon .strumento { display: flex; align-items: center; gap: 3px; font-size: 11.5px; line-height: 1.2; color: #5d6b62; min-width: 0; }
+.sq-mon .strumento img { flex: none; }
+.sq-mon .strumento span { min-width: 0; overflow-wrap: anywhere; }
+.sq-mon .mezzo { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-height: 20px; }
+.sq-mon .mezzo .etichetta-stato { margin-left: auto; }
+.sq-dettaglio { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 22px; margin-top: 18px; padding: 20px; border-radius: 16px; background: var(--pagina); }
+.sq-dettaglio .sx { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.sq-dettaglio .cornice { position: relative; display: grid; place-items: center; width: 150px; height: 150px; border-radius: 16px; border: 1px solid var(--bordo);
+                         background: radial-gradient(ellipse 60px 14px at 50% 86%, #d9e8c8 98%, transparent 100%), #fff; }
+.sq-dettaglio .cornice .cromatico { position: absolute; top: 8px; right: 10px; padding: 2px 7px; border-radius: 999px; background: #fff4d6; color: #a87a08; font-size: 11px; font-weight: 800; }
+.sq-dettaglio .dex { font: 600 12px var(--mono); color: var(--tenue2); }
+.sq-dettaglio .tipi { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+.sq-dettaglio .dx { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.sq-dettaglio .titolo { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.sq-dettaglio .titolo .nome { font-size: 24px; font-weight: 800; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.sq-dettaglio .titolo .sesso { font-size: 20px; }
+.sq-dettaglio .titolo .lv { font: 700 15px var(--mono); color: var(--testo2); }
+.sq-dettaglio .sotto { font-size: 13px; color: var(--tenue); }
+.sq-dettaglio .frase { margin: 0; max-width: 440px; font-size: 14px; line-height: 1.55; color: var(--testo2); }
+.sq-dettaglio .ps { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sq-dettaglio .ps .sigla { font-size: 12px; font-weight: 800; color: var(--tenue); }
+.sq-dettaglio .ps .num { font: 700 13px var(--mono); }
+.sq-dettaglio .ps .etichetta-stato { font-size: 12px; padding: 2px 8px; }
+.sq-dettaglio .due { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.sq-dettaglio .casella { padding: 10px 12px; border-radius: 12px; background: #fff; min-width: 0; }
+.sq-dettaglio small { display: block; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--tenue2); }
+.sq-dettaglio .casella b { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+.sq-dettaglio .casella b img { flex: none; }
+.sq-dettaglio .mosse small { margin-bottom: 6px; }
+.griglia-mosse { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.mossa { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 7px 10px 8px; border-radius: 10px; background: #fff;
+         border: 1px solid var(--bordo); border-left: 4px solid var(--tc, #a8a878); min-width: 0; }
+.mossa .tipo { height: 16px; padding: 0 6px; border-radius: 4px; font-size: 9.5px; }
+.mossa .nome { max-width: 100%; font-size: 14px; font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sq-avviso { display: flex; align-items: center; gap: 12px; margin-top: 18px; padding: 14px 16px; border-radius: 14px; background: #e8f1fb; color: #2a5f93; font-size: 13.5px; line-height: 1.5; }
+.sq-avviso .i { display: grid; place-items: center; width: 28px; height: 28px; flex: none; border-radius: 50%; background: #fff; font-weight: 800; }
+
+/* la mia privacy: tre opzioni col cerchietto */
+.sq-privacy { display: flex; flex-direction: column; gap: 6px; }
+.sq-privacy .opzione { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 10px 12px; border: 1.5px solid var(--riga); border-radius: 12px;
+                       background: #fff; text-align: left; font-family: var(--sans); color: var(--inchiostro); cursor: pointer; }
+.sq-privacy .opzione:hover { border-color: var(--verde-bordo); }
+.sq-privacy .opzione[aria-checked="true"] { border-color: var(--verde); background: #f3faf6; }
+.sq-privacy .cerchio { display: grid; place-items: center; width: 18px; height: 18px; flex: none; margin-top: 1px; border-radius: 50%; border: 2px solid var(--bordo-scuro); background: #fff; }
+.sq-privacy .opzione[aria-checked="true"] .cerchio { border-color: var(--verde); }
+.sq-privacy .opzione[aria-checked="true"] .cerchio::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--verde); }
+.sq-privacy .testo { display: flex; flex-direction: column; gap: 2px; }
+.sq-privacy .testo b { font-size: 13.5px; }
+.sq-privacy .testo span { font-size: 12px; line-height: 1.45; color: var(--tenue); }
+.sq-cosi .etichetta { margin: 0 0 10px; }
+.sq-cosi .riga { display: flex; align-items: center; gap: 10px; }
+.sq-cosi .chi { min-width: 0; }
+.sq-cosi .chi b { display: block; font-size: 14px; font-weight: 700; }
+.sq-cosi .chi span { display: block; font-size: 12px; color: var(--tenue); }
+.sq-cosi .squadra-fila { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 8px; }
+.sq-cosi .frase { margin: 10px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--testo2); }
+.sq-piede { padding: 0 6px; color: var(--tenue2); }
 
 /* ------------------------------------------------------------- piede pagina */
 .piede { text-align: center; color: var(--tenue2); font-size: 12.5px; padding: 6px 16px 30px; line-height: 1.7; }
@@ -336,6 +516,23 @@ details.avanzate[open] { padding-bottom: 12px; }
   .chat-riga input[type=text], .chat.stretta .chat-riga input[type=text], .chat.righe .chat-riga input[type=text] { font-size: 16px; height: 46px; }
   .chat-riga .pos, .chat-riga .manda, .chat.stretta .chat-riga .pos, .chat.stretta .chat-riga .manda, .chat.righe .chat-riga .manda { height: 46px; }
   .chat-riga .pos .parola { display: none; }
+  /* le emote: bersagli da 44 px; nella barra i tre bottoni vanno a capo,
+     nelle chat piccole su una riga loro sopra il campo */
+  .chat-emote { flex-wrap: wrap; }
+  .chat-emote .tasti { width: 100%; }
+  .chat-emote .tasti { gap: 4px; }
+  .chat-emote .tasti button { flex: 1 1 0; min-width: 0; justify-content: center; gap: 5px; padding: 0 4px; font-size: 12px; overflow: hidden; }
+  .chat-emote .tasti .emo { width: 26px; height: 26px; font-size: 15px; }
+  .chat-riga { flex-wrap: wrap; }
+  .chat-riga .chat-emote-mini { order: -1; width: 100%; }
+  .chat-emote-mini button, .chat-emote-mini button .emo { width: 44px; height: 44px; font-size: 20px; }
+  /* le squadre: due schede per riga, il dettaglio in colonna */
+  .sq-griglia { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sq-mon .alto { flex-direction: column; align-items: flex-start; }
+  .sq-mon .info { width: 100%; }
+  .sq-dettaglio { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  .sq-testa .fonte { margin-left: 0; width: 100%; }
+  .griglia-mosse { grid-template-columns: minmax(0, 1fr); }
   .pos-scheda { min-width: 0; }
   .interruttore { width: 52px; height: 32px; }
   .interruttore::after { top: 4px; left: 4px; width: 24px; height: 24px; }

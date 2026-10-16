@@ -218,7 +218,7 @@ if ($WithSio) { $mainDefs += "-DPAYLOAD_WITH_SIO" }
 # esistere.
 $sizeFlags = @("-fno-tree-forwprop", "-fno-reorder-blocks",
                "-fno-move-loop-invariants", "-fno-sched-pressure", "-fno-tree-dominator-opts",
-               "-fno-tree-sink", "-fno-tree-loop-im", "-fsched2-use-superblocks", "-fno-tree-slsr",
+               "-fno-tree-sink", "-fno-tree-loop-im", "-fsched2-use-superblocks",
                "-fno-tree-loop-ivcanon", "-fno-tree-fre",
                "-fno-sched-critical-path-heuristic", "-fno-tree-bit-ccp",
                "-fno-guess-branch-probability", "-fno-tree-ccp", "-fno-sched-dep-count-heuristic",
@@ -228,6 +228,8 @@ $sizeFlags = @("-fno-tree-forwprop", "-fno-reorder-blocks",
                # 2026-10-10 (tutte le animazioni dell'amico): greedy rifatta sul sorgente
                # nuovo, due giri: +4 flag, -44 byte. Uno e' ACCESO (live-range-shrinkage).
                "-fno-ipa-sra", "-flive-range-shrinkage", "-fno-early-inlining", "-fno-tree-reassoc")
+# 2026-10-16 (emote e squadra): greedy rifatta, 175 candidati, un giro: l'unico
+# guadagno e' TOGLIERE -fno-tree-slsr (-8 byte). Il resto della lista regge.
 $stackFlags = @("-fstack-usage", "-fcallgraph-info=su")
 # -mno-thumb-interwork (2026-10-08): ~165 byte. Con l'interworking (che per
 # l'EABI e' il default, e $common lo chiede pure) ogni funzione Thumb non
@@ -676,6 +678,9 @@ foreach ($s in @("payload_stack_bottom", "payload_stack_top")) {
 # La stanza aperta (2026-09-27): spenta di serie; il sito riscrive questa riga
 # quando chi scarica lo script ha la spunta "Stanza aperta".
 [void]$sb.AppendLine("RELAY_PUBLIC = false")
+# La squadra per la stanza (2026-10-16): "tutta", "base" o "niente". Il sito
+# riscrive questa riga con la scelta delle Impostazioni.
+[void]$sb.AppendLine("SQUADRA = `"tutta`"")
 
 # Impronta della ROM attesa dall'iniettore. Senza questo, con -Syms it il payload
 # avrebbe gli indirizzi italiani ma l'iniettore rifiuterebbe la cartuccia

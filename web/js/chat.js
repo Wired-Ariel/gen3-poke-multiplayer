@@ -6,7 +6,10 @@
  *   1. IL CORPO DEI T_CHAT (pack / unpack / normalizza): JSON utf-8, gemello
  *      di net/protocol.py (chat_pack / chat_unpack) - si toccano insieme.
  *      Tre forme:
- *        messaggio  {"id","nome","testo","ts","rispondeA"?,"pos"?}
+ *        messaggio  {"id","nome","testo","ts","rispondeA"?,"pos"?,"emote"?}
+ *      Un'EMOTE (2026-10-16) e' un messaggio con "emote": 0 «!», 1 «?», 2 cuore
+ *      e il simbolo come testo: un sito vecchio la mostra come un messaggio
+ *      qualunque, uno nuovo la fa anche comparire sopra la testa nel gioco.
  *        scrive     {"scrive":true,"nome"}         «sta scrivendo...»
  *        ciao       {"ciao":1|0,"nome","ruolo"}    chi c'e' (1) o se ne va (0)
  *      Il «ciao» e' il modo in cui viaggia il NOME (il relay non inoltra gli
@@ -39,7 +42,13 @@
   var CIAO_OGNI_MS = 10000, CIAO_RISPOSTA_MS = 2000, PRESENZA_SCADE_MS = 32000;
   var TENUTI = 200;
   var SCARTO_MAX_MS = 15000;                      // oltre, del `ts` non ci si fida
+  // Fra un'emote e l'altra (2026-10-16): una per tutta la sessione, non per
+  // bottone. Due di fila sopra la stessa testa si coprono a vicenda nel gioco.
+  var EMOTE_PAUSA_MS = 2000;
   var NOME_CANALE = "gen3pm-stanza";
+  // Le emote del gioco (FLDEFF_*_ICON nel payload): l'ordine e' il contratto
+  // con EVENT_EMOTE (dir 0, 1, 2), con net/protocol.py e col Lua.
+  var EMOTE = ["❗", "❓", "❤️"];
   var FRASI = {
     it: ["Ci vediamo al Centro Pokémon", "Scambio?", "Lotta?", "Torno subito"],
     en: ["Meet at the Pokémon Center", "Trade?", "Battle?", "Be right back"]
@@ -72,6 +81,10 @@
     var id = pulisci(d.id, ID_MAX), testo = pulisci(d.testo, TESTO_MAX);
     if (!id || typeof d.ts !== "number" || !isFinite(d.ts)) return null;
     var out = { tipo: "msg", id: id, nome: nome, testo: testo, ts: Math.trunc(d.ts) };
+    if (intero(d.emote, 0, EMOTE.length - 1)) {
+      out.emote = d.emote;
+      if (!testo) out.testo = testo = EMOTE[d.emote];
+    }
     var p = d.pos;
     if (p && typeof p === "object" && intero(p.g, 0, 255) && intero(p.n, 0, 255) &&
         intero(p.x, -32768, 32767) && intero(p.y, -32768, 32767)) {
@@ -98,6 +111,7 @@
       o = { id: n.id, nome: n.nome, testo: n.testo, ts: n.ts };
       if (n.pos) o.pos = n.pos;
       if (n.rispondeA) o.rispondeA = n.rispondeA;
+      if (n.emote !== undefined) o.emote = n.emote;
     }
     for (;;) {
       var b = enc.encode(JSON.stringify(o));
@@ -253,6 +267,7 @@
     this.mieiTempi = [];
     this.colori = {};
     this.ultimoCiao = 0; this.ultimoCiaoRisposta = 0; this.ultimoScrive = 0;
+    this.ultimaEmote = -Infinity;
     this.ricevuti = 0; this.frenati = 0; this.illeggibili = 0; this.inviati = 0; this.nonInviati = 0;
     // la scheda portante che stiamo seguendo da ospiti
     this.portanteId = null; this.portanteVisto = 0; this.statoRemoto = null;
@@ -261,6 +276,10 @@
     this.onMessaggio = null;   // (voce) un messaggio NUOVO di un altro
     this.onStato = null;       // (stato) dalla scheda portante
     this.onFine = null;        // la scheda portante ha chiuso
+    // Le emote verso il GIOCO (solo nella scheda portante, una volta per
+    // messaggio: il dedup dell'id e' gia' passato). La pagina le gira al bridge.
+    this.onEmote = null;       // (peer, 0|1|2) di un altro
+    this.onEmoteMia = null;    // (0|1|2) la mia, appena spedita: l'eco sul mio GBA
     this.canale = opts.canale || null;
     if (this.canale) this.canale.onmessage = function (ev) { self._dalCanale(ev && ev.data); };
   }
@@ -351,7 +370,15 @@
               ts: m.ts, arrivo: t, mio: false };
     if (m.pos) v.pos = m.pos;
     if (m.rispondeA) v.rispondeA = m.rispondeA;
+    if (m.emote !== undefined) v.emote = m.emote;
     if (menziona(m.testo, this.nome, this.peer)) v.menzione = true;
+    // L'emote va al gioco PRIMA che la voce entri nello store (una volta sola:
+    // un doppione ha gia' l'id li' dentro), cosi' la bolla nasce sapendo se e'
+    // comparsa sopra l'avatar (true) o se l'amico non ne ha uno (false).
+    if (v.emote !== undefined && this.onEmote && !this.store.perId[v.id]) {
+      var esito = this.onEmote(peer, v.emote);
+      if (typeof esito === "boolean") v.inGioco = esito;
+    }
     var e = this.store.aggiungi(v);
     if (e === "nuovo") {
       tempi.push(t); this.tempiPeer[peer] = tempi;
@@ -368,20 +395,33 @@
     return this.peer.toString(36) + "-" + this.now().toString(36) + "-" + Math.floor(this.rand() * 0xFFFFFF).toString(36);
   };
 
-  /* Scrive un messaggio. extra: {rispondeA: voce|{id,nome,testo}, pos: true|{g,n,x,y}}.
-   * Ritorna {ok:true, voce} oppure {ok:false, perche: "vuoto"|"troppi"|"scollegato"|"posizione", attesa}. */
+  /* Quanti ms mancano alla prossima emote (0 = si puo'). */
+  Sessione.prototype.pausaEmote = function () {
+    return Math.max(0, EMOTE_PAUSA_MS - (this.now() - this.ultimaEmote));
+  };
+
+  /* Scrive un messaggio. extra: {rispondeA: voce|{id,nome,testo}, pos: true|{g,n,x,y}, emote: 0|1|2}.
+   * Ritorna {ok:true, voce} oppure {ok:false, perche: "vuoto"|"troppi"|"scollegato"|"posizione"|"pausa", attesa}. */
   Sessione.prototype.scrivi = function (testo, extra) {
     extra = extra || {};
     testo = pulisci(testo || "", TESTO_MAX);
     var pos = extra.pos === true ? this.posMia() : (extra.pos || null);
     if (extra.pos && !pos) return { ok: false, perche: "posizione" };
+    // un'emote ha il simbolo come testo: va messo PRIMA del controllo «vuoto»
+    var emote = intero(extra.emote, 0, EMOTE.length - 1) ? extra.emote : undefined;
+    if (emote !== undefined) {
+      var attesa = this.pausaEmote();
+      if (attesa > 0) return { ok: false, perche: "pausa", attesa: attesa };
+      if (!testo) testo = EMOTE[emote];
+    }
     if (!testo && !pos) return { ok: false, perche: "vuoto" };
     var ris = extra.rispondeA ? { id: extra.rispondeA.id, nome: extra.rispondeA.nome || "", testo: extra.rispondeA.testo || "" } : null;
 
     if (!this.invia) {
       // scheda ospite: spedisce la portante, e la voce torna dal canale
       if (!this.canale || !this.portanteId) return { ok: false, perche: "scollegato" };
-      this._posta({ t: "manda", a: this.portanteId, testo: testo, extra: { pos: pos, rispondeA: ris } });
+      this._posta({ t: "manda", a: this.portanteId, testo: testo, extra: { pos: pos, rispondeA: ris, emote: emote } });
+      if (emote !== undefined) this.ultimaEmote = this.now();
       return { ok: true, voce: null };
     }
 
@@ -391,18 +431,22 @@
     var m = { id: this._nuovoId(), nome: this.nome, testo: testo, ts: t };
     if (pos) m.pos = pos;
     if (ris) m.rispondeA = ris;
+    if (emote !== undefined) m.emote = emote;
     var corpo = pack(m);
     if (!corpo) return { ok: false, perche: "vuoto" };
     if (!this.invia(corpo)) { this.nonInviati++; return { ok: false, perche: "scollegato" }; }
     this.mieiTempi.push(t);
     this.inviati++;
+    if (emote !== undefined) this.ultimaEmote = t;
     var n = normalizza(m);       // cio' che gli altri leggeranno, tagli compresi
     var v = { id: n.id, tipo: "msg", peer: this.peer, nome: this.nome || ("peer " + this.peer), testo: n.testo,
               ts: t, arrivo: t, mio: true };
     if (n.pos) v.pos = n.pos;
     if (n.rispondeA) v.rispondeA = n.rispondeA;
+    if (n.emote !== undefined) v.emote = n.emote;
     this.store.aggiungi(v);
     this._posta({ t: "voce", voce: v });
+    if (n.emote !== undefined && this.onEmoteMia) this.onEmoteMia(n.emote);
     return { ok: true, voce: v };
   };
 
@@ -556,7 +600,8 @@
   root.OwlChat = {
     TESTO_MAX: TESTO_MAX, NOME_MAX: NOME_MAX, CITA_MAX: CITA_MAX, CORPO_MAX: CORPO_MAX,
     MSG_MAX: MSG_MAX, MSG_FINESTRA_MS: MSG_FINESTRA_MS, SCRIVE_OGNI_MS: SCRIVE_OGNI_MS,
-    CIAO_OGNI_MS: CIAO_OGNI_MS, TENUTI: TENUTI, FRASI: FRASI, NOME_CANALE: NOME_CANALE,
+    CIAO_OGNI_MS: CIAO_OGNI_MS, TENUTI: TENUTI, FRASI: FRASI, EMOTE: EMOTE, EMOTE_PAUSA_MS: EMOTE_PAUSA_MS,
+    NOME_CANALE: NOME_CANALE,
     pulisci: pulisci, normalizza: normalizza, pack: pack, unpack: unpack,
     Store: Store, Sessione: Sessione, vista: vista, menziona: menziona, oraDi: oraDi,
     apriCanale: apriCanale

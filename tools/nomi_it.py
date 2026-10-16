@@ -50,8 +50,14 @@ import sys
 QUI = os.path.dirname(os.path.abspath(__file__))
 RADICE = os.path.dirname(QUI)
 DECOMP = os.path.join(RADICE, "repo-studio", "pokeemerald")
-if not os.path.isdir(DECOMP):
-    DECOMP = os.path.join(os.path.dirname(RADICE), "repo-studio", "pokeemerald")
+# risalendo: dal repo pubblicato (RILASCIO\1-repo-git\...) la decomp sta tre
+# livelli sopra, da overworld-link uno solo
+_su = RADICE
+for _ in range(4):
+    if os.path.isdir(DECOMP):
+        break
+    _su = os.path.dirname(_su)
+    DECOMP = os.path.join(_su, "repo-studio", "pokeemerald")
 ROM_DEF = r"D:\Rom\[PKWWF]smeraldo.gba"
 
 ROM_BASE = 0x08000000
@@ -383,6 +389,18 @@ def cerca_easy_chat(rom):
 
 # --------------------------------------------------------------------------
 
+def indirizzo_syms_it(nome):
+    """ADDR_<nome> da payload/game_syms_it.h (generato da port_syms.py), o None."""
+    for base in (RADICE, os.path.dirname(RADICE)):
+        h = os.path.join(base, "payload", "game_syms_it.h")
+        if os.path.exists(h):
+            m = re.search(r"#define ADDR_%s \(0x([0-9A-Fa-f]+)u\)" % re.escape(nome),
+                          io.open(h, encoding="utf-8").read())
+            if m:
+                return int(m.group(1), 16)
+    return None
+
+
 def carica_nomi(percorso_rom=None, verboso=False):
     """Ritorna {'items':{ITEM_X:nome}, 'mapsec':{...}, 'classi':{...},
     'trainers':{...}, 'specie':{...}} oppure {} se la ROM non c'e'."""
@@ -453,6 +471,29 @@ def carica_nomi(percorso_rom=None, verboso=False):
             rapporto.append("mosse      0x%08X  %d nomi   (MOVE_POUND = %s)"
                             % (base_mosse + ROM_BASE, len(dm), dm.get("MOVE_POUND", "?")))
 
+    # --- le nature (2026-10-16, per i dettagli della squadra sul sito) -------
+    # gNatureNamePointers: 25 puntatori a stringa, nell'ordine NATURE_HARDY..
+    # NATURE_QUIRKY. L'indirizzo non si cerca qui: l'ha ritrovato port_syms.py
+    # (literal pool, confermato da piu' funzioni) e sta in payload/game_syms_it.h.
+    # Validazione: 25 nomi leggibili e tutti diversi, o niente.
+    an = indirizzo_syms_it("gNatureNamePointers")
+    if an is not None:
+        nat, ok = [], True
+        for i in range(25):
+            o = an - ROM_BASE + i * 4
+            ptr = int.from_bytes(rom[o:o + 4], "little") - ROM_BASE
+            if not (0 < ptr < len(rom) - 2):
+                ok = False
+                break
+            s, buono = t.pulito(rom[ptr:ptr + 14])
+            if not buono:
+                ok = False
+                break
+            nat.append(s)
+        if ok and len(set(nat)) == 25:
+            out["nature"] = nat
+            rapporto.append("nature     0x%08X  25 nomi   (HARDY = %s)" % (an, nat[0]))
+
     # --- zone della mappa
     ordine, seq = impronta_regionmap()
     p = cerca_regionmap(rom, seq)
@@ -509,7 +550,7 @@ def carica_nomi(percorso_rom=None, verboso=False):
     if verboso:
         for r in rapporto:
             print("  " + r)
-        mancano = [k for k in ("items", "specie", "mapsec", "classi", "trainers", "mosse", "frasi") if k not in out]
+        mancano = [k for k in ("items", "specie", "mapsec", "classi", "trainers", "mosse", "frasi", "nature") if k not in out]
         if mancano:
             print("  NON trovate:", ", ".join(mancano), "- la pagina restera' in inglese per quelle")
     return out

@@ -296,6 +296,80 @@ class TestRuoloRelay(unittest.TestCase):
         self.assertNotIn('owlSend(OWL_HELLO, "")', src)
         g.RELAY_PEER = 42          # lo stato Lua e' condiviso fra i test: si rimette com'era
 
+    def test_emote_dalla_chat_al_gioco_e_dal_lua_alla_chat(self):
+        """LE EMOTE (2026-10-16). In arrivo (T_CHAT, tipo 10): un'emote di chi
+        ha un avatar diventa EVENT_EMOTE timbrato col suo slot, una volta sola
+        per id; senza avatar resta in chat. In uscita, emote(): un T_CHAT che
+        protocol.py legge come emote, l'eco sul mio personaggio (bit 7) e il
+        tetto dei 5 in 10 secondi della chat del sito."""
+        from protocol import chat_pack, chat_unpack
+        src = self.src
+        self.assertIn("if tipo == 10 then ws.chat(body, peerId) return end", src)
+        m = re.search(r"^ws\.EMOTE = .*?^function emote\(e\).*?^end$", src, re.S | re.M)
+        self.assertIsNotNone(m, "il blocco delle emote non e' in inject_body.lua")
+        self.lua.execute("""
+            AL_GBA = {}
+            function deliverRx(raw) AL_GBA[#AL_GBA + 1] = raw; return true end
+            ws.handshaken = true
+            PEERS_PRIMA = ws.peers
+            ws.peers = { [33] = { slot = 1 }, [22] = { slot = 0 } }
+        """)
+        self.addCleanup(self.lua.execute, "ws.peers = PEERS_PRIMA")
+        self.lua.execute(m.group(0))
+        g = self.lua.globals()
+        cuore = chat_pack({"id": "c1", "nome": "Marta", "testo": "", "ts": 5, "emote": 2})
+        g.ws.chat(cuore, 33)
+        g.ws.chat(cuore, 33)                                     # il relay duplica
+        g.ws.chat(chat_pack({"id": "c2", "nome": "G", "testo": "ciao", "ts": 6}), 22)
+        g.ws.chat(chat_pack({"id": "c3", "nome": "S", "testo": "", "ts": 7, "emote": 0}), 44)
+        g.ws.chat(chat_pack({"id": "c4", "nome": "G", "testo": "", "ts": 8, "emote": 1}), 22)
+        al_gba = [bytes(g.AL_GBA[i]) for i in range(1, len(g.AL_GBA) + 1)]
+        self.assertEqual(al_gba, [bytes([8 | (1 << 4), 2]) + bytes(10), bytes([8, 1]) + bytes(10)])
+        self.assertEqual(g.ws.emoteRx, 3)
+
+        g.inviati = self.lua.table()
+        for _ in range(7):
+            g.emote(b"cuore")
+        chat = []
+        for i in range(1, len(g.inviati) + 1):
+            p = bytes(g.inviati[i][b"p"])
+            if p[5] == 10:
+                self.assertEqual(struct.unpack_from("<HH", p, 6), (42, 4242))
+                chat.append(chat_unpack(p[11:]))
+        self.assertEqual(len(chat), 5, "al massimo 5 emote in 10 secondi")
+        self.assertEqual(chat[0]["emote"], 2)
+        self.assertEqual(chat[0]["testo"], "❤️")
+        self.assertEqual(len({c["id"] for c in chat}), 5, "ogni emote ha il suo id")
+        eco = bytes(g.AL_GBA[len(g.AL_GBA)])
+        self.assertEqual(eco, bytes([8, 0x82]) + bytes(10))
+
+    def test_privacy_della_squadra_come_protocol_py(self):
+        """LA SQUADRA (2026-10-16): ws.filtroSquadra deve dare gli stessi byte di
+        squadra_in_uscita di protocol.py nei tre modi; i dettagli in arrivo
+        (tipo 9) non vanno al gioco; il config salva la scelta."""
+        from protocol import squadra_in_uscita
+        src = self.src
+        m = re.search(r"^function ws\.filtroSquadra\(raw\).*?^end$", src, re.S | re.M)
+        self.assertIsNotNone(m, "ws.filtroSquadra non trovata in inject_body.lua")
+        self.lua.execute(m.group(0))
+        self.assertIn("if kind == 9 then return end", src)
+        self.assertIn('squadra = %q }', src)
+        g = self.lua.globals()
+        pezzi = []
+        for idx in range(14):
+            pezzi.append(bytes([6, idx]) + bytes(range(0x30 + idx, 0x3A + idx)))
+        pezzi.append(bytes([9, 5]) + bytes(range(1, 11)))
+        pezzi.append(bytes([1, 2]) + bytes(10))
+        prima = g.ws.squadra
+        self.addCleanup(setattr, g.ws, "squadra", prima)
+        for modo in ("tutta", "base", "niente"):
+            g.ws.squadra = modo.encode()
+            for e in pezzi:
+                lua = g.ws.filtroSquadra(e)
+                atteso = squadra_in_uscita(e, modo)
+                self.assertEqual(None if lua is None else bytes(lua), atteso,
+                                 "modo %s, pezzo tipo %d n. %d" % (modo, e[0], e[1]))
+
     def test_script_universale_ricuce_per_la_rom_caricata(self):
         """LO SCRIPT UNIVERSALE (2026-09-27): con ROM_LINGUE nell'intestazione,
         romMatches legge il gamecode, prende la riga e ricuce il payload UNA

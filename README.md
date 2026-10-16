@@ -69,7 +69,9 @@ hardware link and online Cable Club possible. Our addition is the shared overwor
 - **trades and battles over the internet** through the game's Cable Club (tested on real
   hardware, from the website and from the PC panel);
 - let real GBAs, mGBA emulators and browser spectators play together **in the same room**;
-- provide a **Live map** of Hoenn showing where everyone is, and a **room chat** on the website.
+- provide a **Live map** of Hoenn showing where everyone is, and a **room chat** on the website,
+  with emotes ("!", "?", heart) that pop up over your head in your friends' games;
+- show each player's **party** on the website (species, level, shiny, fainted), read from the game.
 
 **It doesn't:**
 - modify the cartridge (it's mask ROM: physically impossible), and it **never writes the

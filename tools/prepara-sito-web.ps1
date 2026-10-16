@@ -187,6 +187,26 @@ if (-not (Test-Path (Join-Path $mappaDati "nomi.json"))) {
     & $python (Join-Path $root "tools\gen_mappa.py") --solo-nomi $mappaDati
     if ($LASTEXITCODE -ne 0) { throw "non riesco a scrivere net\mappa\nomi.json (tools\gen_mappa.py --solo-nomi)" }
 }
+# LE SQUADRE (2026-10-16, secondo giro): specie.json con tipi, frontale e numero
+# del Pokedex, squadra.json col tipo delle mosse e l'icona degli strumenti, e
+# le due cartelle di immagini frontali\ (64x64, normale e -shiny) e strumenti\.
+# Le scrive  tools\gen_mappa.py --solo-specie  dalla decomp. Dati di prima
+# (voci da 2 campi) = la scheda della squadra senza sprite ne' tipi: si grida.
+$specieJson = Join-Path $mappaDati "specie.json"
+$squadraJson = Join-Path $mappaDati "squadra.json"
+$cmdSpecie = "D:\Progettini\Python313\python.exe tools\gen_mappa.py --solo-specie net\mappa --decomp <pokeemerald>"
+if (-not (Test-Path $specieJson) -or -not (Test-Path $squadraJson)) {
+    throw "mancano net\mappa\specie.json o squadra.json: generali con  $cmdSpecie"
+}
+$primaSpecie = (Get-Content $specieJson -Raw -Encoding UTF8 | ConvertFrom-Json) | Where-Object { $_ } | Select-Object -First 1
+$primaMossa = (Get-Content $squadraJson -Raw -Encoding UTF8 | ConvertFrom-Json).mosse | Where-Object { $_ } | Select-Object -First 1
+if ($primaSpecie.Count -lt 5 -or $primaMossa.Count -lt 3 -or
+    -not (Test-Path (Join-Path $mappaDati "frontali")) -or -not (Test-Path (Join-Path $mappaDati "strumenti"))) {
+    throw "net\mappa\specie.json / squadra.json sono di prima delle squadre (niente tipi, frontali, icone degli strumenti): rigenerali con  $cmdSpecie"
+}
+$nFront = (Get-ChildItem -File (Join-Path $mappaDati "frontali")).Count
+$nStru = (Get-ChildItem -File (Join-Path $mappaDati "strumenti")).Count
+Write-Output ("squadre   : {0} frontali, {1} icone di strumenti" -f $nFront, $nStru)
 Copy-Item $mappaHtml (Join-Path $Out "mappa.html")
 Copy-Item $mappaDati (Join-Path $Out "mappa") -Recurse
 $nMappa = (Get-ChildItem -Recurse -File (Join-Path $Out "mappa") | Measure-Object -Property Length -Sum)

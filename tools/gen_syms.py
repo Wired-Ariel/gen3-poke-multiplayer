@@ -254,6 +254,20 @@ FUNCTIONS = {
         "void (*)(void)",
     "UnlockPlayerFieldControls":
         "void (*)(void)",
+
+    # --- la squadra nella scheda (2026-10-16) ---------------------------------
+    # La specie sta nella sottostruttura cifrata della struct Pokemon: la decifra
+    # il gioco (decifra, legge, ricifra). Nel .map ha due nomi allo stesso
+    # indirizzo (GetMonData2 e GetMonData3, alias): si usa quello a tre argomenti.
+    "GetMonData3":
+        "u32 (*)(void *mon, s32 field, u8 *data)",
+    # I dettagli della squadra (EVENT_PARTY): natura e sesso passano da una
+    # divisione (personality % 25, il rapporto della specie) che il payload
+    # non linka. Le fa il gioco.
+    "GetNature":
+        "u8 (*)(void *mon)",
+    "GetMonGender":
+        "u8 (*)(void *mon)",
 }
 
 # Variabili globali del gioco che il payload legge o scrive.
@@ -306,6 +320,14 @@ DATA = [
     # ricostruita chunk per chunk dagli eventi CARD. Fuori dalle sessioni link
     # il gioco non li tocca.
     "gTrainerCards",
+    # La squadra che finisce nei byte liberi della scheda (PartyIntoCard):
+    # sei struct Pokemon da 100 byte e il loro numero.
+    "gPlayerParty",
+    "gPlayerPartyCount",
+    # NON lo usa il payload: e' la tabella dei 25 nomi delle nature, che
+    # tools/nomi_it.py legge dalla cartuccia per il sito. Passa di qui perche'
+    # port_syms.py e' il solo modo legittimo di trovarla nella ROM italiana.
+    "gNatureNamePointers",
     # gLinkPlayers[1].language (offset 0x1C + 0x1A) va scritto prima di
     # mostrare la scheda: ShowTrainerCardInLink lo legge per il font, e a 0
     # uscirebbe la resa giapponese. LANGUAGE_ITALIAN = 4.

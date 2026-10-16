@@ -1419,6 +1419,226 @@
       b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 9, ev(2, 1, 5, 5)));
       return eq(fatti, ["entra:22", "esce:22", "entra:22"]) || fatti;
     });
+    // --- LE EMOTE E LA SQUADRA (2026-10-16) ---------------------------------
+    t("emote: il messaggio porta emote e il simbolo come testo; il testo si puo' anche omettere", function () {
+      var m = C.unpack(C.pack({ id: "e1", nome: "Lain", testo: "", ts: 9, emote: 2 }));
+      var fuori = C.unpack(C.pack({ id: "e2", nome: "Lain", testo: "", ts: 9, emote: 3 }));   // fuori range: niente emote, e vuoto
+      var vecchio = C.unpack(utf8('{"id":"e3","nome":"x","testo":"❤️","ts":1}'));     // un sito vecchio: testo e basta
+      return (m.emote === 2 && m.testo === C.EMOTE[2] && fuori === null && vecchio.emote === undefined && C.EMOTE.length === 3) || { m: m, fuori: fuori };
+    });
+    t("emote: un corpo di protocol.py (chat_pack con emote) si legge uguale", function () {
+      // json.dumps(ensure_ascii=False, separators=(",", ":")) di {"id","nome","testo","ts","emote"}
+      var m = C.unpack(utf8('{"id":"p1","nome":"Marta","testo":"❗","ts":1700000000000,"emote":0}'));
+      return (m && m.emote === 0 && m.testo === "❗") || m;
+    });
+    t("emote sessione: arriva una volta sola al gioco anche se il relay la duplica, e la mia fa l'eco", function () {
+      var o = orologio(), usciti = [], dagli = [], mie = [];
+      var marta = new C.Sessione({ stanza: 9, peer: 22, nome: "Marta", invia: function (b) { usciti.push(b); return true; }, now: o.now });
+      var lain = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: function () { return true; }, now: o.now });
+      lain.onEmote = function (peer, e) { dagli.push([peer, e]); };
+      marta.onEmoteMia = function (e) { mie.push(e); };
+      var r = marta.scrivi("", { emote: 1 });
+      lain.ricevi(22, usciti[0]); lain.ricevi(22, usciti[0]);
+      lain.ricevi(22, C.pack({ id: "x", nome: "Marta", testo: "solo testo", ts: o.t }));
+      return (r.ok && r.voce.emote === 1 && eq(mie, [1]) && eq(dagli, [[22, 1]]) && lain.store.voci[0].emote === 1 && lain.store.voci[0].testo === C.EMOTE[1]) || { dagli: dagli, mie: mie, r: r };
+    });
+    t("emote sessione: dalla scheda ospite passa per la portante, che fa l'eco sul SUO GBA", function () {
+      var nuovo = canali(), o = orologio(), mie = [], usciti = [];
+      var port = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: function (b) { usciti.push(b); return true; }, canale: nuovo(), now: o.now });
+      var osp = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: null, canale: nuovo(), now: o.now });
+      port.onEmoteMia = function (e) { mie.push(e); };
+      osp.portanteId = port.id;
+      var r = osp.scrivi("", { emote: 2 });
+      return (r.ok && usciti.length === 1 && C.unpack(usciti[0]).emote === 2 && eq(mie, [2])) || { r: r, usciti: usciti.length, mie: mie };
+    });
+    t("emote pausa: dopo un'emote le altre aspettano 2 s (per la sessione, non per bottone); i messaggi no", function () {
+      var o = orologio(), usciti = [];
+      var s = new C.Sessione({ stanza: 9, peer: 22, nome: "Marta", invia: function (b) { usciti.push(b); return true; }, now: o.now });
+      var a = s.scrivi("", { emote: 0 });
+      var p0 = s.pausaEmote();
+      o.t += 500;
+      var b = s.scrivi("", { emote: 2 });                 // un altro bottone: aspetta lo stesso
+      var testo = s.scrivi("ciao");                         // un messaggio passa
+      o.t += 1499;
+      var c = s.scrivi("", { emote: 1 });
+      o.t += 1;
+      var d = s.scrivi("", { emote: 1 });
+      return (a.ok && p0 === C.EMOTE_PAUSA_MS && !b.ok && b.perche === "pausa" && b.attesa === 1500 && testo.ok &&
+              !c.ok && c.attesa === 1 && d.ok && s.pausaEmote() === 2000 && usciti.length === 3) ||
+             { a: a.ok, p0: p0, b: b, testo: testo.ok, c: c, d: d.ok, usciti: usciti.length };
+    });
+    t("emote pausa: vale anche dalla scheda ospite (la chat piccola, la pagina della stanza)", function () {
+      var nuovo = canali(), o = orologio(), usciti = [];
+      var port = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: function (b) { usciti.push(b); return true; }, canale: nuovo(), now: o.now });
+      var osp = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: null, canale: nuovo(), now: o.now });
+      osp.portanteId = port.id;
+      var a = osp.scrivi("", { emote: 0 }), b = osp.scrivi("", { emote: 1 });
+      o.t += 2000;
+      var c = osp.scrivi("", { emote: 1 });
+      return (a.ok && !b.ok && b.perche === "pausa" && c.ok && usciti.length === 2) || { a: a, b: b, c: c, usciti: usciti.length };
+    });
+    t("emote nota: la voce sa se e' comparsa sopra l'avatar (onEmote -> true/false), e la scheda ospite lo riceve", function () {
+      var nuovo = canali(), o = orologio(), usciti = [];
+      var marta = new C.Sessione({ stanza: 9, peer: 22, nome: "Marta", invia: function (b) { usciti.push(b); return true; }, now: o.now });
+      var lain = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: function () { return true; }, canale: nuovo(), now: o.now });
+      var osp = new C.Sessione({ stanza: 9, peer: 11, nome: "Lain", invia: null, canale: nuovo(), now: o.now });
+      var risposte = [true, false], chiamate = 0;
+      lain.onEmote = function () { return risposte[chiamate++]; };
+      marta.scrivi("", { emote: 0 }); o.t += 2000; marta.scrivi("", { emote: 2 });
+      lain.ricevi(22, usciti[0]); lain.ricevi(22, usciti[0]); lain.ricevi(22, usciti[1]);
+      var v = lain.store.messaggi(), w = osp.store.messaggi();
+      return (chiamate === 2 && v[0].inGioco === true && v[1].inGioco === false && w.length === 2 && w[0].inGioco === true && w[1].inGioco === false) ||
+             { chiamate: chiamate, v: v, w: w };
+    });
+    t("squadra: schedaVista distingue «nascosta» (scheda arrivata, byte a zero) da «non ancora arrivata»", function () {
+      var b = fake(1);
+      b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 1, ev(2, 1, 5, 5)));
+      var prima = b.schedaVista(22);
+      for (var i = 0; i < 14; i++) {
+        var e = new Uint8Array(12); e[0] = 6; e[1] = i;      // pezzi di scheda tutti a zero: privacy «niente»
+        b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 2 + i, e));
+      }
+      var a = b.amiciVivi().filter(function (x) { return x.peerId === 22; })[0];
+      return (prima === false && b.schedaVista(22) === true && b.squadraDi(22) === null && a && a.schedaVista === true) ||
+             { prima: prima, dopo: b.schedaVista(22), a: a };
+    });
+    t("emote bridge: quella di un amico va al GBA timbrata col SUO slot; senza avatar no; la mia col bit 7", function () {
+      var b = fake(1);
+      b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 1, ev(2, 1, 5, 5)));     // 22 -> slot 0
+      b.onRelayMessage(R.pack(R.T.EVENT, 33, 1, 1, ev(2, 1, 6, 5)));     // 33 -> slot 1
+      var prima = b.out.length;
+      var a = b.emoteDi(33, 2), c = b.emoteDi(44, 0), d = b.emoteMia(1);
+      var e1 = b.out[prima], e2 = b.out[prima + 1];
+      return (a && !c && d && b.out.length === prima + 2 && e1[0] === (8 | (1 << 4)) && e1[1] === 2 &&
+              e2[0] === 8 && e2[1] === 0x81 && b.emoteSenzaAvatar === 1 && b.emoteConsegnate === 2) || { out: b.out.slice(prima), c: c };
+    });
+    t("emote bridge: lo spettatore non scrive al gioco (non ha un GBA)", function () {
+      var b = new OwlBridge({ peerId: 9, room: 1, spettatore: true, log: function () {} });
+      return (b.emoteMia(0) === false && b.emoteDi(22, 0) === false) || "scritto";
+    });
+    function scheda(squadra, extra) {
+      var b = new Uint8Array(96), shiny = 0, ko = 0;
+      for (var k = 0; k < 0x44; k++) b[k] = (k * 7) & 0xFF;      // il resto della scheda: rumore
+      squadra.forEach(function (m, i) {
+        b[0x54 + i * 2] = m[0] & 0xFF; b[0x55 + i * 2] = m[0] >> 8; b[0x44 + i] = m[1];
+        if (m[2]) shiny |= 1 << i; if (m[3]) ko |= 1 << i;
+      });
+      b[0x4A] = shiny; b[0x4B] = ko;
+      if (extra) extra(b);
+      return b;
+    }
+    function pezzi(b, idx) {     // la scheda a pezzi, come EmitCardChunk (kCardOff = 2,6..11)
+      var off = [2, 6, 7, 8, 9, 10, 11];
+      return idx.map(function (i) {
+        var e = new Uint8Array(12); e[0] = 6; e[1] = i;
+        for (var k = 0; k < 7 && i * 7 + k < 96; k++) e[off[k]] = b[i * 7 + k];
+        return e;
+      });
+    }
+    t("squadra: la scheda si legge (specie del gioco, livello, cromatico, esausto, uovo)", function () {
+      var sq = OwlBridge.squadraDaScheda(scheda([[280, 5, 0, 0], [412, 0, 0, 0], [277, 32, 1, 1]]));
+      return eq(sq, [{ specie: 280, lv: 5, cromatico: false, ko: false, uovo: false },
+                     { specie: 412, lv: 0, cromatico: false, ko: false, uovo: true },
+                     { specie: 277, lv: 32, cromatico: true, ko: true, uovo: false }]) || sq;
+    });
+    t("squadra: payload vecchio (zeri) = niente squadra; una specie oltre l'uovo = spazzatura, niente", function () {
+      var vecchia = OwlBridge.squadraDaScheda(new Uint8Array(96));
+      var rotta = OwlBridge.squadraDaScheda(scheda([[280, 5], [999, 9]]));
+      return (vecchia === null && rotta === null) || { vecchia: vecchia, rotta: rotta };
+    });
+    t("squadra bridge: dai pezzi di un AMICO (anche fuori ordine) e dai pezzi in USCITA dal mio GBA", function () {
+      var b = fake(1), viste = 0;
+      b.onPos = function () { viste++; };
+      var sua = scheda([[300, 12]]), mia = scheda([[252 + 25, 7], [281, 16]]);
+      var tutti = pezzi(sua, [13, 0, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      tutti.forEach(function (e, i) { b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 10 + i, e)); });
+      var primaDel10 = b.squadraDi(22);
+      b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 30, pezzi(sua, [10])[0]));
+      b.link = { send: function () { return true; } };
+      pezzi(mia, [9, 10, 12, 13]).forEach(function (e) { b.onDeviceEvent(e); });
+      var s = b.snapshot();
+      return (primaDel10 === null && eq(b.squadraDi(22), [{ specie: 300, lv: 12, cromatico: false, ko: false, uovo: false }]) &&
+              s.squadraIo.length === 2 && s.squadraIo[1].specie === 281 && b.squadreViste === 2 && viste > 0) ||
+             { primaDel10: primaDel10, sua: b.squadraDi(22), io: s.squadraIo, viste: b.squadreViste };
+    });
+    t("squadra bridge: i pezzi di scheda arrivano ANCHE al GBA (il payload ha la sua guardia) e la squadra se ne va col BYE", function () {
+      var b = fake(1);
+      b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 1, ev(2, 1, 5, 5)));
+      var sua = scheda([[300, 12]]);
+      pezzi(sua, [9, 10, 12, 13]).forEach(function (e, i) { b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 2 + i, e)); });
+      var consegnati = b.out.filter(function (e) { return (e[0] & 15) === 6; }).length;
+      var vivi = b.amiciVivi()[0].squadra;
+      b.onRelayMessage(R.pack(R.T.BYE, 22, 1, 0));
+      return (consegnati === 4 && vivi && vivi[0].specie === 300 && b.squadraDi(22) === null) || { consegnati: consegnati, vivi: vivi };
+    });
+
+    // --- I DETTAGLI DELLA SQUADRA E LA PRIVACY (2026-10-16) -------------------
+    function record(o) {      // i 28 byte di PARTY_REC del payload
+      var r = new Uint8Array(28);
+      (o.nick || []).forEach(function (b, i) { r[i] = b; });
+      r[10] = o.lv; r[11] = o.stato || 0;
+      r[12] = o.ps & 255; r[13] = o.ps >> 8; r[14] = o.psMax & 255; r[15] = o.psMax >> 8;
+      r[16] = o.item & 255; r[17] = o.item >> 8;
+      o.mosse.forEach(function (m, i) { r[18 + i * 2] = m & 255; r[19 + i * 2] = m >> 8; });
+      r[26] = o.natura; r[27] = o.sesso;
+      return r;
+    }
+    function pezziParty(mon, rec) {   // i 4 pezzi EVENT_PARTY di un Pokemon (kCardOff)
+      var off = [2, 6, 7, 8, 9, 10, 11], out = [];
+      for (var q = 0; q < 4; q++) {
+        var e = new Uint8Array(12); e[0] = 9; e[1] = mon * 4 + q;
+        for (var k = 0; k < 7; k++) e[off[k]] = rec[q * 7 + k];
+        out.push(e);
+      }
+      return out;
+    }
+    var REC1 = record({ nick: [0xC3, 0xD5, 0xD9, 0xFF], lv: 39, stato: 0x08, ps: 87, psMax: 120, item: 13,
+                        mosse: [57, 89, 0, 354], natura: 3, sesso: 0xFE });
+    t("dettagli: il record si legge (soprannome in byte, PS, stato, strumento, mosse, natura, sesso)", function () {
+      var d = OwlBridge.dettagliDaRecord(REC1);
+      return (eq(d.soprannome.slice(0, 4), [0xC3, 0xD5, 0xD9, 0xFF]) && d.lv === 39 && d.stato === 8 && d.ps === 87 &&
+              d.psMax === 120 && d.strumento === 13 && eq(d.mosse, [57, 89, 0, 354]) && d.natura === 3 && d.sesso === "f" &&
+              OwlBridge.dettagliDaRecord(record({ lv: 1, ps: 1, psMax: 1, item: 0, mosse: [1, 0, 0, 0], natura: 30, sesso: 0xFF })).natura === null) || d;
+    });
+    t("dettagli bridge: quelli di un amico si ricompongono (4 pezzi) e NON vanno al GBA", function () {
+      var b = fake(1);
+      b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 1, ev(2, 1, 5, 5)));
+      var prima = b.out.length, ps = pezziParty(2, REC1), dopo3;
+      ps.forEach(function (e, i) { b.onRelayMessage(R.pack(R.T.EVENT, 22, 1, 2 + i, e)); if (i === 2) dopo3 = b.dettagliDi(22)[2]; });
+      var d = b.dettagliDi(22), viva = b.amiciVivi()[0].dettagli;
+      return (b.out.length === prima && dopo3 === null && d[2].lv === 39 && d[0] === null && viva[2].psMax === 120) ||
+             { consegnati: b.out.length - prima, dopo3: dopo3, d: d };
+    });
+    function mandaIo(modo) {
+      var b = fake(1), partiti = [];
+      b.sendRelay = function (x) { partiti.push(R.unpack(x)); return true; };
+      b.setSquadra(modo);
+      // un pezzo di scheda con dentro la squadra (il pezzo 12: specie a +0x54..+0x5A) e i 4 pezzi dei dettagli
+      var card = new Uint8Array(12); card[0] = 6; card[1] = 12; [2, 6, 7, 8, 9, 10, 11].forEach(function (o) { card[o] = 0x55; });
+      var card3 = new Uint8Array(12); card3[0] = 6; card3[1] = 3; card3[2] = 0x41;   // pezzo 3: niente squadra dentro
+      b.onDeviceEvent(card); b.onDeviceEvent(card3);
+      pezziParty(0, REC1).forEach(function (e) { b.onDeviceEvent(e); });
+      return { b: b, partiti: partiti.map(function (p) { return { tipo: p.body[0], idx: p.body[1], dati: Array.prototype.slice.call(p.body, 2, 12) }; }) };
+    }
+    t("privacy «tutta»: partono scheda e dettagli come sono", function () {
+      var r = mandaIo("tutta");
+      return (r.partiti.length === 6 && r.partiti[0].dati[0] === 0x55 && r.partiti.filter(function (p) { return p.tipo === 9; }).length === 4) || r.partiti;
+    });
+    t("privacy «base»: la scheda parte intera, i dettagli NO; la mia squadra resta visibile a me", function () {
+      var r = mandaIo("base");
+      return (r.partiti.length === 2 && r.partiti[0].dati[0] === 0x55 && r.b.squadraTrattenuti === 4 &&
+              r.b.snapshot().dettagliIo[0].lv === 39) || { partiti: r.partiti, tratt: r.b.squadraTrattenuti };
+    });
+    t("privacy «niente»: i byte della squadra nella scheda partono a zero, il resto della scheda no", function () {
+      var r = mandaIo("niente");
+      var p12 = r.partiti[0], p3 = r.partiti[1];
+      return (r.partiti.length === 2 && p12.idx === 12 && p12.dati.every(function (x) { return x === 0; }) && p3.dati[0] === 0x41) || r.partiti;
+    });
+    t("privacy: si cambia a partita avviata (setSquadra), e un valore strano vale «tutta»", function () {
+      var b = fake(1); b.setSquadra("niente"); var a = b.squadra; b.setSquadra("boh");
+      return (a === "niente" && b.squadra === "tutta") || [a, b.squadra];
+    });
+
     t("chat bridge: il club di un amico si dice sulle transizioni, non a ogni riannuncio", function () {
       var P = OwlClub.proto, b = new OwlBridge({ peerId: 11, room: 9, spettatore: true, log: function () {} }), fatti = [];
       b.onClub = function (cosa, peer) { fatti.push(cosa + ":" + peer); };

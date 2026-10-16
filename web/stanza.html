@@ -6,8 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="img/favicon.png">
 <link rel="alternate" hreflang="en" href="stanza-en.html">
-<script src="js/lingua.js?v=1.8.0"></script>
-<link rel="stylesheet" href="css/sito.css?v=1.8.0">
+<script src="js/lingua.js?v=1.9.0"></script>
+<link rel="stylesheet" href="css/sito.css?v=1.9.0">
 <!--
   LA PAGINA DI UNA STANZA (2026-10-11): chi c'e', la chat completa, e la
   scheda «Mappa live» con la chat piccola sopra. Indirizzo: stanza.html?stanza=N.
@@ -34,7 +34,7 @@
   .stanza-capo .bottoni { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
   .stanza-capo .bottoni .btn { height: 38px; }
 
-  .griglia-stanza { display: grid; grid-template-columns: 270px minmax(0, 1fr) 280px; gap: 18px; align-items: start;
+  .griglia-stanza { display: grid; grid-template-columns: 290px minmax(0, 1fr) 280px; gap: 18px; align-items: start;
                     grid-template-areas: "gente chat lato"; }
   #col-gente { grid-area: gente; } #scheda-chat { grid-area: chat; } #col-lato { grid-area: lato; }
   .divisore { height: 1px; background: var(--riga); margin: 10px 0; }
@@ -49,6 +49,9 @@
   #scheda-chat { padding: 0; display: flex; flex-direction: column; overflow: hidden; height: clamp(520px, calc(100vh - 190px), 760px); }
   #chat-stanza { flex: 1; min-height: 0; }
   #chat-stanza.solo-testa { flex: none; }
+  /* la scheda «Squadre» (2026-10-16): la squadra dell'allenatore scelto a sinistra */
+  #riquadro-squadre { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 18px 20px 22px; }
+  .gente-aiuto { margin: -6px 0 10px; font-size: 12px; color: var(--tenue2); }
   #riquadro-mappa { position: relative; flex: 1; min-height: 0; background: repeating-linear-gradient(135deg, #e4ecd9 0 14px, #dce6cf 14px 28px); }
   #mappa-dentro { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
   #riquadro-mappa .tutto { position: absolute; top: 14px; right: 14px; z-index: 3; box-shadow: 0 4px 14px rgba(16,36,28,.08); }
@@ -83,12 +86,12 @@
   .riga-nome .btn { height: 40px; }
 
   @media (max-width: 1180px) {
-    .griglia-stanza { grid-template-columns: 270px minmax(0, 1fr); grid-template-areas: "gente chat" "lato chat"; }
+    .griglia-stanza { grid-template-columns: 290px minmax(0, 1fr); grid-template-areas: "gente chat" "lato chat"; }
   }
   @media (max-width: 900px) {
     /* una colonna sola, con la chat in fondo */
     .griglia-stanza { grid-template-columns: minmax(0, 1fr); grid-template-areas: "gente" "lato" "chat"; gap: 14px; }
-    #scheda-chat { height: 78vh; min-height: 460px; }
+    #scheda-chat { height: 78vh; min-height: 460px; scroll-margin-top: 12px; }
     .stanza-capo .bottoni { margin-left: 0; width: 100%; }
     .stanza-capo .bottoni .btn { flex: 1; }
   }
@@ -99,6 +102,7 @@
     #chat-piccola-corpo .chat-lista { max-height: 130px; }
     .riga-nome input, .riga-nome .btn { height: 46px; }
     #riquadro-mappa .tutto { top: auto; bottom: 64px; right: 10px; }
+    #riquadro-squadre { padding: 14px 14px 18px; }
   }
 </style>
 </head>
@@ -142,6 +146,7 @@
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">
           <span class="etichetta"><span class="l-it">Giocatori</span><span class="l-en">Players</span></span>
           <span class="mono" style="font-size:12px;color:var(--tenue2)" id="giocatori-conta">— / 4</span></div>
+        <p class="gente-aiuto"><span class="l-it">Clicca un allenatore per vedere la squadra.</span><span class="l-en">Click a trainer to see their party.</span></p>
         <ul class="giocatori" id="lista-giocatori"></ul>
         <div class="divisore"></div>
         <p class="etichetta" style="margin-bottom:8px" id="spett-titolo">—</p>
@@ -157,6 +162,7 @@
     <!-- ================================================================ chat -->
     <section class="scheda" id="scheda-chat">
       <div id="chat-stanza"></div>
+      <div id="riquadro-squadre" hidden><div id="squadra-scheda"></div></div>
       <div id="riquadro-mappa" hidden>
         <iframe id="mappa-dentro" title="Mappa live" data-en-title="Live map"></iframe>
         <a class="btn tutto" id="a-mappa-tutta" href="mappa.html" target="gen3pm-mappa"><span class="l-it">Apri a tutto schermo ↗</span><span class="l-en">Open full screen ↗</span></a>
@@ -187,6 +193,13 @@
         </div>
       </section>
       <section class="scheda" style="padding:16px">
+        <div style="font-size:15px;font-weight:800"><span class="l-it">La tua squadra nella stanza</span><span class="l-en">Your party in the room</span></div>
+        <p class="piccolo" style="margin:4px 0 12px"><span class="l-it">Scegli cosa vedono gli altri. Vale subito, anche a partita avviata.</span><span class="l-en">Choose what the others see. It applies at once, even mid-game.</span></p>
+        <div id="sq-privacy"></div>
+      </section>
+      <section class="scheda sq-cosi" style="padding:16px" id="sq-cosi"></section>
+      <p class="piccolo sq-piede"><span class="l-it">La squadra parte dalla scheda allenatore del gioco e si aggiorna da sola quando cambia: livelli, PS, scambi, uova.</span><span class="l-en">The party comes from the game's trainer card and updates by itself when it changes: levels, HP, trades, eggs.</span></p>
+      <section class="scheda" style="padding:16px">
         <p class="etichetta" style="margin-bottom:10px"><span class="l-it">Adesso nella stanza</span><span class="l-en">In the room right now</span></p>
         <div class="adesso" id="adesso"></div>
       </section>
@@ -206,15 +219,15 @@
   </div>
 </main>
 
-<script src="config.js?v=1.8.0"></script>
-<script src="js/sio.js?v=1.8.0"></script>
-<script src="js/battito.js?v=1.8.0"></script>
-<script src="js/relay.js?v=1.8.0"></script>
-<script src="js/club.js?v=1.8.0"></script>
-<script src="js/bridge.js?v=1.8.0"></script>
-<script src="js/sito.js?v=1.8.0"></script>
-<script src="js/chat.js?v=1.8.0"></script>
-<script src="js/chat-ui.js?v=1.8.0"></script>
-<script src="js/stanza.js?v=1.8.0"></script>
+<script src="config.js?v=1.9.0"></script>
+<script src="js/sio.js?v=1.9.0"></script>
+<script src="js/battito.js?v=1.9.0"></script>
+<script src="js/relay.js?v=1.9.0"></script>
+<script src="js/club.js?v=1.9.0"></script>
+<script src="js/bridge.js?v=1.9.0"></script>
+<script src="js/sito.js?v=1.9.0"></script>
+<script src="js/chat.js?v=1.9.0"></script>
+<script src="js/chat-ui.js?v=1.9.0"></script>
+<script src="js/stanza.js?v=1.9.0"></script>
 </body>
 </html>

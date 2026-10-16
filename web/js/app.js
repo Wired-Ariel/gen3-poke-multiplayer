@@ -118,7 +118,9 @@
       aperta: !!salvate.aperta,
       // IL NOME IN CHAT (2026-10-11): viaggia nei messaggi e nel «ciao» della
       // chat (js/chat.js). Vuoto = «peer N».
-      nome: typeof salvate.nome === "string" ? OwlChat.pulisci(salvate.nome, OwlChat.NOME_MAX) : ""
+      nome: typeof salvate.nome === "string" ? OwlChat.pulisci(salvate.nome, OwlChat.NOME_MAX) : "",
+      // LA SQUADRA NELLA STANZA (2026-10-16): "tutta", "base", "niente"
+      squadra: salvate.squadra === "base" || salvate.squadra === "niente" ? salvate.squadra : "tutta"
     };
     // L'INVITO: gioca.html?stanza=N compila la stanza. Vale una volta: il
     // parametro si toglie dall'indirizzo, cosi' una ricarica non riporta
@@ -143,6 +145,11 @@
     // due cose che le altre pagine possono cambiare senza farci rientrare.
     cfg.aperta = !!salvate.aperta;
     if (typeof salvate.nome === "string") cfg.nome = OwlChat.pulisci(salvate.nome, OwlChat.NOME_MAX);
+    // Anche la privacy della squadra: la pagina della stanza ha i suoi tre
+    // bottoni, e a partita avviata deve valere subito come il select di qui.
+    cfg.squadra = salvate.squadra === "base" || salvate.squadra === "niente" ? salvate.squadra : "tutta";
+    $("squadra-privacy").value = cfg.squadra;
+    if (bridge) bridge.setSquadra(cfg.squadra);
     if (inPartita) {
       $("stanza-aperta").checked = cfg.aperta;
       $("nome-chat").value = cfg.nome;
@@ -151,7 +158,7 @@
       disegnaStato();
       return;
     }
-    ["relay", "stanza", "peer", "peerGioco", "timing", "cavo"].forEach(function (k) { if (salvate[k]) cfg[k] = salvate[k]; });
+    ["relay", "stanza", "peer", "peerGioco", "timing", "cavo", "squadra"].forEach(function (k) { if (salvate[k]) cfg[k] = salvate[k]; });
     applicaCfg();
     allineaChat();
     disegnaTutto();
@@ -163,6 +170,7 @@
     $("timing").value = cfg.timing; $("cavo").value = cfg.cavo;
     $("stanza-aperta").checked = !!cfg.aperta;
     $("nome-chat").value = cfg.nome || "";
+    $("squadra-privacy").value = cfg.squadra || "tutta";
   }
   function leggiCfg() {
     var stanza = parseInt($("stanza").value, 10), peer = parseInt($("peer").value, 10), timing = parseInt($("timing").value, 10);
@@ -180,7 +188,10 @@
     if (!(timing >= 1000 && timing <= 60000)) return L("il timing va da 1000 a 60000", "the timing must be between 1000 and 60000");
     cfg = { relay: $("relay").value.trim(), stanza: stanza, peer: peer, peerGioco: peerGioco,
             timing: timing, cavo: $("cavo").value, aperta: $("stanza-aperta").checked,
-            nome: OwlChat.pulisci($("nome-chat").value, OwlChat.NOME_MAX) };
+            nome: OwlChat.pulisci($("nome-chat").value, OwlChat.NOME_MAX),
+            squadra: $("squadra-privacy").value };
+    // la privacy della squadra vale subito, anche a partita avviata
+    if (bridge) bridge.setSquadra(cfg.squadra);
     if ($("nome-chat").value !== cfg.nome) $("nome-chat").value = cfg.nome;
     salvaCfg();
     allineaChat();
@@ -483,7 +494,16 @@
   var CHIAVE_ROM = "gen3pm.romlua";
   function romLua() { var s = $("rom-lua"); return s && s.value === "usa" ? "usa" : "it"; }
 
-  function configuraLua(testo, url, stanza, peer, aperta) {
+  function configuraLua(testo, url, stanza, peer, aperta, squadra, nome) {
+    // LA SQUADRA E IL NOME (2026-10-16): righe facoltative come RELAY_PUBLIC. Se
+    // il template non le ha (vecchio), si aggiungono dopo RELAY_PEER.
+    var facoltative = [["SQUADRA", "SQUADRA = " + JSON.stringify(squadra || "tutta")]];
+    if (nome) facoltative.push(["NOME", "NOME = " + JSON.stringify(nome)]);
+    facoltative.forEach(function (f) {
+      var re = new RegExp("^" + f[0] + "\\s*=.*$", "m");
+      if (re.test(testo)) testo = testo.replace(re, function () { return f[1]; });
+      else testo = testo.replace(/^(RELAY_PEER\s*=.*)$/m, function (r) { return r + "\n" + f[1]; });
+    });
     // LA STANZA APERTA (2026-09-27): riga facoltativa. Il template la ha dal
     // 27/09; se manca (template vecchio) e la spunta c'e', la si aggiunge
     // dopo RELAY_PEER, che e' obbligatoria e viene controllata qui sotto.
@@ -542,7 +562,7 @@
         salvaCfg();
         applicaCfg();
       }
-      var out = configuraLua(testo, r.url, cfg.stanza, peerGioco, !!cfg.aperta);
+      var out = configuraLua(testo, r.url, cfg.stanza, peerGioco, !!cfg.aperta, cfg.squadra, cfg.nome);
       var a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([out], { type: "text/plain" }));
       // Dal 2026-09-27 lo script e' UNO per tutte le lingue (tools/unisci_script.py):
@@ -683,6 +703,7 @@
       inPartita: inPartita, spettatore: spettatore, stanza: stanzaInUso(), peer: peerInUso(),
       peerGioco: cfg ? cfg.peerGioco : 0, relayOk: !!(link && link.aperta), aperta: !!(cfg && cfg.aperta),
       rtt: s ? s.rttUltimo : null, posIo: s ? s.posIo : null, amici: s ? s.amici : [],
+      squadraIo: s ? s.squadraIo : null, dettagliIo: s ? s.dettagliIo : null,
       club: s ? s.club : false, clubAmici: s ? s.clubAmici : [],
       inviati: s ? s.sent : 0, ricevuti: s ? s.received : 0
     };
@@ -706,7 +727,12 @@
       posMia: posPerChat, statoStanza: statoPerSchede
     });
     chatUI = ChatUI.monta($("chat-pannello"), {
-      sessione: chat, stile: "stretta", titolo: "Chat", posizione: true, contaNonLetti: true,
+      sessione: chat, stile: "stretta", titolo: "Chat", posizione: true, emote: true, contaNonLetti: true,
+      // le emote partono solo da chi ha un avatar: in partita, non da spettatore
+      emoteSpente: function () {
+        return inPartita && !spettatore ? "" : L("Le emote partono quando sei in partita: premi «Gioca». Intanto puoi scrivere.",
+                                                "Emotes go out when you're in a game: press «Play». Meanwhile you can write.");
+      },
       nota: L("visibile a tutta la stanza", "visible to the whole room"),
       prefs: prefChat, spento: motivoChatSpenta
     });
@@ -714,6 +740,10 @@
     ChatUI.ascolta(chat, "onMessaggio", function (v) {
       if ($("mostra-eventi").checked) log("[chat ] " + v.nome + ": " + (v.pos ? "(posizione) " : "") + v.testo, "chat");
     });
+    // LE EMOTE NEL GIOCO (2026-10-16): quelle degli altri sopra il loro avatar,
+    // la mia sopra di me. Solo la scheda portante ha il bridge (e il GBA).
+    chat.onEmote = function (peer, e) { if (bridge) bridge.emoteDi(peer, e); };
+    chat.onEmoteMia = function (e) { if (bridge) bridge.emoteMia(e); };
     chat.chiedi();
   }
 
@@ -833,6 +863,7 @@
       copies: 2, onStatus: function () { disegnaStato(); },
       onPos: inviaPosizioniEvento, spettatore: spettatore,
       pubblica: cfg.aperta && !spettatore,
+      squadra: cfg.squadra || "tutta",
       onNumeroOccupato: numeroOccupato,
       onChat: function (peer, corpo) { if (chat) chat.ricevi(peer, corpo); },
       onAmico: function (cosa, peer) { if (chat) chat.evento(cosa, peer, chat.nomeDi(peer)); disegnaStanza(); },
@@ -933,6 +964,7 @@
     log("[rete ] partita fermata", "rete");
     bridge = null; link = null;
     disegnaTutto();
+    if (chatUI) chatUI.aggiorna();      // le emote si spengono
   }
 
   /* "Il relay c'e'?" senza Pico e senza partita: si apre la connessione, si
@@ -1103,10 +1135,11 @@
     var stanza = stanzaInUso();
     $("stanza-numero").textContent = stanza || "—";
     var modello = {
-      ses: chat, stretti: true, conPeer: true, posti: 4,
+      ses: chat, stretti: true, conPeer: true, posti: 4, privacy: cfg.squadra,
       io: inPartita ? { peer: peerInUso(), nome: chat.nomeDi(peerInUso()), pos: s ? s.posIo : null, spettatore: spettatore,
-                        peerGioco: cfg.peerGioco, alClub: !!(s && s.club) } : null,
-      amici: amici.map(function (a) { return { peer: a.peerId, pos: a.pos }; }),
+                        peerGioco: cfg.peerGioco, alClub: !!(s && s.club), squadra: s ? s.squadraIo : null,
+                        dettagli: s ? s.dettagliIo : null } : null,
+      amici: amici.map(function (a) { return { peer: a.peerId, pos: a.pos, squadra: a.squadra, dettagli: a.dettagli, vista: a.schedaVista }; }),
       clubAmici: s ? s.clubAmici : (ospite ? ospite.clubAmici : [])
     };
     var n = ChatUI.giocatori($("lista-amici"), modello);
@@ -1241,6 +1274,15 @@
       });
     };
     window.addEventListener("storage", function (ev) { if (ev.key === CHIAVE) ricaricaCfg(); });
+    // La privacy della squadra vale appena la scegli (come i bottoni della
+    // pagina della stanza, che scrivono lo stesso cfg.squadra), senza «Salva».
+    $("squadra-privacy").addEventListener("change", function () {
+      var v = this.value;
+      cfg.squadra = v === "base" || v === "niente" ? v : "tutta";
+      if (bridge) bridge.setSquadra(cfg.squadra);
+      salvaCfg();
+      disegnaStanza();
+    });
     // Le fisarmoniche ricordano come le hai lasciate. Senza un relay scritto,
     // le impostazioni si aprono da sole: e' la prima cosa da fare.
     var fis = S.pref("gen3pm.fis", {});

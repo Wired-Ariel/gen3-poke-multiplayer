@@ -37,7 +37,9 @@
       peer: s.peer || 0,
       peerGioco: s.peerGioco || 0,
       nome: typeof s.nome === "string" ? s.nome : "",
-      aperta: !!s.aperta
+      aperta: !!s.aperta,
+      // la privacy della squadra (2026-10-16): la stessa chiave del pannello
+      squadra: s.squadra === "base" || s.squadra === "niente" ? s.squadra : "tutta"
     };
   }
   /* Ritocca alcuni campi lasciando gli altri come sono. */
@@ -90,6 +92,85 @@
     if (v) return (!EN && v[1]) ? v[1] : v[0];
     return L("mappa ", "map ") + g + "." + n;
   }
+  /* --- le specie (2026-10-16) ------------------------------------------------
+   * mappa/specie.json: [[nome, "icone/x.png"|null], ...] indicizzato col numero
+   * di specie DEL GIOCO (quello che il payload scrive nella scheda: non e' il
+   * numero del Pokedex nazionale), 412 = uovo. Scritto da tools/gen_mappa.py.
+   * Chi lo usa prima che arrivi vede "#123": la pagina ridisegna da sola. */
+  var specie = null, specieChieste = null;
+  function caricaSpecie() {
+    if (specieChieste) return specieChieste;
+    specieChieste = fetch("mappa/specie.json").then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (d) { specie = d; return d; }, function () { specie = null; return null; });
+    return specieChieste;
+  }
+  function nomeSpecie(n) { var v = specie && specie[n]; return v ? v[0] : "#" + n; }
+
+  /* mappa/squadra.json (2026-10-16): i nomi per i DETTAGLI della squadra -
+   * mosse e strumenti per numero, le 25 nature, e la tabella dei caratteri del
+   * gioco per i soprannomi. Coppie [inglese, italiano|null]: l'italiano e'
+   * quello letto dalla cartuccia, dove manca vale l'inglese. */
+  var nomiSq = null, nomiSqChiesti = null;
+  function caricaNomiSquadra() {
+    if (nomiSqChiesti) return nomiSqChiesti;
+    nomiSqChiesti = fetch("mappa/squadra.json").then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (d) { nomiSq = d; return d; }, function () { nomiSq = null; return null; });
+    return nomiSqChiesti;
+  }
+  function coppia(v, ripiego) { return v ? ((!EN && v[1]) ? v[1] : v[0]) : ripiego; }
+  function nomeMossa(n) { return coppia(nomiSq && nomiSq.mosse[n], "#" + n); }
+  function nomeStrumento(n) { return coppia(nomiSq && nomiSq.strumenti[n], "#" + n); }
+  function nomeNatura(n) { return coppia(nomiSq && nomiSq.nature[n], "#" + n); }
+  /* I byte di un nome del gioco (0xFF = fine) -> testo. Senza tabella: "". */
+  function testoGioco(b) {
+    if (!nomiSq) return "";
+    var s = "";
+    for (var i = 0; i < b.length && b[i] !== 0xFF; i++) s += nomiSq.testo[b[i]] || "?";
+    return s.trim();
+  }
+  function iconaSpecie(n) { var v = specie && specie[n]; return v && v[1] ? "mappa/" + v[1] : null; }
+
+  /* --- la scheda della squadra (2026-10-16, secondo giro) ---------------------
+   * specie.json: [nome, icona, tipi, "frontali/x.png"] - tipi coi NUMERI del
+   * gioco (TYPE_*); il cromatico e' accanto, "frontali/x-shiny.png" (non
+   * l'uovo). squadra.json: le mosse hanno il tipo come terzo campo, gli
+   * strumenti il nome della loro icona in strumenti/. Nomi e colori dei tipi
+   * stanno qui: sono 18 righe, non vale la pena di farli viaggiare. I nomi
+   * italiani sono quelli che la cartuccia scrive per esteso (la sua tabella
+   * dei tipi li accorcia a 6 lettere: «COLEOT», «SP.TRO»). Il 9 e' il «???»
+   * di Maledizione: nessun Pokemon ce l'ha, una mossa si'. */
+  var TIPI = [
+    ["Normale", "Normal", "#a8a878"], ["Lotta", "Fighting", "#c03028"], ["Volante", "Flying", "#a890f0"],
+    ["Veleno", "Poison", "#a040a0"], ["Terra", "Ground", "#c8a050"], ["Roccia", "Rock", "#b8a038"],
+    ["Coleottero", "Bug", "#a8b820"], ["Spettro", "Ghost", "#705898"], ["Acciaio", "Steel", "#a0a0c0"],
+    ["???", "???", "#68a090"], ["Fuoco", "Fire", "#f08030"], ["Acqua", "Water", "#6890f0"],
+    ["Erba", "Grass", "#78c850"], ["Elettro", "Electric", "#e8b020"], ["Psico", "Psychic", "#f85888"],
+    ["Ghiaccio", "Ice", "#78c8c8"], ["Drago", "Dragon", "#7038f8"], ["Buio", "Dark", "#705848"]
+  ];
+  function tipo(n) { var t = TIPI[n]; return t ? { n: n, nome: L(t[0], t[1]), colore: t[2] } : null; }
+  function tipiSpecie(n) { var v = specie && specie[n]; return (v && v[2] ? v[2] : []).map(tipo).filter(Boolean); }
+  /* Il numero del Pokedex NAZIONALE (quello che il gioco mostra), non quello
+   * di specie: da Treecko in poi sono diversi. */
+  function numeroPokedex(n) { var v = specie && specie[n]; return v && v[4] ? v[4] : null; }
+  /* Lo sprite frontale 64x64; cromatico = la versione con shiny.pal. */
+  function frontaleSpecie(n, cromatico) {
+    var v = specie && specie[n];
+    if (!v || !v[3]) return null;
+    return "mappa/" + (cromatico && n !== 412 ? v[3].replace(/\.png$/, "-shiny.png") : v[3]);
+  }
+  function tipoMossa(n) { var v = nomiSq && nomiSq.mosse[n]; return v && typeof v[2] === "number" ? tipo(v[2]) : null; }
+  function iconaStrumento(n) { var v = nomiSq && nomiSq.strumenti[n]; return v && v[2] ? "mappa/strumenti/" + v[2] + ".png" : null; }
+  /* Un'etichetta di tipo: il colore del gioco, il bordo sotto piu' scuro (CSS). */
+  function etichettaTipo(t, piccola) {
+    var e = el("span", "tipo" + (piccola ? " piccola" : ""), t.nome);
+    e.style.setProperty("--tc", t.colore);
+    return e;
+  }
+
   /* Le coordinate come le mostra la Mappa live: senza il bordo di 7 tile. */
   function coord(pos) { return "(" + (pos.x - MAP_OFFSET) + "," + (pos.y - MAP_OFFSET) + ")"; }
   function urlMappa(pos, incorporata) {
@@ -200,6 +281,11 @@
     cfg: cfg, salva: salva, peerDiScheda: peerDiScheda, stanzaValida: stanzaValida, stanzaDaUrl: stanzaDaUrl,
     ricordaUltima: ricordaUltima, ultima: ultima, urlInvito: urlInvito,
     caricaLuoghi: caricaLuoghi, nomeLuogo: nomeLuogo, coord: coord, urlMappa: urlMappa,
+    caricaSpecie: caricaSpecie, nomeSpecie: nomeSpecie, iconaSpecie: iconaSpecie,
+    caricaNomiSquadra: caricaNomiSquadra, nomeMossa: nomeMossa, nomeStrumento: nomeStrumento,
+    nomeNatura: nomeNatura, testoGioco: testoGioco,
+    TIPI: TIPI, tipo: tipo, tipiSpecie: tipiSpecie, frontaleSpecie: frontaleSpecie, numeroPokedex: numeroPokedex, tipoMossa: tipoMossa,
+    iconaStrumento: iconaStrumento, etichettaTipo: etichettaTipo,
     cosaFa: cosaFa, quantoFa: quantoFa, iniziale: iniziale,
     urlStanze: urlStanze, elencoStanze: elencoStanze,
     copia: copia, lampo: lampo, el: el, pref: pref, salvaPref: salvaPref, suona: suona

@@ -30,6 +30,7 @@
   var canalePos = null;
   var mappaPronta = false, mappaInAttesa = null;
   var piccola = null;
+  var sqScelto = null;            // il peer della squadra aperta al centro (null = da scegliere)
 
   function prefs() { return S.pref(PREF, { suono: true, soloMenzioni: true, eventi: true }); }
   function memoria() { try { sessionStorage.getItem("x"); return sessionStorage; } catch (e) { return null; } }
@@ -47,7 +48,7 @@
     var p = modo === "ospite" ? statoPannello() : null;
     if (p) {
       return { fonte: "pannello", gioco: !p.spettatore, spettatore: !!p.spettatore, peer: p.peer, peerGioco: p.peerGioco || 0,
-               posIo: p.posIo, amici: p.amici || [], club: !!p.club, clubAmici: p.clubAmici || [], rtt: p.rtt,
+               posIo: p.posIo, squadraIo: p.squadraIo || null, dettagliIo: p.dettagliIo || null, amici: p.amici || [], club: !!p.club, clubAmici: p.clubAmici || [], rtt: p.rtt,
                relayOk: !!p.relayOk, inviati: p.inviati || 0, ricevuti: p.ricevuti || 0 };
     }
     if (modo === "autonomo" && bridge) {
@@ -70,6 +71,13 @@
     var v = vista();
     return { inPartita: false, guarda: true, spettatore: true, stanza: stanza, peer: peerMio, peerGioco: cfg.peerGioco || 0,
              relayOk: v.relayOk, rtt: v.rtt, posIo: null, amici: v.amici, club: false, clubAmici: v.clubAmici };
+  }
+
+  /* Le emote partono solo da chi ha un avatar: il pannello in partita. */
+  function emoteSpente() {
+    if (vista().gioco) return "";
+    return L("Le emote partono quando sei in partita: premi «Gioca» nel Pannello. Intanto puoi scrivere.",
+             "Emotes go out when you're in a game: press «Play» in the Panel. Meanwhile you can write.");
   }
 
   function motivoSpento() {
@@ -175,10 +183,26 @@
     }
   }
   function suScheda(f) {
-    var mappa = f === "mappa";
+    var mappa = f === "mappa", squadre = f === "squadre";
     $("riquadro-mappa").hidden = !mappa;
-    $("chat-stanza").classList.toggle("solo-testa", mappa);
+    $("riquadro-squadre").hidden = !squadre;
+    $("chat-stanza").classList.toggle("solo-testa", mappa || squadre);
     if (mappa) { apriMappaDentro(mappaInAttesa); mappaInAttesa = null; disegnaPiccola(); }
+    if (squadre) disegna();
+  }
+  /* Un allenatore cliccato a sinistra: la sua squadra al centro. Sotto i 900
+   * px la chat e' in fondo alla pagina: ci si porta li'. */
+  function scegliAllenatore(peer) {
+    sqScelto = peer;
+    if (ui.filtro() !== "squadre") ui.scegliFiltro("squadre"); else disegna();
+    if (window.matchMedia && window.matchMedia("(max-width: 900px)").matches) {
+      try { $("scheda-chat").scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) { /* niente */ }
+    }
+  }
+  function scegliPrivacy(valore) {
+    cfg.squadra = valore;
+    S.salva({ squadra: valore });    // il pannello (che ha il GBA) se ne accorge da solo e la applica
+    disegna();
   }
   /* «Mappa ↗» su una posizione condivisa: la scheda Mappa di questa pagina,
    * centrata li'. */
@@ -225,15 +249,36 @@
     badge.className = "targhetta" + (inElenco ? " aperta" : "");
     badge.textContent = inElenco ? L("Aperta · in elenco", "Open · on the list") : L("Fuori dall'elenco", "Off the list");
 
-    // giocatori
+    // giocatori: le schede si cliccano, e la squadra di quello scelto va al centro
     var modello = {
-      ses: ses, posti: 4, conPeer: false, clubAmici: v.clubAmici,
-      io: v.gioco ? { peer: v.peer, nome: ses.nomeDi(v.peer), pos: v.posIo, alClub: v.club }
+      ses: ses, posti: 4, conPeer: false, clubAmici: v.clubAmici, privacy: cfg.squadra,
+      scegli: scegliAllenatore, scelto: sqScelto,
+      io: v.gioco ? { peer: v.peer, nome: ses.nomeDi(v.peer), pos: v.posIo, alClub: v.club, squadra: v.squadraIo, dettagli: v.dettagliIo }
                   : { spettatore: true, peer: v.peer, peerGioco: v.peerGioco },
-      amici: v.amici.map(function (a) { return { peer: a.peerId, pos: a.pos }; })
+      amici: v.amici.map(function (a) { return { peer: a.peerId, pos: a.pos, squadra: a.squadra, dettagli: a.dettagli, vista: a.schedaVista }; })
     };
+    var disegnati = [];
+    // all'inizio (o se chi era scelto se n'e' andato): io, se gioco, altrimenti il primo
+    var trova = function (peer) { var x = null; disegnati.forEach(function (g) { if (g.peer === peer) x = g; }); return x; };
     var n = ChatUI.giocatori($("lista-giocatori"), modello);
+    disegnati = modello.disegnati || [];
+    if (!trova(sqScelto) && disegnati.length) {
+      sqScelto = disegnati[0].peer;
+      modello.scelto = sqScelto;
+      ChatUI.giocatori($("lista-giocatori"), modello);
+      disegnati = modello.disegnati || [];
+    }
     $("giocatori-conta").textContent = n + " / 4";
+    ChatUI.schedaSquadra($("squadra-scheda"), trova(sqScelto));
+
+    // la mia privacy, e come mi vedono gli altri
+    ChatUI.sceltaPrivacy($("sq-privacy"), cfg.squadra, scegliPrivacy);
+    ChatUI.cosiTiVedono($("sq-cosi"), {
+      nome: v.gioco ? ses.nomeDi(v.peer) : (cfg.nome || L("Tu", "You")),
+      luogo: v.posIo ? S.nomeLuogo(v.posIo.gruppo, v.posIo.numero) : "",
+      squadra: v.squadraIo, privacy: cfg.squadra, gioco: v.gioco,
+      altri: v.amici.filter(function (a) { return a.peerId !== v.peerGioco; }).map(function (a) { return ses.nomeDi(a.peerId); })
+    });
 
     // spettatori: io (se guardo) e quelli che si sono presentati in chat
     var ul = $("lista-spettatori"); ul.innerHTML = "";
@@ -323,12 +368,13 @@
     ses = new C.Sessione({ stanza: stanza, peer: peerMio, nome: cfg.nome, ruolo: "s", tipo: "stanza", invia: null,
                            canale: C.apriCanale(), storage: memoria(), posMia: posPerChat, statoStanza: statoPerSchede });
     ui = ChatUI.monta($("chat-stanza"), {
-      sessione: ses, stile: "piena", filtri: true, schedaMappa: true, rapide: true, posizione: true, contaNonLetti: true,
+      sessione: ses, stile: "piena", filtri: true, schedaMappa: true, schedaSquadre: true, rapide: true, posizione: true,
+      emote: true, emoteSpente: emoteSpente, contaNonLetti: true,
       nota: L("anche spettatori", "spectators too"), prefs: prefs, spento: motivoSpento,
       suScheda: suScheda, suPosizione: suPosizione
     });
     ChatUI.monta($("chat-piccola-corpo"), {
-      sessione: ses, stile: "righe", titolo: null, prefs: prefs, spento: motivoSpento,
+      sessione: ses, stile: "righe", titolo: null, prefs: prefs, spento: motivoSpento, emote: true, emoteSpente: emoteSpente,
       segnaposto: L("Scrivi senza lasciare la mappa…", "Write without leaving the map…")
     });
     ChatUI.ascolta(ses, "onStato", function () { decidi(); });
@@ -378,9 +424,12 @@
       var nuovo = S.cfg();
       if (nuovo.nome !== cfg.nome) { cfg.nome = nuovo.nome; if (document.activeElement !== $("nome-chat")) $("nome-chat").value = nuovo.nome; if (modo === "autonomo") ses.setNome(nuovo.nome); }
       cfg.peerGioco = nuovo.peerGioco;
+      if (nuovo.squadra !== cfg.squadra) { cfg.squadra = nuovo.squadra; disegna(); }
     });
 
     S.caricaLuoghi().then(function () { disegna(); });
+    S.caricaSpecie().then(function () { disegna(); });
+    S.caricaNomiSquadra().then(function () { disegna(); });
     disegna();
     // «C'e' un pannello che gioca in questa stanza?» Si aspetta la risposta
     // un attimo; se non arriva, ci si collega da soli.

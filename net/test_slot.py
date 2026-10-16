@@ -47,6 +47,8 @@ class BridgeFinto(C.Bridge):
         self.pos_io = None
         self.pos_amici = {}
         self.pos_sporche = False
+        self.schede = {}          # la squadra nella scheda (2026-10-16): il BYE la toglie
+        self.dettagli = {}        # e i suoi dettagli (EV_PARTY)
         self.peer_slots = {}
         self.slot_free = [0, 1, 2]
         self.slot_pieni_avvisati = set()

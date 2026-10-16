@@ -6,6 +6,78 @@ nulla. Quello che resta fisicamente fuori dalla portata di qualunque sito:
 **il firmware sul Pico** (UF2 drag&drop, una volta) e, su Windows, **il
 driver WinUSB** (Zadig, una volta). Tutto il resto ora vive nella pagina.
 
+## Emote e squadra (2026-10-16)
+
+- **Emote.** Nella chat (pannello e pagina della stanza) una fila «Nel gioco ❗ ❓ ❤️». Un'emote e' un
+  messaggio di chat con `"emote": 0|1|2` e il simbolo come testo (`js/chat.js`, gemello di
+  `protocol.py`): un sito vecchio la mostra come un messaggio qualunque. Chi la riceve e ha il GBA
+  collegato (`chat.onEmote` → `bridge.emoteDi`) la scrive al gioco come `EVENT_EMOTE` (tipo 8),
+  timbrata con lo slot di chi l'ha mandata; la mia torna al mio GBA col bit 7 (`onEmoteMia` →
+  `emoteMia`). Il payload la fa disegnare **al gioco** (le icone degli allenatori,
+  `FieldEffectStart`): nessuna grafica e nessuna palette nostra. Senza avatar (spettatore, quarto
+  amico) resta in chat. Lo stesso fanno `net/client.py` e il Lua (`emote("cuore")` nella console di
+  mGBA). **Solo tre disegni**: Smeraldo non ne ha altri.
+- **Squadra.** Il payload la scrive nei byte che Smeraldo lascia a zero nella scheda per il link
+  (`CARD_PARTY_*` in `payload/main.c`): specie del gioco, livello, cromatico, esausto. Viaggia nei
+  pezzi `EVENT_CARD` che gia' c'erano. `bridge.js` (`_pezzoScheda`, `squadraDaScheda`) la ricompone
+  per gli amici (in arrivo) e per me (in uscita), `chat-ui.js` la disegna sotto ogni giocatore con
+  le icone di `mappa/specie.json` (`tools/gen_mappa.py --solo-specie`). Da questa versione la scheda
+  parte anche da soli, cosi' la vedono anche gli spettatori.
+- **Dettagli della squadra** (stesso giorno, secondo giro): soprannome, PS, stato, strumento, mosse,
+  natura, sesso. Non stanno nella scheda: viaggiano in un flusso loro, `EVENT_PARTY` (tipo 9), che
+  segue il giro della scheda, 4 pezzi per Pokemon (record da 28 byte, `PARTY_REC` in
+  `payload/main.c`; natura e sesso li calcola il gioco, `GetNature`/`GetMonGender`). I client NON li
+  consegnano al GBA. Il sito li mostra nel riquadro «Dettagli della squadra» sotto ogni giocatore,
+  coi nomi di `mappa/squadra.json` (mosse, strumenti, nature: inglese dalla decomp, italiano dalla
+  cartuccia via `nomi_it.py`; la tabella dei caratteri per i soprannomi).
+- **Privacy**: Impostazioni → «La tua squadra nella stanza»: tutto / solo specie e livelli / niente.
+  Il filtro sta in CHI GIOCA (`bridge.js` `setSquadra`, `client.py --squadra`, Lua `SQUADRA` /
+  `squadra("base")`): cio' che si toglie non arriva al relay. Lo script scaricato dal sito porta la
+  scelta (riga `SQUADRA`) e il nome (riga `NOME`, per le emote da mGBA).
+- **Il disegno nuovo (stesso giorno, terzo giro: le sezioni 4a e 4b del disegno del sito, che non sta nel repo).**
+  Solo presentazione: protocollo, byte della scheda e privacy non cambiano.
+  - *Emote.* Nella chat grande una barra sopra il campo («Nel gioco», una riga d'aiuto, tre bottoni
+    Sorpresa / Domanda / Cuore col riquadro del gioco); nelle chat piccole (pannello, chat sopra la
+    mappa della stanza) tre tasti quadrati accanto al campo. **Mai l'emoji a schermo**: resta il
+    `testo` del messaggio per i siti vecchi, l'interfaccia disegna il riquadro (`EMO` in
+    `chat-ui.js`, stesso ordine di `OwlChat.EMOTE`). **Pausa di 2 s** fra un'emote e l'altra, per la
+    sessione (`EMOTE_PAUSA_MS`, `Sessione.pausaEmote()`, `scrivi` rende `perche: "pausa"`): vale
+    anche dalle schede ospiti. **Spente fuori partita** (`opts.emoteSpente()`: da spettatore non c'e'
+    un avatar su cui farle comparire), la chat no. In chat un'emote e' una bolla col riquadro e una
+    nota: «sopra X nel tuo gioco» / «X e' su un'altra mappa: solo in chat», dall'esito di
+    `bridge.emoteDi` al momento dell'arrivo (`voce.inGioco`, scritto da `chat.js` PRIMA che la voce
+    entri nello store, cosi' arriva intera anche alle schede ospiti; non si aggiorna dopo).
+  - *Squadre.* Pagina della stanza: le schede dell'elenco sono bottoni (conteggio `5/6`, nota col
+    pallino quando la squadra non e' tutta visibile); la squadra dell'allenatore scelto sta nella
+    scheda **«Squadre»** della colonna centrale (accanto a Tutto / Messaggi / Eventi / Mappa live):
+    griglia di schede con sprite frontale, tipi, stato, PS, strumento, e sotto il dettaglio (sprite
+    a 128, N. del Pokedex nazionale, natura, strumento, mosse col tipo). Uovo, «solo specie e
+    livelli» e «nascosta» hanno la loro forma. La privacy di un ALTRO si legge da cio' che arriva
+    (`ChatUI.privacyDi`): squadra e dettagli = tutta, squadra senza dettagli = base, scheda arrivata
+    senza squadra = nascosta (`bridge.schedaVista`, nuovo: distingue «byte a zero» da «non ancora
+    arrivata»). A destra la MIA privacy a tre bottoni (stesso `cfg.squadra` del `select` del
+    pannello, che ora vale appena cambia, anche a partita avviata: il pannello la riprende dallo
+    `storage`) e «Cosi' ti vedono». Il pannello tiene il suo riquadro «Dettagli della squadra».
+  - *Dati nuovi in `mappa/`*, tutti da `tools/gen_mappa.py --solo-specie [cartella] --decomp
+    <pokeemerald>` (Python, solo libreria standard, ~3 s): `specie.json` diventa
+    `[nome, icona, tipi, "frontali/x.png", pokedex]` (tipi coi NUMERI del gioco, `TYPE_*`: nomi e
+    colori in `sito.js`, `TIPI`; 25 KB, 6 KB compresso); `squadra.json` porta il tipo di ogni mossa
+    e il nome dell'icona di ogni strumento; `frontali/<specie>.png` e `frontali/<specie>-shiny.png`
+    (primo fotogramma 64x64 di `front.png`, palette `normal.pal` / `shiny.pal` per posizione,
+    trasparente l'indice del pixel (0,0); 773 file, 0,5 MB); `strumenti/<icona>.png` (272 file, una
+    per coppia png+palette, 74 KB). **`frontali/` e non `front/`**: `front/<SPECIE>.png` e' gia'
+    della Mappa live (64x128) e su Windows i nomi non distinguono le maiuscole.
+    `tools/prepara-sito-web.ps1` si ferma se i dati sono di prima.
+  - Prove (2026-10-16, in Chrome, **senza GBA**): `bridge_test.html` 144 ok (4 nuovi: pausa, pausa da
+    ospite, esito nel gioco sulla voce, `schedaVista`), `test.html` 12 ok; pagina della stanza con un
+    pannello SIMULATO sul BroadcastChannel (squadra tutta / base / nascosta, cromatico, esausto,
+    paralizzato, uovo, emote a schermo e fuori, pausa, fuori partita), a 1400 e a 375 px, in
+    italiano e in inglese. Procedura sul fisico: «EM3» in NOTES.
+- Prove: `bridge_test.html` (16 casi nuovi in tutto, 146 ok), `net/test_squadra_emote.py`,
+  `tools/test_ruolo_relay.py` (il Lua delle emote), `mgba/banco_emote.lua` (payload vero in mGBA: tre
+  emote sull'amico, una su di me, una fuori range, squadra nella scheda uguale al salvataggio,
+  guardia sulla scheda dell'amico). Procedura sul GBA: «EM» in NOTES.
+
 ## Il sito dal 2026-10-11: nuovo disegno, Stanze, chat della stanza
 
 Il riferimento visivo era un disegno unico (pannello, stanze, stanza, mappa,

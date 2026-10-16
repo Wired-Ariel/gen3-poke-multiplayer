@@ -1356,6 +1356,247 @@ def scrivi_nomi(out, mappe):
     return len(nomi)
 
 
+def numeri_tipi(decomp):
+    """TYPE_X -> numero (include/constants/pokemon.h). 9 e' TYPE_MYSTERY, il
+    «???» di Maledizione: non e' uno dei 17, ma una mossa ce l'ha."""
+    testo = (decomp / "include/constants/pokemon.h").read_text(encoding="utf-8", errors="replace")
+    return {k: int(v) for k, v in re.findall(r"^#define\s+(TYPE_\w+)\s+(\d+)\s*$", testo, re.M)
+            if int(v) < 255}
+
+
+def tipi_specie(decomp):
+    """SPECIES_X -> [tipo] o [tipo1, tipo2] (numeri del gioco) da species_info.h.
+    Le voci fatte con una macro (OLD_UNOWN_SPECIES_INFO) non hanno .types
+    propri: restano fuori, come in specie.json."""
+    num = numeri_tipi(decomp)
+    testo = (decomp / "src/data/pokemon/species_info.h").read_text(encoding="utf-8", errors="replace")
+    out = {}
+    pezzi = re.split(r"^\s*\[(SPECIES_\w+)\]\s*=", testo, flags=re.M)
+    for i in range(1, len(pezzi) - 1, 2):
+        m = re.search(r"\.types\s*=\s*\{\s*(TYPE_\w+)\s*,\s*(TYPE_\w+)\s*\}", pezzi[i + 1])
+        if not m or m.group(1) not in num or m.group(2) not in num:
+            continue
+        a, b = num[m.group(1)], num[m.group(2)]
+        out[pezzi[i]] = [a] if a == b else [a, b]
+    return out
+
+
+def tipi_mosse(decomp):
+    """MOVE_X -> numero del tipo, da src/data/battle_moves.h."""
+    num = numeri_tipi(decomp)
+    testo = (decomp / "src/data/battle_moves.h").read_text(encoding="utf-8", errors="replace")
+    out = {}
+    pezzi = re.split(r"^\s*\[(MOVE_\w+)\]\s*=", testo, flags=re.M)
+    for i in range(1, len(pezzi) - 1, 2):
+        m = re.search(r"\.type\s*=\s*(TYPE_\w+)", pezzi[i + 1])
+        if m and m.group(1) in num:
+            out[pezzi[i]] = num[m.group(1)]
+    return out
+
+
+def numeri_pokedex(decomp):
+    """NATIONAL_DEX_X -> numero, dall'ordine della prima enum di
+    include/constants/pokedex.h (NATIONAL_DEX_NONE = 0). Il suffisso e' lo
+    stesso di SPECIES_X: e' la stessa corrispondenza di SPECIES_TO_NATIONAL."""
+    testo = (decomp / "include/constants/pokedex.h").read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"enum\s*\{(.*?)\};", testo, re.S)
+    nomi = re.findall(r"^\s*(NATIONAL_DEX_\w+)\s*,", re.sub(r"//[^\n]*", "", m.group(1)), re.M) if m else []
+    return {n: i for i, n in enumerate(nomi)}
+
+
+def _trns_per(indice):
+    """tRNS che rende trasparente SOLO l'indice dato (gli altri opachi)."""
+    return [255] * indice + [0]
+
+
+def cartella_front(decomp, cart):
+    """La cartella con front.png di una specie, e quella delle palette. Quasi
+    sempre graphics/pokemon/<specie>/; Castform tiene le forme in
+    sottocartelle (normal/), Unown una per lettera (a/ e' quella del gioco)."""
+    base = decomp / "graphics/pokemon" / cart
+    for d in (base, base / "normal", base / "a"):
+        if (d / "front.png").exists():
+            pal = d if (d / "normal.pal").exists() else base
+            return d, pal
+    return None, None
+
+
+def rendi_frontale(decomp, cart, outdir):
+    """frontali/<specie>.png e frontali/<specie>-shiny.png: il PRIMO fotogramma
+    (64x64) di front.png, con normal.pal / shiny.pal applicate per POSIZIONE
+    (il colore i della normale diventa il colore i della cromatica, come fa il
+    gioco) e trasparente l'indice del pixel (0,0). Ritorna (normale, cromatico)
+    o (None, None). L'uovo non ha shiny.pal: niente cromatico."""
+    d, dp = cartella_front(decomp, cart)
+    if d is None:
+        return None, None
+    w, h, _bd, pal_png, _trns, righe = png_decode(d / "front.png")
+    lato = min(w, h)
+    fr = [r[:lato] for r in righe[:lato]]
+    trns = _trns_per(fr[0][0])
+    normale = leggi_pal(dp / "normal.pal") if (dp / "normal.pal").exists() else (pal_png + [(0, 0, 0)] * 16)[:16]
+    (outdir / (cart + ".png")).write_bytes(png_encode_indexed(lato, lato, fr, normale, trns))
+    nomi = ["frontali/%s.png" % cart, None]
+    if (dp / "shiny.pal").exists():
+        cromatica = leggi_pal(dp / "shiny.pal")
+        (outdir / (cart + "-shiny.png")).write_bytes(png_encode_indexed(lato, lato, fr, cromatica, trns))
+        nomi[1] = "frontali/%s-shiny.png" % cart
+    return nomi
+
+
+def scrivi_specie(out, decomp=None):
+    """specie.json + le icone di TUTTE le specie (2026-10-16): la squadra sul sito.
+
+    Il payload scrive nella scheda il numero di specie DEL GIOCO (non quello del
+    Pokedex nazionale: da Treecko in poi i due divergono, e 252-276 sono i
+    segnaposto OLD_UNOWN), quindi l'indice della lista e' quel numero, preso da
+    include/constants/species.h. 412 e' l'uovo (SPECIES_EGG). Ogni voce:
+    [nome, "icone/<specie>.png" o null]. Le icone sono le stesse della Mappa
+    live (32x32, il primo dei due fotogrammi di icon.png), quindi quelle gia'
+    scritte si riscrivono identiche. I nomi delle specie in italiano coincidono
+    con quelli inglesi: nome_specie basta.
+
+    Dal secondo giro (2026-10-16, la scheda della squadra) la voce e'
+    [nome, icona, tipi, frontale, pokedex]: tipi = [n] o [n1, n2] coi NUMERI del
+    gioco (TYPE_*, tabella dei nomi e dei colori in sito.js), frontale =
+    "frontali/<specie>.png" (64x64, rendi_frontale). Il cromatico e' accanto,
+    "frontali/<specie>-shiny.png", per tutte tranne l'uovo: il percorso non si
+    ripete nel JSON (sarebbero 11 KB su 24 per dire una cosa ovvia). pokedex =
+    il numero NAZIONALE (0 per l'uovo), quello che il gioco mostra. Cartella
+    frontali/ e non front/: front/<SPECIE>.png e' gia' della Mappa live (64x128,
+    due fotogrammi) e su Windows i nomi non distinguono le maiuscole."""
+    decomp = Path(decomp) if decomp else DECOMP
+    testo = (decomp / "include/constants/species.h").read_text(encoding="utf-8", errors="replace")
+    num = {}
+    for m in re.finditer(r"^#define\s+(SPECIES_\w+)\s+(\d+)\s*$", testo, re.M):
+        n = int(m.group(2))
+        if n <= 412 and n not in num:
+            num[n] = m.group(1)
+    (out / "icone").mkdir(parents=True, exist_ok=True)
+    (out / "frontali").mkdir(parents=True, exist_ok=True)
+    tipi = tipi_specie(decomp)
+    dex = numeri_pokedex(decomp)
+    elenco, n_icone = [], 0
+    for n in range(413):
+        cost = num.get(n)
+        if not cost or cost == "SPECIES_NONE" or cost.startswith("SPECIES_OLD_UNOWN"):
+            elenco.append(None)
+            continue
+        cart = cost.replace("SPECIES_", "").lower()
+        nome = "Egg" if cost == "SPECIES_EGG" else nome_specie(cost)
+        icona = None
+        pp = decomp / "graphics/pokemon" / cart / "icon.png"
+        if not pp.exists():
+            alt = decomp / "graphics/pokemon" / cart / "a" / "icon.png"   # unown
+            pp = alt if alt.exists() else None
+        if pp is not None:
+            try:
+                w, h, bd, pal, trns, righe = png_decode(pp)
+                fr = righe[:min(32, h)]
+                (out / "icone" / (cart + ".png")).write_bytes(
+                    png_encode_indexed(w, len(fr), fr, pal[:256], trns or [0]))
+                icona = "icone/%s.png" % cart
+                n_icone += 1
+            except Exception as e:      # noqa: BLE001
+                print("  icona %s: %s" % (cart, e))
+        try:
+            fronte, cromo = rendi_frontale(decomp, cart, out / "frontali")
+        except Exception as e:      # noqa: BLE001
+            print("  frontale %s: %s" % (cart, e))
+            fronte = cromo = None
+        if fronte and not cromo and cost != "SPECIES_EGG":
+            print("  frontale %s: manca shiny.pal, il cromatico non c'e'" % cart)
+        elenco.append([nome, icona, tipi.get(cost, []), fronte,
+                       dex.get(cost.replace("SPECIES_", "NATIONAL_DEX_"), 0)])
+    (out / "specie.json").write_text(json.dumps(elenco, ensure_ascii=False, separators=(",", ":")),
+                                     encoding="utf-8")
+    return sum(1 for v in elenco if v), n_icone
+
+
+def scrivi_nomi_squadra(out, decomp=None, it=None):
+    """squadra.json: i nomi per i DETTAGLI della squadra sul sito (2026-10-16).
+
+    {"mosse": [[inglese, italiano|null], ...] indicizzate col numero della mossa,
+     "strumenti": idem col numero dello strumento, "nature": 25 coppie,
+     "testo": 256 caratteri, il charset del gioco per leggere i soprannomi}.
+    L'inglese e' quello della decomp (ROM americana), l'italiano quello letto
+    dalla cartuccia (nomi_it.py): dove manca resta null e la pagina usa
+    l'inglese. Non si inventa niente.
+
+    Secondo giro (2026-10-16): ogni mossa porta un terzo campo, il NUMERO del
+    suo tipo (battle_moves.h), e ogni strumento il nome della sua icona in
+    strumenti/<nome>.png (item_icon_table.h + la palette che carica il gioco,
+    sfondo trasparente). Piu' strumenti condividono la stessa icona (le MT
+    cambiano solo palette): un file per coppia png+palette."""
+    decomp = Path(decomp) if decomp else DECOMP
+    it = it or {}
+
+    def per_numero(percorso, prefisso):
+        num = {}
+        for m in re.finditer(r"^#define\s+(%s\w+)\s+(\d+)\s*$" % prefisso,
+                             (decomp / percorso).read_text(encoding="utf-8", errors="replace"), re.M):
+            num.setdefault(int(m.group(2)), m.group(1))
+        return num
+
+    def tabella(num, en, it_d, terzo=None):
+        n = max(num) + 1 if num else 0
+        out_l = []
+        for i in range(n):
+            c = num.get(i)
+            v = ([titolo(en[c]), titolo(it_d[c]) if it_d.get(c) else None]
+                 if c and c in en else None)
+            if v is not None and terzo is not None:
+                v.append(terzo(c))
+            out_l.append(v)
+        return out_l
+
+    # le icone degli strumenti: una per coppia (png, palette)
+    (out / "strumenti").mkdir(parents=True, exist_ok=True)
+    icone_png, icona_di = {}, {}
+    for const, (png, pal) in carica_icone_strumenti().items():
+        chiave = (str(png), str(pal))
+        if chiave not in icone_png:
+            nome = png.stem if pal.stem == png.stem else "%s-%s" % (png.stem, pal.stem)
+            try:
+                w, h, _bd, _p, _t, righe = png_decode(png)
+                (out / "strumenti" / (nome + ".png")).write_bytes(
+                    png_encode_indexed(w, h, righe, leggi_pal(pal), _trns_per(righe[0][0])))
+                icone_png[chiave] = nome
+            except Exception as e:      # noqa: BLE001
+                print("  icona strumento %s: %s" % (const, e))
+                icone_png[chiave] = None
+        icona_di[const] = icone_png[chiave]
+    tipo_mossa = tipi_mosse(decomp)
+
+    mosse_en = dict(re.findall(r"\[(MOVE_\w+)\]\s*=\s*_\(\"([^\"]*)\"\)",
+                               (decomp / "src/data/text/move_names.h").read_text(encoding="utf-8")))
+    items_en = dict(re.findall(r"\[(ITEM_\w+)\]\s*=\s*\{\s*\.name\s*=\s*_\(\"([^\"]*)\"\)",
+                               (decomp / "src/data/items.h").read_text(encoding="utf-8")))
+    nat_t = (decomp / "src/data/text/nature_names.h").read_text(encoding="utf-8")
+    stringhe = dict(re.findall(r"(s\w+NatureName)\[\]\s*=\s*_\(\"([^\"]*)\"\)", nat_t))
+    nat_en = dict((k, stringhe[v]) for k, v in re.findall(r"\[(NATURE_\w+)\]\s*=\s*(s\w+NatureName)", nat_t))
+    nat_num = per_numero("include/constants/pokemon.h", "NATURE_")
+    nat_it = it.get("nature") or []
+    nature = []
+    for i in range(25):
+        c = nat_num.get(i)
+        nature.append([titolo(nat_en.get(c, c or "?")), titolo(nat_it[i]) if i < len(nat_it) else None])
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import nomi_it
+    car = nomi_it.carica_charmap()
+    testo = [car.get(b, "") for b in range(256)]
+
+    dati = {"mosse": tabella(per_numero("include/constants/moves.h", "MOVE_"), mosse_en, it.get("mosse") or {},
+                             lambda c: tipo_mossa.get(c, 0)),
+            "strumenti": tabella(per_numero("include/constants/items.h", "ITEM_"), items_en, it.get("items") or {},
+                                 lambda c: icona_di.get(c)),
+            "nature": nature, "testo": testo}
+    (out / "squadra.json").write_text(json.dumps(dati, ensure_ascii=False, separators=(",", ":")),
+                                      encoding="utf-8")
+    return dati
+
+
 def main():
     solo_esterni = "--solo-esterni" in sys.argv
     t0 = time.time()
@@ -2589,6 +2830,9 @@ def main():
             v.pop("miraggio", None)
     (OUT / "dati.json").write_text(json.dumps(dati, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     scrivi_nomi(OUT, mappe)
+    n_sp, n_ic = scrivi_specie(OUT)
+    print("specie.json: %d specie, %d icone" % (n_sp, n_ic))
+    scrivi_nomi_squadra(OUT, None, it)
     tot = sum(f.stat().st_size for f in OUT.rglob("*") if f.is_file())
     print("scritto %s: %d mappe, %d specie, %.1f MB in tutto (%.0f s)"
           % (OUT, len(mappe), len(specie), tot / 1e6, time.time() - t0))
@@ -2603,5 +2847,24 @@ if __name__ == "__main__":
         cartella = Path(resto[0]) if resto else OUT
         n = scrivi_nomi(cartella, json.loads((cartella / "dati.json").read_text(encoding="utf-8"))["mappe"])
         print("scritto %s: %d mappe" % (cartella / "nomi.json", n))
+        sys.exit(0)
+    if "--solo-specie" in sys.argv:
+        # Rifa' soltanto specie.json e le icone (serve solo la decomp).
+        #   gen_mappa.py --solo-specie [cartella] [--decomp <pokeemerald>]
+        resto = [a for a in sys.argv[1:] if a != "--solo-specie"]
+        dec = None
+        if "--decomp" in resto:
+            i = resto.index("--decomp")
+            dec = resto[i + 1]
+            del resto[i:i + 2]
+        cartella = Path(resto[0]) if resto else OUT
+        if dec:
+            DECOMP = Path(dec)      # anche per le funzioni che leggono la decomp da sole
+        n_sp, n_ic = scrivi_specie(cartella, dec)
+        print("scritto %s: %d specie, %d icone" % (cartella / "specie.json", n_sp, n_ic))
+        d = scrivi_nomi_squadra(cartella, dec, carica_nomi_italiani())
+        print("scritto %s: %d mosse, %d strumenti, nature %s/%s" % (
+            cartella / "squadra.json", sum(1 for v in d["mosse"] if v),
+            sum(1 for v in d["strumenti"] if v), d["nature"][0][0], d["nature"][0][1]))
         sys.exit(0)
     sys.exit(main())

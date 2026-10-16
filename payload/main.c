@@ -47,7 +47,7 @@
  * gioco: il bit serial spento e' la prova che CloseLink -> DisableSerial e'
  * passato di li' (link.c:1857). Vedi il latch del linkBusy. */
 #define REG_IE      (*(volatile u16 *)0x04000200)
-/* REG_IME: solo per la sezione critica di EmitEvent/EmitCardChunk, che dal
+/* REG_IME: solo per la sezione critica di EmitEvent/EmitChunk, che dal
  * 2026-08-21 hanno due produttori (il corpo dal main loop e il VBlank per
  * STATO fuori dall'overworld e CLUB). */
 #define REG_IME     (*(volatile u16 *)0x04000208)
@@ -269,6 +269,25 @@
  * attesa: non tocca il cavo. */
 #define LINK_GRACE_FRAMES 15u
 
+/* UN'EMOTE SOPRA LA TESTA (2026-10-16): «!», «?» o il cuore. Non la emette il
+ * gioco: nasce nella chat del sito (o nella console di mGBA) e il CLIENT di chi
+ * la riceve la scrive verso il proprio GBA, timbrata con lo slot di chi l'ha
+ * mandata, come fa col VIA. dir = 0 «!», 1 «?», 2 cuore; bit 7 alto = sopra il
+ * MIO personaggio (e' l'eco della mia, lo slot non conta). Gli altri campi non
+ * si leggono: niente di posizionale, si consuma al volo come lo STATO. Un
+ * payload vecchio scarta il tipo 8 (vedi la coda di DrainMailbox). */
+#define EVENT_EMOTE     8u
+#define EMOTE_SELF      0x80u
+
+/* I DETTAGLI DELLA SQUADRA (2026-10-16): soprannome, PS, mosse, strumento,
+ * natura, sesso, stato. Non ci stanno nella scheda: viaggiano in un flusso
+ * loro che segue il giro della scheda, 4 pezzi per Pokemon (dir = pezzo,
+ * 0..23; il Pokemon e' dir >> 2), gli stessi 7 byte utili di kCardOff. Li
+ * legge solo il sito: i client NON li consegnano al GBA, e un payload che li
+ * ricevesse comunque li butta (tipo sconosciuto, coda di DrainMailbox). Se
+ * mandarli o no lo decide il CLIENT di chi gioca (privacy), non il payload. */
+#define EVENT_PARTY     9u
+
 #define CARD_SIZE        96u     /* la PARTE LINK della scheda (0x60): e' quanto
                                   * riempie TrainerCard_GenerateCardForLinkPlayer
                                   * (memset 0x60, trainer_card.c:779) ed e' cio'
@@ -292,6 +311,43 @@
                                   * a delay 0 dura ~16-32 frame, e leggere
                                   * gPaletteFade.active vorrebbe dire fidarsi
                                   * del layout dei bitfield di agbcc          */
+/* LA SQUADRA NELLA SCHEDA (2026-10-16). La parte link della scheda ha byte che
+ * Smeraldo lascia a zero (memset 0x60, trainer_card.c:778, poi nessuno li
+ * scrive): filler[8] a +0x44 e monSpecies[6] a +0x54, che usa solo Rosso
+ * Fuoco - il visore di Smeraldo disegna quelle icone solo per CARD_TYPE_FRLG
+ * (trainer_card.c:1349). Viaggiano gia' nei chunk 9-13: nessun evento nuovo,
+ * nessun byte in piu' sul filo, e chi non sa leggerli li ignora.
+ *   +0x44..+0x49  livello dei sei Pokemon (0 = posto vuoto)
+ *   +0x4A         bit i = il Pokemon i e' cromatico
+ *   +0x4B         bit i = il Pokemon i e' esausto (PS a zero)
+ *   +0x54..+0x5F  specie del gioco, u16 (SPECIES_EGG = 412 per un uovo)
+ * Il contratto di lettura sta in web/js/bridge.js (squadraDaScheda) e in
+ * net/protocol.py (party_from_card). */
+#define CARD_PARTY_LV      0x44u
+#define CARD_PARTY_SHINY   0x4Au
+#define CARD_PARTY_KO      0x4Bu
+#define CARD_PARTY_SPECIES 0x54u
+#define PARTY_SIZE         6u
+#define PARTY_MON_SIZE     100u    /* sizeof(struct Pokemon)                  */
+#define MON_LEVEL          0x54u   /* struct Pokemon: in chiaro, fuori dalla  */
+#define MON_HP             0x56u   /* parte cifrata                           */
+#define MON_DATA_SPECIES_OR_EGG 65 /* include/pokemon.h, l'enum dei campi     */
+#define MON_DATA_HELD_ITEM 12
+#define MON_DATA_MOVE1     13      /* MOVE2..4 seguono                        */
+#define MON_NICKNAME       0x08u   /* in chiaro: 10 byte nel charset del gioco */
+#define MON_STATUS         0x50u   /* in chiaro, solo nella squadra: il byte
+                                    * basso basta (sonno 0-2, poi PSN BRN FRZ
+                                    * PAR TOX, include/constants/battle.h)    */
+/* Il record di UN Pokemon nel flusso EVENT_PARTY: 28 byte = 4 pezzi da 7,
+ * cosi' ogni pezzo e' di un Pokemon solo. Gemello di net/protocol.py
+ * (party_details) e di web/js/bridge.js (dettagliDaRecord).
+ *   +0  soprannome[10]       +10 livello          +11 stato (byte basso)
+ *   +12 PS u16               +14 PS massimi u16   +16 strumento u16
+ *   +18 mosse 4 x u16        +26 natura (GetNature, 0..24)
+ *   +27 sesso (GetMonGender: 0 maschio, 0xFE femmina, 0xFF nessuno)
+ * Natura e sesso li calcola il GIOCO: tutti e due passano da una divisione
+ * (personality % 25, il rapporto della specie) che il payload non linka. */
+#define PARTY_REC          28u
 #define LANGUAGE_ITALIAN 4u      /* constants/global.h                        */
 #define FADE_TO_BLACK    1u      /* constants/field_weather.h, modo di
                                   * FadeScreen                                */
@@ -695,6 +751,18 @@ struct PayloadState
                          * Sale uscendo dalla saletta e ogni volta che l'amico
                          * compare mentre stai camminando; se resta 0 in quei
                          * casi, la cura del pixel di lato e' codice morto  */
+    u32 emotesRx;       /* +0x1B4 EVENT_EMOTE arrivati dalla mailbox          */
+    u32 emotesShown;    /* +0x1B8 emote passate al gioco (FieldEffectStart).
+                         * Sotto emotesRx quando l'amico non e' disegnato, o
+                         * tu hai i controlli bloccati: se resta 0 con l'amico
+                         * a schermo e la chat che manda cuori, la strada e'
+                         * interrotta prima del gioco                       */
+    u32 partyCards;     /* +0x1BC schede rigenerate CON la squadra dentro
+                         * (PartyIntoCard). Deve seguire il giro della scheda:
+                         * se cardChunksTx sale e questo no, il sito non
+                         * vedra' mai la squadra                            */
+    u32 partyChunksTx;  /* +0x1C0 pezzi dei DETTAGLI della squadra emessi:
+                         * 4 per Pokemon a ogni giro della scheda           */
 };
 
 #ifdef PAYLOAD_WITH_SIO
@@ -1107,6 +1175,14 @@ static int PlayerCoordsSettled(u32 playerOe)
 #define CODE_FLY                        0xF0u
 #define CODE_NONE                       0xFFu
 #define FLDEFF_NPCFLY_OUT               30
+/* Le icone degli allenatori che ti vedono, e delle movement action EMOTE_*
+ * (0x56-0x58). Script del gioco = solo field_eff_callnative: nessuna palette
+ * caricata («!» e «?» sulla 0, il cuore forza la 2: trainer_see.c:696-729),
+ * tile dalle `images` allocati e liberati dal gioco, e l'icona segue da se'
+ * l'object event (SpriteCB_TrainerIcons, per localId + mappa) e si spegne. */
+#define FLDEFF_EXCLAMATION_MARK_ICON    0
+#define FLDEFF_QUESTION_MARK_ICON       33
+#define FLDEFF_HEART_ICON               46
 #define FLDEFF_USE_FLY                  31
 #define OBJ_EVENT_PAL_TAG_BRENDAN       0x1100
 #define OBJ_EVENT_PAL_TAG_MAY           0x1110
@@ -1198,7 +1274,7 @@ static u16 GfxSize(u8 gfxId)
 
 /* I 7 byte utili di un chunk di scheda, per OFFSET dentro NetEvent: speed(2),
  * x(6,7), y(8,9), gender(10), avatarState(11). E' il contratto fra
- * EmitCardChunk (che impacchetta) e DrainMailbox (che spacchetta): una
+ * EmitChunk (che impacchetta) e DrainMailbox (che spacchetta): una
  * tabella sola, cosi' i due non possono divergere. */
 static const u8 kCardOff[CARD_CHUNK_BYTES] = { 2, 6, 7, 8, 9, 10, 11 };
 
@@ -1214,7 +1290,7 @@ static const u8 kCardOff[CARD_CHUNK_BYTES] = { 2, 6, 7, 8, 9, 10, 11 };
  *
  * L'evento arriva gia' costruito tranne seq, mapGroup e mapNum, che sono
  * uguali per tutti e si scrivono qui: e' il tratto comune di EmitEvent e
- * EmitCardChunk, tenuto in un posto solo (2026-08-25, per il bilancio EWRAM
+ * EmitChunk, tenuto in un posto solo (2026-08-25, per il bilancio EWRAM
  * dei 4 giocatori). Ritorna 0 a coda piena: meglio perdere l'evento nuovo
  * che sovrascrivere roba che il lettore non ha ancora visto - e si conta. */
 static int EmitRaw(struct NetEvent *ev)
@@ -1293,21 +1369,88 @@ static void EmitStatus(void)
  * vedi sCardGenPending). I byte grezzi della scheda finiscono nei campi di
  * NetEvent secondo kCardOff; mapGroup e mapNum restano quelli veri, per il
  * client (vedi EVENT_CARD). */
-static void EmitCardChunk(u8 idx)
+/* Un pezzo da 7 byte, di scheda o di squadra: i byte di `src` finiscono nei
+ * campi di NetEvent secondo kCardOff. Dal 2026-10-16 l'ultimo pezzo della
+ * scheda legge 2 byte oltre i 96 (la voce 0 di gTrainerCards e' lunga 0x64):
+ * chi riceve li ignora (CARD_SIZE), come prima ignorava gli zeri. */
+static int EmitChunk(u8 type, u8 idx, const volatile u8 *src)
 {
     struct NetEvent ev;
-    u32 off = (u32)idx * CARD_CHUNK_BYTES;
-    const volatile u8 *src = (const volatile u8 *)ADDR_gTrainerCards;
     u8 *d = (u8 *)&ev;
     u32 k;
 
-    ev.type = EVENT_CARD;
+    ev.type = type;
     ev.dir  = idx;
     for (k = 0; k < CARD_CHUNK_BYTES; k++)
-        d[kCardOff[k]] = (off + k < CARD_SIZE) ? src[off + k] : 0;
+        d[kCardOff[k]] = src[k];
+    return EmitRaw(&ev);
+}
 
-    if (EmitRaw(&ev))
-        BUMPF(cardChunksTx);
+/* Un pezzo dei dettagli: il record del suo Pokemon si costruisce qui, sul
+ * momento (niente buffer in EWRAM), e se ne spedisce un quarto. Gira dal
+ * corpo come tutta la scheda: GetMonData, GetNature e GetMonGender sono
+ * codice del gioco. */
+static void EmitPartyChunk(u32 c)
+{
+    u8 rec[PARTY_REC];
+    u32 mon = ADDR_gPlayerParty + (c >> 2) * PARTY_MON_SIZE;
+    u32 k, v;
+
+    for (k = 0; k < 10u; k++)
+        rec[k] = GAME_U8(mon + MON_NICKNAME + k);
+    rec[10] = GAME_U8(mon + MON_LEVEL);
+    rec[11] = GAME_U8(mon + MON_STATUS);
+    for (k = 0; k < 4u; k++)
+        rec[12 + k] = GAME_U8(mon + MON_HP + k);        /* PS e PS massimi */
+    for (k = 0; k < 5u; k++)
+    {
+        v = GetMonData3((void *)mon, k ? MON_DATA_MOVE1 - 1 + (s32)k : MON_DATA_HELD_ITEM, 0);
+        rec[16 + k * 2] = (u8)v;
+        rec[17 + k * 2] = (u8)(v >> 8);
+    }
+    rec[26] = GetNature((void *)mon);
+    rec[27] = GetMonGender((void *)mon);
+    if (EmitChunk(EVENT_PARTY, (u8)c, rec + (c & 3u) * CARD_CHUNK_BYTES))
+        BUMPF(partyChunksTx);
+}
+
+/* La squadra nei byte liberi della scheda appena generata (layout sopra,
+ * CARD_PARTY_*). Gira dal main loop subito dopo
+ * TrainerCard_GenerateCardForLinkPlayer, mai dall'IRQ: GetMonData e' codice
+ * del gioco.
+ *
+ * Livello, PS, personality e otId sono in chiaro nella struct Pokemon; la
+ * specie no, sta nella sottostruttura cifrata, e la decifra GetMonData - la
+ * stessa chiamata che il menu della squadra fa a ogni frame (decifra, legge,
+ * ricifra: i byte tornano identici). Farlo a mano vorrebbe dire
+ * personality % 24, cioe' una divisione che il payload non linka.
+ * SPECIES_OR_EGG e non SPECIES: un uovo deve restare un uovo anche sul sito. */
+static void PartyIntoCard(void)
+{
+    volatile u8 *c = (volatile u8 *)ADDR_gTrainerCards;
+    u32 n = GAME_U8(ADDR_gPlayerPartyCount), i, shiny = 0, ko = 0;
+
+    if (n > PARTY_SIZE)
+        n = PARTY_SIZE;
+    for (i = 0; i < n; i++)
+    {
+        u32 mon = ADDR_gPlayerParty + i * PARTY_MON_SIZE;
+        u32 sp = GetMonData3((void *)mon, MON_DATA_SPECIES_OR_EGG, 0);
+        u32 pid = GAME_U32(mon), ot = GAME_U32(mon + 4u);
+
+        c[CARD_PARTY_SPECIES + i * 2u] = (u8)sp;
+        c[CARD_PARTY_SPECIES + i * 2u + 1u] = (u8)(sp >> 8);
+        c[CARD_PARTY_LV + i] = GAME_U8(mon + MON_LEVEL);
+        /* La formula del gioco (IsShinyOtIdPersonality): le quattro meta' a
+         * 16 bit messe in XOR, sotto 8. */
+        if (((ot >> 16) ^ (ot & 0xFFFFu) ^ (pid >> 16) ^ (pid & 0xFFFFu)) < 8u)
+            shiny |= 1u << i;
+        if (GAME_U16(mon + MON_HP) == 0)
+            ko |= 1u << i;
+    }
+    c[CARD_PARTY_SHINY] = (u8)shiny;
+    c[CARD_PARTY_KO] = (u8)ko;
+    BUMPF(partyCards);
 }
 
 /* Il giro della scheda: un chunk ogni CARD_TX_PERIOD frame, solo quando c'e'
@@ -1322,8 +1465,12 @@ static void CardTxTick(void)
     for (i = 0; i < N_REMOTES; i++)
         if (g_remotes[i].known)
             n++;
+    /* ANCHE DA SOLI (2026-10-16): la scheda porta la squadra, e la tua squadra
+     * sul sito la vuoi vedere anche prima che arrivi un amico - e la vedono
+     * gli spettatori, che non contano fra gli amici. Senza nessuno il giro e'
+     * quello di un amico solo: ~2,5 eventi/s, il budget del filo e' 25. */
     if (n == 0)
-        return;
+        n = 1;
 
     if (sCardTxTimer)
     {
@@ -1343,9 +1490,22 @@ static void CardTxTick(void)
      * scheda. La scheda completa passa da ~5,6 s a ~17 s con tre amici:
      * accettato, e' un dato che cambia lentamente. */
     sCardTxTimer = CARD_TX_PERIOD * n;
-    EmitCardChunk((u8)sCardTxIdx);
+    /* DOPO LA SCHEDA, I DETTAGLI (2026-10-16): 4 pezzi per Pokemon in squadra,
+     * poi il giro ricomincia (e la scheda si rigenera). Con sei Pokemon il
+     * giro passa da 14 a 38 pezzi: ~15 s con un amico, ~45 con tre. */
+    n = GAME_U8(ADDR_gPlayerPartyCount);
+    if (n > PARTY_SIZE)
+        n = PARTY_SIZE;
+    if (sCardTxIdx < CARD_CHUNKS)
+    {
+        if (EmitChunk(EVENT_CARD, (u8)sCardTxIdx,
+                      (const volatile u8 *)ADDR_gTrainerCards + sCardTxIdx * CARD_CHUNK_BYTES))
+            BUMPF(cardChunksTx);
+    }
+    else
+        EmitPartyChunk(sCardTxIdx - CARD_CHUNKS);
     sCardTxIdx++;
-    if (sCardTxIdx >= CARD_CHUNKS)
+    if (sCardTxIdx >= CARD_CHUNKS + n * 4u)
     {
         sCardTxIdx = 0;
         sCardReady = 0;
@@ -3071,6 +3231,46 @@ static void DrainMailbox(void)
          * byte vanno DIRETTAMENTE in gTrainerCards[1 + slot] - l'array ha 4
          * voci, una per giocatore della stanza, col passo VERO 0x64. Un chunk
          * duplicato riscrive gli stessi byte: idempotente. */
+        /* L'EMOTE (vedi EVENT_EMOTE): la icona la disegna il gioco, con la
+         * stessa chiamata della movement action EMOTE_* (ObjectEventGetLocalId-
+         * AndMap + FieldEffectStart). Non si accoda: un cuore che arriva mentre
+         * l'amico cammina gli compare sopra e lo segue. Si salta se l'avatar
+         * non c'e' (o non e' piu' nostro) e se hai i controlli bloccati - le
+         * stesse ore in cui l'icona di stato restituisce i tile (IndicatorTick).
+         * La casella degli argomenti e' del gioco: si rimette com'era. */
+        else if (kind == EVENT_EMOTE)
+        {
+            static const u8 kEmoteFx[3] = {
+                FLDEFF_EXCLAMATION_MARK_ICON, FLDEFF_QUESTION_MARK_ICON, FLDEFF_HEART_ICON
+            };
+            u32 e = g_mailbox.rx[tail].dir;
+            u32 oe = 0;
+
+            BUMPF(emotesRx);
+            if (e & EMOTE_SELF)
+                oe = ObjectEvent(gPlayerAvatar_objectEventId);
+            else if (r->state == STATE_SPAWNED && r->objectId < OBJECT_EVENTS_COUNT)
+            {
+                oe = ObjectEvent(r->objectId);
+                if (!oe_active(oe) || oe_localId(oe) != REMOTE_LID(slot))
+                    oe = 0;
+            }
+            e &= ~EMOTE_SELF;
+            if (oe && e < 3u && !ArePlayerFieldControlsLocked() && !gPlayerAvatar_preventStep)
+            {
+                u32 k0 = gFieldEffectArguments(0), k1 = gFieldEffectArguments(1),
+                    k2 = gFieldEffectArguments(2);
+
+                gFieldEffectArguments(0) = oe_localId(oe);
+                gFieldEffectArguments(1) = oe_mapNum(oe);
+                gFieldEffectArguments(2) = oe_mapGroup(oe);
+                FieldEffectStart(kEmoteFx[e]);
+                gFieldEffectArguments(0) = k0;
+                gFieldEffectArguments(1) = k1;
+                gFieldEffectArguments(2) = k2;
+                BUMPF(emotesShown);
+            }
+        }
         else if (kind == EVENT_CARD)
         {
             u8 idx = g_mailbox.rx[tail].dir;
@@ -3084,9 +3284,19 @@ static void DrainMailbox(void)
                 u32 k;
 
                 /* kCardOff: l'inverso esatto dell'impacchettamento di
-                 * EmitCardChunk, dalla stessa tabella. */
+                 * EmitChunk, dalla stessa tabella. */
                 for (k = 0; k < CARD_CHUNK_BYTES && off + k < CARD_SIZE; k++)
                     dst[off + k] = src[kCardOff[k]];
+
+                /* GUARDIA: monSpecies non resta nella scheda dell'amico.
+                 * LoadMonIconGfx (trainer_card.c:1385) carica i tile di ogni
+                 * specie non nulla SENZA guardare il tipo di scheda, e una
+                 * specie fuori tabella vorrebbe dire un puntatore a caso
+                 * (gMonIconTable[specie]). Al GBA la squadra non serve: la
+                 * legge il sito, dal flusso degli eventi. */
+                if (idx >= CARD_PARTY_SPECIES / CARD_CHUNK_BYTES)
+                    for (k = CARD_PARTY_SPECIES; k < CARD_SIZE; k++)
+                        dst[k] = 0;
 
                 r->cardRxBitmap |= (1u << idx);
                 BUMPF(cardChunksRx);
@@ -4166,6 +4376,7 @@ void payload_cb1(void)
     if (sCardGenPending)
     {
         TrainerCard_GenerateCardForLinkPlayer((void *)ADDR_gTrainerCards);
+        PartyIntoCard();
         sCardGenPending = 0;
         sCardReady = 1;
     }

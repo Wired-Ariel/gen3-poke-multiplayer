@@ -328,6 +328,10 @@ CHAT_ID_MAX = 24         # caratteri dell'id (lo sorteggia chi scrive)
 # 280 caratteri latini sono ~300-560 byte, e solo un messaggio di sole emoji
 # arriva al tetto - li' chat_pack accorcia il testo finche' ci sta.
 CHAT_CORPO_MAX = 1200
+# Le EMOTE (2026-10-16): un messaggio con "emote" 0/1/2 e il simbolo come
+# testo. L'ordine e' il contratto con EVENT_EMOTE del payload (dir 0 "!",
+# 1 "?", 2 cuore), con web/js/chat.js (OwlChat.EMOTE) e col Lua.
+CHAT_EMOTE = ["\u2757", "\u2753", "\u2764\ufe0f"]
 
 
 def _chat_pulisci(testo, massimo):
@@ -362,6 +366,10 @@ def chat_normalizza(d):
     if not ident or not isinstance(ts, (int, float)) or isinstance(ts, bool):
         return None
     out = {"tipo": "msg", "id": ident, "nome": nome, "testo": testo, "ts": int(ts)}
+    if _chat_intero(d.get("emote"), 0, len(CHAT_EMOTE) - 1):
+        out["emote"] = d["emote"]
+        if not testo:
+            out["testo"] = testo = CHAT_EMOTE[d["emote"]]
     pos = d.get("pos")
     if isinstance(pos, dict) and _chat_intero(pos.get("g"), 0, 255) \
             and _chat_intero(pos.get("n"), 0, 255) \
@@ -449,6 +457,12 @@ def extract_map_key(event):
 EV_LEAVE = 4
 EV_STATUS = 5
 EV_CARD = 6
+EV_PARTY = 9  # i DETTAGLI della squadra (2026-10-16): 4 pezzi per Pokemon,
+              # dir = pezzo (0..23). Solo per il sito: NON si consegna al GBA,
+              # e se mandarli lo decide chi gioca (vedi squadra_in_uscita).
+EV_EMOTE = 8  # un'emote sopra la testa (2026-10-16): la produce il CLIENT di
+              # chi riceve, dalla chat, timbrata con lo slot di chi l'ha
+              # mandata; dir 0 "!", 1 "?", 2 cuore, bit 7 = sopra di me.
 EV_CLUB = 7   # "il mio GBA sta entrando al Cable Club": il payload lo emette
               # tre volte prima di mollare la porta seriale. NON si inoltra
               # come evento di gioco: il client lo consuma e avvia la
@@ -516,6 +530,109 @@ def describe_event(event):
         return "#%3d %-5s mappa %d.%d chunk %d/13" % (
             seq, kinds[kind], map_g, map_n, direction)
 
+    if kind == EV_PARTY:
+        return "#%3d DETT. mappa %d.%d pezzo %d (Pokemon %d)" % (
+            seq, map_g, map_n, direction, direction >> 2)
+
+    if kind == EV_EMOTE:
+        e = direction & 0x7F
+        return "#%3d EMOTE %s%s" % (seq, ("!", "?", "cuore")[e] if e < 3 else "?%d" % e,
+                                    " (mia)" if direction & 0x80 else "")
+
     return "#%3d %-5s mappa %d.%d (%d,%d) %s" % (
         seq, kinds.get(kind, "?%d" % kind), map_g, map_n, x, y,
         dirs.get(direction, "?"))
+
+
+# --- la squadra nella scheda (2026-10-16) --------------------------------------
+# Il payload la scrive nei byte che Smeraldo lascia a zero nella parte link
+# della scheda (CARD_PARTY_* in payload/main.c), che viaggia gia' a pezzi in
+# EV_CARD. Gemella di squadraDaScheda in web/js/bridge.js.
+CARD_SIZE = 96
+CARD_CHUNK_BYTES = 7
+CARD_CHUNK_OFF = (2, 6, 7, 8, 9, 10, 11)   # kCardOff del payload
+PARTY_CHUNKS = (1 << 9) | (1 << 10) | (1 << 12) | (1 << 13)
+SPECIES_EGG = 412
+
+
+def card_put_chunk(card, event):
+    """Mette nel bytearray `card` (96 byte) i 7 byte di un EV_CARD. Ritorna il
+    bit del pezzo, o 0 se l'indice e' fuori."""
+    idx = event[1]
+    if idx >= 14:
+        return 0
+    for k, off in enumerate(CARD_CHUNK_OFF):
+        if idx * CARD_CHUNK_BYTES + k < CARD_SIZE:
+            card[idx * CARD_CHUNK_BYTES + k] = event[off]
+    return 1 << idx
+
+
+def party_from_card(card):
+    """I 96 byte di una scheda -> [{specie, lv, cromatico, ko, uovo}] o None se
+    dentro non c'e' una squadra. Una specie oltre l'uovo vuol dire byte che non
+    sono una squadra (payload vecchio, o spazzatura): None."""
+    out = []
+    for i in range(6):
+        sp = card[0x54 + i * 2] | (card[0x55 + i * 2] << 8)
+        if not sp:
+            continue
+        if sp > SPECIES_EGG:
+            return None
+        out.append({"specie": sp, "lv": card[0x44 + i],
+                    "cromatico": bool((card[0x4A] >> i) & 1),
+                    "ko": bool((card[0x4B] >> i) & 1), "uovo": sp == SPECIES_EGG})
+    return out or None
+
+
+# --- i dettagli della squadra (2026-10-16) --------------------------------------
+# Il record di un Pokemon: PARTY_REC byte = 4 pezzi EV_PARTY da 7 (layout in
+# payload/main.c, PARTY_REC). Gemello di dettagliDaRecord in web/js/bridge.js.
+PARTY_REC = 28
+STATI = ((0x07, "sonno"), (0x08, "veleno"), (0x10, "scottatura"),
+         (0x20, "congelamento"), (0x40, "paralisi"), (0x80, "veleno grave"))
+
+
+def party_details_put_chunk(store, event):
+    """Mette nel bytearray `store` (6 * PARTY_REC) i 7 byte di un EV_PARTY.
+    Ritorna il bit del pezzo (0..23), o 0 se fuori."""
+    idx = event[1]
+    if idx >= 24:
+        return 0
+    for k, off in enumerate(CARD_CHUNK_OFF):
+        store[idx * CARD_CHUNK_BYTES + k] = event[off]
+    return 1 << idx
+
+
+def party_details(rec):
+    """I PARTY_REC byte di un Pokemon -> dizionario. Il soprannome resta nei
+    byte del gioco (lo decodifica chi ha la tabella dei caratteri: il sito)."""
+    u16 = lambda o: rec[o] | (rec[o + 1] << 8)  # noqa: E731
+    stato = rec[11]
+    return {"soprannome": bytes(rec[0:10]), "lv": rec[10],
+            "stato": next((n for m, n in STATI if stato & m), None),
+            "ps": u16(12), "psMax": u16(14), "strumento": u16(16),
+            "mosse": [u16(18 + i * 2) for i in range(4)],
+            "natura": rec[26] if rec[26] < 25 else None,
+            "sesso": {0: "m", 0xFE: "f"}.get(rec[27])}
+
+
+# I byte della squadra dentro la scheda (CARD_PARTY_*): livelli, maschere,
+# specie. La privacy "niente" li azzera nei pezzi in USCITA.
+_CARD_PARTY = set(range(0x44, 0x4C)) | set(range(0x54, 0x60))
+
+
+def squadra_in_uscita(event, modo):
+    """Il filtro della privacy, sui pezzi che il NOSTRO GBA manda alla stanza.
+    modo: "tutta" (si manda tutto), "base" (specie e livelli si', dettagli no),
+    "niente" (neanche quelli). Ritorna l'evento da spedire, o None."""
+    if modo == "tutta" or not event:
+        return event
+    if event[0] == EV_PARTY:
+        return None
+    if event[0] == EV_CARD and modo == "niente":
+        e = bytearray(event)
+        for k, off in enumerate(CARD_CHUNK_OFF):
+            if event[1] * CARD_CHUNK_BYTES + k in _CARD_PARTY:
+                e[off] = 0
+        return bytes(e)
+    return event

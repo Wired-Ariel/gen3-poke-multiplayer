@@ -725,6 +725,11 @@ local ws = {
     -- Sta qui e non in un local perche' il chunk principale e' al tetto dei
     -- 200 registri di Lua (vedi owlSend).
     pubblica = rawget(_G, "RELAY_PUBLIC") == true,
+    -- LA SQUADRA (2026-10-16): che cosa della TUA squadra parte verso la stanza.
+    -- "tutta" (anche soprannomi, PS, mosse, strumenti, natura, sesso, stato),
+    -- "base" (specie e livelli), "niente". Il filtro e' qui: cio' che si
+    -- trattiene non arriva neanche al relay. squadra("base") nella console.
+    squadra = tostring(rawget(_G, "SQUADRA") or "tutta"),
     pubblicaDetta = false,
     -- IL CODICE DI SESSIONE (2026-09-27, net/relay.py VIVO_S): 4 byte sorteggiati
     -- a ogni caricamento dello script, nel corpo di PING e HELLO. Per il relay
@@ -868,6 +873,7 @@ local function relayDatagram(data)
 
     if tipo == OWL_PONG then return end
     if tipo == 9 then ws.numeroOccupato(body) return end   -- T_TAKEN
+    if tipo == 10 then ws.chat(body, peerId) return end     -- T_CHAT
 
     -- T_CLUB (6): la sessione del Cable Club. Non passa dal dedup dei
     -- datagrammi di camminata - ha numeri di serie suoi, per blocco.
@@ -919,6 +925,9 @@ local function relayDatagram(data)
 
     local ev = string.sub(body, 1, EVENT_SIZE)
     local kind = string.byte(ev, 1) & 0x0F
+    -- I DETTAGLI DELLA SQUADRA (tipo 9) sono solo per il sito: al gioco non
+    -- servono, e consegnarli occuperebbe la coda per niente.
+    if kind == 9 then return end
     if kind >= 1 and kind <= 3 then
         p.mapKey = (string.byte(ev, 5) << 8) | string.byte(ev, 6)
     end
@@ -1063,7 +1072,8 @@ local function relaySend(raw)
                        .. string.sub(raw, 2)
     end
     if not ws.handshaken then return end
-    if owlSend(OWL_EVENT, raw) then
+    raw = ws.filtroSquadra(raw)
+    if raw and owlSend(OWL_EVENT, raw) then
         link.sent = link.sent + 1
     end
 end
@@ -1130,8 +1140,8 @@ local function cfgScrivi()
         if f then
             f:write(string.format(
                 "-- scritto dal ruolo relay di gen3-poke-multiplayer: si puo' modificare a mano\n"
-                .. "return { stanza = %d, peer = %d, relay = %q, aperta = %s }\n",
-                RELAY_ROOM, RELAY_PEER, RELAY_URL, tostring(ws.pubblica)))
+                .. "return { stanza = %d, peer = %d, relay = %q, aperta = %s, squadra = %q }\n",
+                RELAY_ROOM, RELAY_PEER, RELAY_URL, tostring(ws.pubblica), ws.squadra))
             f:close()
             return path
         end
@@ -1169,6 +1179,7 @@ local function relayStart()
         -- Solo se la chiave c'e': un file scritto prima delle stanze aperte
         -- non deve spegnere lo script scaricato con la spunta.
         if dati.aperta ~= nil then ws.pubblica = dati.aperta == true end
+        if dati.squadra ~= nil then ws.squadra = tostring(dati.squadra) end
         cfgOrigine = path
     end
 
@@ -1323,6 +1334,93 @@ function peer(n)
     end
     RELAY_PEER = n
     riaggancia("peer cambiato")
+end
+
+-- LE EMOTE (2026-10-16). Nella chat della stanza (T_CHAT, JSON: net/protocol.py
+-- chat_normalizza) un'emote e' un messaggio con "emote" 0/1/2. Qui se ne
+-- legge solo quello: chi l'ha mandata, se ha un avatar, se la vede comparire
+-- sopra la testa nel NOSTRO gioco (EVENT_EMOTE del payload, timbrato col suo
+-- slot). Una volta per messaggio: dedup sull'id, come il sito. Le altre
+-- forme della chat qui non servono. Campi di `ws`: il chunk e' al tetto.
+ws.EMOTE = { "\u{2757}", "\u{2753}", "\u{2764}\u{FE0F}" }
+ws.chatVisti, ws.chatVistiN, ws.emoteTempi = {}, 0, {}
+ws.emoteRx, ws.emoteGioco, ws.emoteMie = 0, 0, 0
+function ws.chat(body, peerId)
+    local e = tonumber(body:match('"emote"%s*:%s*(%d+)'))
+    if not e or e > 2 then return end
+    local id = body:match('"id"%s*:%s*"([^"]*)"') or ""
+    if id == "" or ws.chatVisti[id] then return end
+    if ws.chatVistiN >= 400 then ws.chatVisti, ws.chatVistiN = {}, 0 end
+    ws.chatVisti[id], ws.chatVistiN = true, ws.chatVistiN + 1
+    ws.emoteRx = ws.emoteRx + 1
+    local p = ws.peers[peerId]
+    if p and p.slot and deliverRx(string.char(8 | (p.slot << 4), e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)) then
+        ws.emoteGioco = ws.emoteGioco + 1
+    end
+    console:log(string.format("[chat ] peer %d: %s%s", peerId, ws.EMOTE[e + 1],
+        (p and p.slot) and "" or "  (senza avatar qui: solo in chat)"))
+end
+
+-- emote("cuore") / emote("!") / emote("?"), oppure 0 1 2: nella chat della
+-- stanza, sopra la TUA testa nei giochi degli altri, e qui l'eco sul tuo
+-- personaggio. Al massimo 5 in 10 secondi, come la chat del sito (che oltre
+-- le butterebbe). Il nome e' quello di NOME = "..." nel config, se c'e'.
+function emote(e)
+    local quale = ({ ["!"] = 0, ["?"] = 1, cuore = 2, heart = 2, ["<3"] = 2 })[e] or tonumber(e)
+    if not quale or quale < 0 or quale > 2 then
+        console:error('[chat ] emote("!"), emote("?") o emote("cuore")')
+        return
+    end
+    quale = math.floor(quale)
+    if not (ws.sock and ws.handshaken) then
+        console:error("[chat ] non sei collegato al relay: l'emote non e' partita")
+        return
+    end
+    local ora, tenuti = os.time(), {}
+    for _, t in ipairs(ws.emoteTempi) do if ora - t < 10 then tenuti[#tenuti + 1] = t end end
+    ws.emoteTempi = tenuti
+    if #tenuti >= 5 then
+        console:error("[chat ] piano: al massimo 5 emote in 10 secondi")
+        return
+    end
+    local nome = (tostring(rawget(_G, "NOME") or ""):gsub('[%c"\\]', ""))
+    if not utf8.len(nome) then nome = "" end
+    if utf8.len(nome) > 16 then nome = nome:sub(1, utf8.offset(nome, 17) - 1) end
+    owlSend(10, string.format('{"id":"l%d-%d-%d","nome":"%s","testo":"%s","ts":%d,"emote":%d}',
+        RELAY_PEER, ora, math.random(0, 0xFFFFFF), nome, ws.EMOTE[quale + 1], ora * 1000, quale))
+    tenuti[#tenuti + 1] = ora
+    deliverRx(string.char(8, 0x80 | quale, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+    ws.emoteMie = ws.emoteMie + 1
+    console:log("[chat ] emote " .. ws.EMOTE[quale + 1] .. " mandata alla stanza " .. RELAY_ROOM)
+end
+
+-- Il filtro della privacy sui pezzi che il NOSTRO gioco manda: gemello di
+-- squadra_in_uscita in net/protocol.py. Con "base" i dettagli (tipo 9) non
+-- partono; con "niente" anche i byte della squadra nei pezzi di scheda (tipo 6,
+-- CARD_PARTY_* del payload: +0x44..+0x4B e +0x54..+0x5F) partono a zero.
+function ws.filtroSquadra(raw)
+    local k = string.byte(raw, 1) & 0x0F
+    if ws.squadra == "tutta" or (k ~= 6 and k ~= 9) then return raw end
+    if k == 9 then return nil end
+    if ws.squadra ~= "niente" then return raw end
+    local b, idx = { string.byte(raw, 1, #raw) }, string.byte(raw, 2)
+    for q, off in ipairs({ 2, 6, 7, 8, 9, 10, 11 }) do
+        local o = idx * 7 + q - 1
+        if (o >= 0x44 and o < 0x4C) or (o >= 0x54 and o < 0x60) then b[off + 1] = 0 end
+    end
+    return string.char(table.unpack(b))
+end
+
+-- squadra("tutta") / squadra("base") / squadra("niente"): salvato nel config.
+function squadra(modo)
+    if modo ~= "tutta" and modo ~= "base" and modo ~= "niente" then
+        console:error('[rete ] squadra("tutta"), squadra("base") o squadra("niente")')
+        return
+    end
+    ws.squadra = modo
+    local salvato = cfgScrivi()
+    console:log("[rete ] la tua squadra per la stanza: " .. modo
+                .. (salvato and (" (salvato in " .. salvato .. ")") or ""))
 end
 
 -- IL NUMERO ERA DI UN ALTRO (2026-09-27). Il relay ci tiene fuori (T_TAKEN):
@@ -2000,6 +2098,11 @@ local S = {
     -- 2026-09-28: l'avatar creato a camera in movimento, ripiazzato subito
     -- (il personaggio disegnato qualche pixel di lato al Centro Pokemon).
     spawnRealigns = 0x1B0,
+    -- 2026-10-16: emote dalla chat e squadra nella scheda.
+    emotesRx = 0x1B4,
+    emotesShown = 0x1B8,
+    partyCards = 0x1BC,
+    partyChunksTx = 0x1C0,
 }
 
 -- BUILD -WithSio: LO STATO E' COMPATTO (2026-10-08). Sul GBA fisico g_state e'
@@ -2351,6 +2454,12 @@ local function status()
         .. "| creati a camera in moto e ripiazzati %d",
         field("remoteGfxId"), animNum, field("rxTurns"),
         field("gfxResizes"), field("spawnSkipped"), field("spawnRealigns")))
+
+    -- emote: mostrate sotto arrivate = amico non disegnato o tu coi controlli
+    -- bloccati; squadra: deve salire a ogni giro della scheda (cardChunksTx)
+    console:log(string.format(
+        "[emote ] arrivate %d | mostrate %d | squadra nella scheda %d volte | pezzi dei dettagli %d",
+        field("emotesRx"), field("emotesShown"), field("partyCards"), field("partyChunksTx")))
 
     console:log(string.format(
         "[posa  ] pose da fermo %d | riallineamenti da fermo %d | blob surf creati %d / distrutti %d",

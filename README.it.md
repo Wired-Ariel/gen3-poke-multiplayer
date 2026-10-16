@@ -76,7 +76,9 @@ l'overworld condiviso.
 - **scambi e lotte via internet** attraverso il Cable Club del gioco (provato sul fisico, dal
   sito e dal pannello per PC);
 - fa giocare insieme, **nella stessa stanza**, GBA veri, emulatori mGBA e spettatori dal browser;
-- ha una **Mappa live** di Hoenn dove vedi dove sono tutti, e una **chat della stanza** sul sito.
+- ha una **Mappa live** di Hoenn dove vedi dove sono tutti, e una **chat della stanza** sul sito,
+  con le emote («!», «?», cuore) che ti compaiono sopra la testa nel gioco degli amici;
+- mostra sul sito la **squadra** di ogni giocatore (specie, livello, cromatico, esausto), letta dal gioco.
 
 **Non fa:**
 - non modifica la cartuccia (è ROM a maschera: fisicamente impossibile) e **non scrive il

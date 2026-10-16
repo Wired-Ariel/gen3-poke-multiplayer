@@ -148,6 +148,15 @@ typedef unsigned char  bool8;
 /* UnlockPlayerFieldControls @ 0x08098E74 (Thumb) */
 #define UnlockPlayerFieldControls ((void (*)(void))(0x08098E75))
 
+/* GetMonData3 @ 0x0806A51C (Thumb) */
+#define GetMonData3 ((u32 (*)(void *mon, s32 field, u8 *data))(0x0806A51D))
+
+/* GetNature @ 0x0806D074 (Thumb) */
+#define GetNature ((u8 (*)(void *mon))(0x0806D075))
+
+/* GetMonGender @ 0x08069FB8 (Thumb) */
+#define GetMonGender ((u8 (*)(void *mon))(0x08069FB9))
+
 /* --- dati del gioco --- */
 
 #define ADDR_gObjectEvents (0x02037350u)
@@ -166,6 +175,9 @@ typedef unsigned char  bool8;
 #define ADDR_CB2_InitPokeNav (0x081C6D58u)
 #define ADDR_Task_ShowStartMenu (0x0809FA48u)
 #define ADDR_gTrainerCards (0x02039B58u)
+#define ADDR_gPlayerParty (0x020244ECu)
+#define ADDR_gPlayerPartyCount (0x020244E9u)
+#define ADDR_gNatureNamePointers (0x08619674u)
 #define ADDR_gLinkPlayers (0x020229E8u)
 #define ADDR_CB2_ReturnToFieldWithOpenMenu (0x080861A8u)
 #define ADDR_gLinkCallback (0x03003140u)
