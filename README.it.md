@@ -74,7 +74,8 @@ l'overworld condiviso.
 - si mette a dormire da solo in lotta, nei menu e nelle schermate speciali, e si risveglia al
   ritorno nell'overworld;
 - **scambi e lotte via internet** attraverso il Cable Club del gioco (provato sul fisico, dal
-  sito e dal pannello per PC);
+  sito e dal pannello per PC); in tre o quattro nella stanza uno dei due sceglie l'altro («Al
+  Cable Club con» sul sito), così due coppie possono scambiare insieme;
 - fa giocare insieme, **nella stessa stanza**, GBA veri, emulatori mGBA e spettatori dal browser;
 - ha una **Mappa live** di Hoenn dove vedi dove sono tutti, e una **chat della stanza** sul sito,
   con le emote («!», «?», cuore) che ti compaiono sopra la testa nel gioco degli amici;
@@ -275,6 +276,7 @@ python net/test_tre_giocatori.py
 ```
 
 Gli altri: `net/test_deframer.py`, `test_bridge_tcp.py`, `test_relay_rebind.py`, `test_club.py`,
+`test_club_coppie.py` (quattro client, due coppie al Cable Club: ogni GBA riceve blocchi solo dal suo partner),
 `test_pannello.py`, `test_relay_ws.py`, `test_slot.py`, `test_relay_cap.py`, `test_client_ws.py`,
 `test_spettatore.py`, `test_presenza.py`, `test_stanze_aperte.py`, `test_numero_occupato.py` (un numero di peer
 già usato nella stanza da un altro giocatore o spettatore vivo viene rifiutato con `T_TAKEN`), e in `tools/` `test_ruolo_relay.py`, `test_club_lua.py`

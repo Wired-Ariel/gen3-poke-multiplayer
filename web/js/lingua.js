@@ -26,7 +26,12 @@
     pref = /^it\b/i.test(navigator.language || "") ? "it" : "en";
     try { localStorage.setItem(K, pref); } catch (e) { /* niente */ }
   }
-  if (pref !== mia) {
+  // I motori di ricerca non si spostano mai (2026-10-25): Googlebot ha il browser in inglese e
+  // niente memoria, quindi ogni pagina italiana finiva sulla gemella -en e l'italiano non veniva
+  // mai indicizzato. Le due lingue gliele indicano gia' hreflang e la sitemap.
+  var robot = /googlebot|google-inspectiontool|googleother|bingbot|bingpreview|yandexbot|duckduckbot|baiduspider|applebot|slurp|crawler|spider|facebookexternalhit|twitterbot|embedly/i
+    .test(navigator.userAgent || "");
+  if (pref !== mia && !robot) {
     location.replace(percorso[pref] + location.search + location.hash);
     return;
   }

@@ -73,7 +73,8 @@ import struct
 import time
 
 from protocol import (
-    CAPS_COPPIE, CAPS_DECISO, CAPS_SEGUO, CLUB_DATA, CLUB_REQ, CLUB_STATUS, CMD_COPPIE,
+    CAPS_COPPIE, CAPS_DECISO, CAPS_SEGUO, CLUB_DATA, CLUB_LEAVE, CLUB_REQ, CLUB_STATUS,
+    CMD_COPPIE,
     club_data, club_enter, club_req, club_status,
 )
 from usb_link import (
@@ -190,6 +191,101 @@ def ruolo_master(mio, suo):
     if suo == 2:
         return True
     return mio < suo
+
+
+# Quanto vale un annuncio sulla bacheca: chi e' al bancone riannuncia ogni
+# ANNUNCIO_S, e una sessione viva manda blocchi di continuo.
+BACHECA_S = 10.0
+
+
+class Accoppiamento:
+    """CON CHI si va al club (2026-10-25). Gemella di OwlClub.Accoppiamento in
+    web/js/club.js e della bacheca in mgba/club_lua.lua: le tre devono
+    decidere uguale, o due client restano ad aspettarsi a vicenda.
+
+    Il club e' a due, ma la stanza no: in 3-4 il relay porta i pacchetti del
+    club di tutti a tutti. Fino al 2026-10-25 il primo ENTER apriva la
+    sessione a chiunque lo sentisse (Pico in modo link anche a chi camminava)
+    e il partner era il primo che rispondeva - con due coppie al bancone gli
+    scambi si incrociavano. La regola adesso:
+
+    - ogni corpo dice a chi e' rivolto (`per`, protocol.club_con_per);
+    - IN DUE resta tutto come prima: l'unico altro e' il partner;
+    - IN 3-4 una coppia nasce solo se uno dei due ha SCELTO l'altro (sito:
+      "Al club con", client.py --club-con): chi viene scelto si accoda da
+      solo. Se nessuno sceglie non parte niente - il gioco aspetta come col
+      cavo attaccato a nessuno - invece di tirare a indovinare.
+
+    `presenti` e' l'insieme degli ALTRI giocatori che il client conosce.
+    Una scelta caduta su chi non c'e' piu' non conta, o una vecchia scelta
+    bloccherebbe per sempre il caso a due."""
+
+    def __init__(self):
+        self.scelto = 0        # il peer scelto da chi gioca (0 = nessuno)
+        self.partner = None    # il partner della sessione in corso
+        self.bacheca = {}      # peer -> (per, quando): chi e' al club, con chi
+        self.scartati = 0      # pacchetti club non per noi, buttati
+
+    def vista(self, mittente, sub, per, adesso):
+        if sub == CLUB_LEAVE:
+            self.bacheca.pop(mittente, None)
+        else:
+            self.bacheca[mittente] = (per or 0, adesso)
+
+    def via(self, peer):
+        self.bacheca.pop(peer, None)
+
+    def al_club(self, adesso):
+        """{peer: con chi} di chi si e' fatto sentire al club di recente."""
+        return {p: per for p, (per, t) in self.bacheca.items()
+                if adesso - t <= BACHECA_S}
+
+    def scelto_valido(self, presenti):
+        return self.scelto if self.scelto and self.scelto in presenti else 0
+
+    def apre(self, io, mittente, per, presenti):
+        """Un pacchetto dalla rete puo' aprire la NOSTRA sessione (Pico in modo
+        link) prima che il nostro GBA arrivi al bancone?"""
+        per = per or 0
+        scelto = self.scelto_valido(presenti)
+        if scelto:
+            return mittente == scelto and per in (0, io)
+        if per == io:
+            return True
+        return per == 0 and len(presenti) <= 1
+
+    def inizio(self, io, presenti, adesso):
+        """La sessione nasce: il partner e' quello scelto, o chi ci sta gia'
+        aspettando; altrimenti lo decidera' il primo pacchetto accettato."""
+        scelto = self.scelto_valido(presenti)
+        self.partner = scelto or None
+        if self.partner is None:
+            attese = [(t, p) for p, (per, t) in self.bacheca.items()
+                      if per == io and adesso - t <= BACHECA_S]
+            if attese:
+                self.partner = max(attese)[1]
+        return self.partner
+
+    def accetta(self, io, mittente, per, presenti):
+        """A sessione viva: None = non e' per noi; False = va bene; True = va
+        bene E il partner e' appena stato deciso (il ruolo si puo' scrivere)."""
+        per = per or 0
+        if self.partner is not None:
+            if mittente == self.partner and per in (0, io):
+                return False
+            self.scartati += 1
+            return None
+        if self.apre(io, mittente, per, presenti):
+            self.partner = mittente
+            return True
+        self.scartati += 1
+        return None
+
+    def per_uscita(self):
+        return self.partner or 0
+
+    def fine(self):
+        self.partner = None
 
 
 # IL MODO SEGUACE E' SOSPESO (v1.7.1, 2026-09-28): vedi K.SEGUACE_ATTIVO in

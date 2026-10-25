@@ -113,7 +113,15 @@ local stato = {
     attivo = false,          -- il gioco e' al bancone (annunciato)
     collegato = false,       -- ... e il link e' stato scritto nel gioco
     master = false,          -- il NOSTRO gioco e' il master del protocollo?
-    partnerPeer = nil,       -- il peer dell'amico, dal primo T_CLUB che arriva
+    partnerPeer = nil,       -- il peer dell'amico, dal primo T_CLUB ACCETTATO
+    -- CON CHI (2026-10-25, gemello di club_link.Accoppiamento): `scelto` lo
+    -- decide chi gioca (club(N) nella console), `atteso` e' il partner noto
+    -- gia' all'ingresso (lo scelto, o chi ci sta aspettando). NON si scrive in
+    -- partnerPeer: quello deve nascere da un pacchetto vero, perche' apre il
+    -- link e il ruolo dipende da cosa c'e' dall'altra parte (partnerLua).
+    scelto = 0,
+    atteso = nil,
+    altrui = 0,              -- pacchetti club non per noi, buttati
     epocaPartner = nil,      -- l'epoca della SUA sessione: se cambia, e' ripartito
     riagganci = 0,           -- quante volte l'abbiamo seguito in una sessione nuova
     partnerLua = false,      -- ... e se e' un emulatore come noi
@@ -243,7 +251,75 @@ end
 -- perche' puo' cambiare (con RELAY_PEER = 0 lo sorteggia il Lua all'avvio, e
 -- leggerlo una volta sola darebbe 0 - cioe' il numero piu' basso di tutti, e ci
 -- prenderemmo il ruolo di master a torto).
-local manda, chiPeer, puoiParlare = nil, nil, nil
+local manda, chiPeer, puoiParlare, chiCammina = nil, nil, nil, nil
+
+-- IL DESTINATARIO (2026-10-25): [per u16] in coda a ogni corpo = il peer con
+-- cui chi scrive vuole fare il club (0 = non lo sa ancora). In coda: chi e'
+-- vecchio lo ignora. Gemelli di club_con_per/club_per in net/protocol.py.
+-- Tutti i corpi di questo file hanno gia' la lunghezza piena (lo stato con
+-- le capacita'), quindi basta appendere.
+local function lungo(body)
+    local sub = string.byte(body, 1)
+    if sub == CLUB_STATUS then return 17 end
+    if sub == CLUB_DATA then return 9 + 64 end
+    if sub == CLUB_REQ then return #body >= 6 and (6 + 4 * string.byte(body, 6)) or #body end
+    return 5
+end
+local function perDi(body)
+    local n = lungo(body)
+    if #body >= n + 2 then return (string.unpack("<I2", body, n + 1)) end
+    return nil
+end
+local function mandaClub(body)
+    manda(T_CLUB, body .. string.pack("<I2", stato.partnerPeer or stato.atteso or 0))
+end
+
+-- LA BACHECA: chi e' al club e con chi (peer -> {per, quando} in frame).
+-- Serve a "siamo in due?" e a chi ci sta aspettando quando arriviamo noi.
+local BACHECA_FRAME = 600
+local bacheca = {}
+local function adesso()
+    return emu:read32(0x030022E0)
+end
+local function presenti()
+    local s, n, io = {}, 0, chiPeer and chiPeer() or 0
+    if chiCammina then for p in pairs(chiCammina()) do s[p] = true end end
+    local t = adesso()
+    for p, v in pairs(bacheca) do
+        if t - v.quando <= BACHECA_FRAME then s[p] = true end
+    end
+    s[io] = nil
+    for _ in pairs(s) do n = n + 1 end
+    return s, n
+end
+local function sceltoValido(s)
+    if stato.scelto ~= 0 and s[stato.scelto] then return stato.scelto end
+    return 0
+end
+-- Il pacchetto di `mitt` e' per la nostra sessione? nil = no; false = si';
+-- true = si', e il partner e' appena stato deciso.
+local function accetta(mitt, per)
+    local io = chiPeer and chiPeer() or 0
+    per = per or 0
+    if stato.partnerPeer then
+        if mitt == stato.partnerPeer and (per == 0 or per == io) then return false end
+        stato.altrui = stato.altrui + 1
+        return nil
+    end
+    local s, n = presenti()
+    local ok
+    if stato.atteso then
+        ok = mitt == stato.atteso and (per == 0 or per == io)
+    else
+        local sc = sceltoValido(s)
+        if sc ~= 0 then ok = mitt == sc and (per == 0 or per == io)
+        elseif per == io then ok = true
+        else ok = per == 0 and n <= 1 end
+    end
+    if ok then stato.partnerPeer = mitt return true end
+    stato.altrui = stato.altrui + 1
+    return nil
+end
 
 local function mandaStato(status)
     stato.sseq = (stato.sseq + 1) & 0xFFFF
@@ -252,7 +328,7 @@ local function mandaStato(status)
     for _ = 1, 3 do
         -- `capacita` in CODA (2026-09-27): chi e' vecchio legge 15 byte e il
         -- resto lo ignora, come per versione e impronta.
-        manda(T_CLUB, string.pack("<BI4I2I2I2I4I2", CLUB_STATUS, stato.epoca,
+        mandaClub(string.pack("<BI4I2I2I2I4I2", CLUB_STATUS, stato.epoca,
                                   stato.sseq, status, VERSIONE_CLUB, IMPRONTA_LUA,
                                   CAPS_SEGUO))
     end
@@ -266,7 +342,7 @@ local function mandaBlocco(blocco)
     if seq >= 512 then stato.storia[seq - 512] = nil end
     stato.tx = stato.tx + 1
     stato.txSessione = stato.txSessione + 1
-    manda(T_CLUB, string.pack("<BI4I4", CLUB_DATA, stato.epoca, seq) .. blocco)
+    mandaClub(string.pack("<BI4I4", CLUB_DATA, stato.epoca, seq) .. blocco)
 end
 
 -- --- apertura e chiusura -----------------------------------------------------
@@ -314,6 +390,29 @@ local function annuncia()
     stato.partnerPeer = nil
     stato.partnerLua = nil
     stato.riannunciEnter = 0
+    -- Il partner atteso: quello scelto, o chi ci sta gia' aspettando. In 3-4
+    -- senza nessuno dei due non si tira a indovinare.
+    do
+        local s, n = presenti()
+        local io = chiPeer and chiPeer() or 0
+        stato.atteso = sceltoValido(s)
+        if stato.atteso == 0 then
+            stato.atteso = nil
+            local meglio = -1
+            for p, v in pairs(bacheca) do
+                if v.per == io and adesso() - v.quando <= BACHECA_FRAME and v.quando > meglio then
+                    meglio, stato.atteso = v.quando, p
+                end
+            end
+        end
+        if stato.atteso then
+            console:log(string.format("[club ] al club con il peer %d", stato.atteso))
+        elseif n >= 2 then
+            console:log(string.format(
+                "[club ] siete in %d nella stanza: CON CHI? scrivi club(N) nella console "
+                .. "(N = il peer dell'amico). Se e' l'amico a scegliere te, entri da solo", n + 1))
+        end
+    end
     -- Un'epoca diversa a ogni sessione: il partner che la vede cambiare sa che
     -- siamo ripartiti e riaggancia invece di macinare sequenze di due mondi.
     stato.epoca = ((emu:read32(0x030022E0) * 2654435761)
@@ -336,7 +435,7 @@ local function annuncia()
     stato.sezioneAvanti, stato.quiete = 0, 0
     CLUB_IO_ID, CLUB_PARTNER_ID = 1, 0
 
-    manda(T_CLUB, string.pack("<BI4", CLUB_ENTER, stato.epoca))
+    mandaClub(string.pack("<BI4", CLUB_ENTER, stato.epoca))
     mandaStato(ST_HANDSHAKE_RX)
     console:log(string.format(
         "[club ] il TUO gioco e' al Cable Club (epoca 0x%08X): aspetto l'amico",
@@ -495,12 +594,13 @@ local function chiudi(motivo)
         stato.congedoEsito = motivo:find("entro 6 s") and "scaduto" or "riuscito"
     end
     mandaStato(ST_CLOSED)
-    manda(T_CLUB, string.pack("<BI4", CLUB_LEAVE, stato.epoca))
+    mandaClub(string.pack("<BI4", CLUB_LEAVE, stato.epoca))
     stato.attivo = false
     stato.collegato = false
     stato.congedo = false
     -- Difesa in profondita': il partner muore con la sessione, sempre.
     stato.partnerPeer = nil
+    stato.atteso = nil
     stato.partnerLua = nil
     emu:write8(ADDR_gLinkVSyncDis, 0)
     emu:write16(REG_RCNT, 0x0000)      -- il SIO torna come l'abbiamo trovato
@@ -564,11 +664,43 @@ end
 
 function Club.riceviCorpo(body, peerId)
     if #body < 5 then return end
-    -- SOLO a sessione viva: un T_CLUB che arriva mentre camminiamo (l'amico
-    -- al bancone, o un rilancio zombie in volo) non deve pre-armare il gate
-    -- dell'attesa della sessione DOPO - vedi il commento in annuncia().
-    if peerId and stato.attivo then stato.partnerPeer = peerId end
     local sub, epoca = string.unpack("<BI4", body)
+    local per = perDi(body)
+    local io = chiPeer and chiPeer() or 0
+
+    -- La bacheca, sempre: chi e' al club e con chi.
+    if peerId then
+        if sub == CLUB_LEAVE then
+            bacheca[peerId] = nil
+        else
+            local prima = bacheca[peerId]
+            bacheca[peerId] = { per = per or 0, quando = adesso() }
+            if (not prima or prima.per ~= (per or 0)) and per == io and not stato.attivo then
+                console:log(string.format(
+                    "[club ] il peer %d ti aspetta al Cable Club: vai dalla signorina", peerId))
+            end
+        end
+    end
+
+    -- E' PER NOI? Il relay porta il club di tutti a tutti. Fino al 2026-10-25
+    -- qui ogni T_CLUB riscriveva partnerPeer: in una stanza da 3-4 il partner
+    -- saltava da un peer all'altro a ogni pacchetto. A sessione spenta il
+    -- partner non si arma comunque (vedi il commento in annuncia()); i
+    -- pacchetti chiaramente per un altro si fermano qui.
+    if stato.attivo then
+        if accetta(peerId, per) == nil then
+            if stato.altrui == 1 or stato.altrui % 500 == 0 then
+                console:log(string.format(
+                    "[club ] il peer %d parla di club %s: non e' per noi, lo ignoro "
+                    .. "(il club e' a due; scartati %d)", peerId or 0,
+                    (per and per ~= 0) and ("con il peer " .. per) or "senza un partner",
+                    stato.altrui))
+            end
+            return
+        end
+    elseif per and per ~= 0 and per ~= io then
+        return
+    end
 
     if sub == CLUB_ENTER then
         -- Un ENTER con epoca nuova = l'amico e' ripartito: il nostro lato
@@ -579,9 +711,12 @@ function Club.riceviCorpo(body, peerId)
             stato.attesoRx = 0
             stato.buffer = {}
         end
-        if not stato.attivo then
-            console:log("[club ] l'AMICO e' entrato al Cable Club: "
-                        .. "vai dalla signorina anche tu")
+        if not stato.attivo and per ~= io then
+            local _, n = presenti()
+            if n <= 1 then
+                console:log("[club ] l'AMICO e' entrato al Cable Club: "
+                            .. "vai dalla signorina anche tu")
+            end
         end
         return
     end
@@ -615,7 +750,7 @@ function Club.riceviCorpo(body, peerId)
             local b = stato.storia[seq]
             if b then
                 stato.richiesti = stato.richiesti + 1
-                manda(T_CLUB, string.pack("<BI4I4", CLUB_DATA, stato.epoca, seq) .. b)
+                mandaClub(string.pack("<BI4I4", CLUB_DATA, stato.epoca, seq) .. b)
             end
         end
         return
@@ -735,7 +870,7 @@ function Club.tick()
             -- Ri-annuncio ogni 3 s: il primo ENTER puo' essere arrivato quando
             -- l'amico non era ancora in stanza. Ogni 15 s si dice anche a
             -- schermo, cosi' chi guarda sa che non e' piantato.
-            manda(T_CLUB, string.pack("<BI4", CLUB_ENTER, stato.epoca))
+            mandaClub(string.pack("<BI4", CLUB_ENTER, stato.epoca))
             stato.riannunciEnter = (stato.riannunciEnter or 0) + 1
             if aspettato % 900 == 0 then
                 console:log(("[club ] aspetto l'amico al bancone da %d s"):format(aspettato // 60))
@@ -949,6 +1084,18 @@ end
 
 function Club.attivo() return stato.attivo end
 
+-- club(N) dalla console: con chi andare al club (0 = automatico).
+function Club.con(n)
+    stato.scelto = math.floor(tonumber(n) or 0)
+    if stato.attivo and not stato.partnerPeer and stato.scelto ~= 0 then
+        stato.atteso = stato.scelto
+    end
+    return stato.scelto
+end
+
+-- Un amico se n'e' andato (T_BYE): esce anche dalla bacheca.
+function Club.via(peerId) bacheca[peerId] = nil end
+
 function Club.riga()
     if stato.sessioni == 0 then return nil end
     return string.format(
@@ -971,10 +1118,11 @@ function Club.riga()
             stato.vecchieScartate, stato.sezioneGioco, stato.sezioneCoppie) or "")
 end
 
-function Club.collega(fnManda, fnPeer, fnCanale)
+function Club.collega(fnManda, fnPeer, fnCanale, fnCammina)
     manda = fnManda
     chiPeer = fnPeer
     puoiParlare = fnCanale
+    chiCammina = fnCammina     -- {peer = ...} di chi manda eventi: "siamo in due?"
 end
 
 -- ATTENZIONE: niente `return` qui. Questo file viene CONCATENATO dentro lo

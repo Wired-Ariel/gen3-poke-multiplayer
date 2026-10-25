@@ -165,6 +165,36 @@
   function clubEnter(epoca) { var b = new Uint8Array(5); b[0] = CLUB_ENTER; put32(b, 1, epoca); return b; }
   function clubLeave(epoca) { var b = new Uint8Array(5); b[0] = CLUB_LEAVE; put32(b, 1, epoca); return b; }
 
+  /* IL DESTINATARIO (2026-10-25): [per u16] in coda a ogni corpo = il peer con
+   * cui chi scrive vuole fare il club (0 = non lo sa ancora). In coda per la
+   * solita ragione: chi e' vecchio lo ignora, e in due si gioca ancora con
+   * lui. Gemelli di club_lungo/club_con_per/club_per in net/protocol.py. */
+  function clubLungo(b) {
+    var sub = b[0];
+    if (sub === CLUB_STATUS) return 17;
+    if (sub === CLUB_DATA) return 9 + 64;
+    if (sub === CLUB_REQ) return b.length >= 6 ? 6 + 4 * b[5] : b.length;
+    return 5;
+  }
+  function clubConPer(body, per) {
+    var b = body instanceof Uint8Array ? body : new Uint8Array(body);
+    if (b[0] === CLUB_STATUS && b.length === 15) {
+      var c = new Uint8Array(17); c.set(b); b = c;      // capacita' a zero
+    }
+    var n = clubLungo(b);
+    if (b.length < n) return b;
+    var out = new Uint8Array(n + 2);
+    out.set(b.subarray(0, n));
+    put16(out, n, per || 0);
+    return out;
+  }
+  function clubPer(body) {
+    var b = body instanceof Uint8Array ? body : new Uint8Array(body);
+    if (!b.length) return null;
+    var n = clubLungo(b);
+    return b.length >= n + 2 ? get16(b, n) : null;
+  }
+
   /* Ritorna un oggetto per sub, oppure null se malformato (come club_unpack). */
   function clubUnpack(body) {
     var b = body instanceof Uint8Array ? body : new Uint8Array(body);
@@ -864,6 +894,72 @@
     return riga;
   };
 
+  /* --- CON CHI si va al club (2026-10-25) -----------------------------------
+   * Gemella di club_link.Accoppiamento (net/club_link.py): stesse regole,
+   * stessi nomi. In due il partner e' l'unico altro, come sempre; in 3-4 una
+   * coppia nasce solo se uno dei due ha SCELTO l'altro ("Al club con"), e chi
+   * viene scelto si accoda da solo. `presenti` = gli ALTRI giocatori noti,
+   * come oggetto {peer: true}. Tempi in secondi. */
+  var BACHECA_S = 10.0;
+
+  function Accoppiamento() {
+    this.scelto = 0;          // il peer scelto da chi gioca (0 = nessuno)
+    this.partner = null;      // il partner della sessione in corso
+    this.bacheca = {};        // peer -> {per, quando}: chi e' al club, con chi
+    this.scartati = 0;        // pacchetti club non per noi, buttati
+  }
+  function quanti(presenti) { return Object.keys(presenti).length; }
+  Accoppiamento.prototype.vista = function (mittente, sub, per, adesso) {
+    if (sub === CLUB_LEAVE) delete this.bacheca[mittente];
+    else this.bacheca[mittente] = { per: per || 0, quando: adesso };
+  };
+  Accoppiamento.prototype.via = function (peer) { delete this.bacheca[peer]; };
+  Accoppiamento.prototype.alClub = function (adesso) {
+    var out = {};
+    for (var p in this.bacheca) {
+      if (adesso - this.bacheca[p].quando <= BACHECA_S) out[p] = this.bacheca[p].per;
+    }
+    return out;
+  };
+  Accoppiamento.prototype.sceltoValido = function (presenti) {
+    return this.scelto && presenti[this.scelto] ? this.scelto : 0;
+  };
+  Accoppiamento.prototype.apre = function (io, mittente, per, presenti) {
+    per = per || 0;
+    var scelto = this.sceltoValido(presenti);
+    if (scelto) return mittente === scelto && (per === 0 || per === io);
+    if (per === io) return true;
+    return per === 0 && quanti(presenti) <= 1;
+  };
+  Accoppiamento.prototype.inizio = function (io, presenti, adesso) {
+    this.partner = this.sceltoValido(presenti) || null;
+    if (this.partner === null) {
+      var meglio = -1;
+      for (var p in this.bacheca) {
+        var v = this.bacheca[p];
+        if (v.per === io && adesso - v.quando <= BACHECA_S && v.quando > meglio) {
+          meglio = v.quando; this.partner = +p;
+        }
+      }
+    }
+    return this.partner;
+  };
+  /* null = non e' per noi; false = va bene; true = va bene E il partner e'
+   * appena stato deciso (il ruolo si puo' scrivere). */
+  Accoppiamento.prototype.accetta = function (io, mittente, per, presenti) {
+    per = per || 0;
+    if (this.partner !== null) {
+      if (mittente === this.partner && (per === 0 || per === io)) return false;
+      this.scartati++;
+      return null;
+    }
+    if (this.apre(io, mittente, per, presenti)) { this.partner = mittente; return true; }
+    this.scartati++;
+    return null;
+  };
+  Accoppiamento.prototype.perUscita = function () { return this.partner || 0; };
+  Accoppiamento.prototype.fine = function () { this.partner = null; };
+
   root.OwlClub = {
     K: K, ST: ST, ST_NOMI: ST_NOMI, CMD: CMD,
     VERSIONE_CLUB: VERSIONE_CLUB, IMPRONTA_WEB: IMPRONTA_WEB,
@@ -877,9 +973,11 @@
       CAPS_SEGUO: CAPS_SEGUO, CAPS_COPPIE: CAPS_COPPIE, CAPS_DECISO: CAPS_DECISO, CMD_COPPIE: CMD_COPPIE,
       clubStatus: clubStatus, clubData: clubData, clubReq: clubReq,
       clubEnter: clubEnter, clubLeave: clubLeave, clubUnpack: clubUnpack,
+      clubConPer: clubConPer, clubPer: clubPer,
       blockRiga: blockRiga
     },
     ruoloMaster: ruoloMaster,
+    Accoppiamento: Accoppiamento, BACHECA_S: BACHECA_S,
     ClubSession: ClubSession
   };
 })(typeof window !== "undefined" ? window : globalThis);

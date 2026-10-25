@@ -145,6 +145,7 @@
     this.onChat = opts.onChat || null;       // (peerId, corpo Uint8Array)
     this.onAmico = opts.onAmico || null;     // ("entra" | "esce", peerId)
     this.onClub = opts.onClub || null;       // ("inizio" | "fine" | "amico" | "amicofine", peerId)
+    this.onClubBacheca = opts.onClubBacheca || null;  // (peerId): chi e' al club, o con chi, e' cambiato
     this.clubAmici = {};                     // peerId -> true: lo abbiamo sentito al club
     this.chatInviati = 0; this.chatRicevuti = 0;
     this.presoDa = 0; this.presoUltimo = 0; this.presoDetto = false; this.rifiutiNumero = 0;
@@ -213,6 +214,12 @@
     // ponte fra il device e il relay. Specchio dei campi di client.py.
     this.club = null;              // OwlClub.ClubSession, o null
     this.clubPartner = null;       // il peer dell'amico nella sessione in corso
+    // CON CHI si va al club (OwlClub.Accoppiamento, 2026-10-25): partner,
+    // bacheca di chi e' al bancone e la scelta "Al club con" della pagina.
+    // clubPartner qui sopra ne e' lo specchio (i test e i log lo leggono).
+    this.clubAcc = root.OwlClub ? new root.OwlClub.Accoppiamento() : null;
+    if (this.clubAcc && opts.clubCon) this.clubAcc.scelto = +opts.clubCon || 0;
+    this.clubBachecaDetta = {};    // peer -> con chi, l'ultima volta detto
     this.clubDrop = 0;             // eventi di gioco buttati durante il club
     this.clubSessions = 0;         // -1 = "qui il club non si puo'" gia' detto
     this.clubMalformati = 0;       // corpi T_CLUB illeggibili (versioni diverse?)
@@ -478,6 +485,8 @@
       delete this.peerPos[p.peerId];
       delete this.peers[p.peerId];
       delete this.clubAmici[p.peerId];
+      delete this.clubBachecaDetta[p.peerId];
+      if (this.clubAcc) this.clubAcc.via(p.peerId);
       delete this.schede[p.peerId];
       delete this.dettagli[p.peerId];
       if (this.onAmico && room !== undefined) this.onAmico("esce", p.peerId);
@@ -750,16 +759,83 @@
    */
 
   OwlBridge.prototype.sendClub = function (body) {
+    // Il destinatario in coda a OGNI corpo, anche a quelli che la sessione
+    // manda da se' (riannunci, rispedizioni): passano tutti di qui.
+    var C = root.OwlClub;
+    if (C && C.proto.clubConPer) body = C.proto.clubConPer(body, this.clubAcc ? this.clubAcc.perUscita() : 0);
     this.sendRelay(R.pack(R.T.CLUB, this.peerId, this.room, this.nextSeq(), body));
   };
 
-  /* Il primo T_CLUB che arriva dice CHI e' il partner (header OWL1): serve
-   * al ruolo coi peer sorteggiati, e a ignorare un eventuale terzo peer. */
+  /* Il partner e' deciso (scelto, o dal primo pacchetto accettato): serve al
+   * ruolo coi peer sorteggiati. */
   OwlBridge.prototype._clubLatch = function (peerId) {
     if (this.clubPartner === null) {
       this.clubPartner = peerId;
       if (this.club) this.club.setPartner(peerId);
     }
+  };
+
+  /* Gli ALTRI giocatori della stanza che conosciamo: chi manda eventi (gli
+   * spettatori no) piu' chi si e' fatto sentire al club. Nel dubbio - nessun
+   * terzo noto - si e' in due: il comportamento di prima. */
+  OwlBridge.prototype.clubPresenti = function () {
+    var out = {}, k;
+    for (k in this.lastSeq) out[k] = true;
+    if (this.clubAcc) { var al = this.clubAcc.alClub(now() / 1000); for (k in al) out[k] = true; }
+    delete out[this.peerId];
+    return out;
+  };
+
+  /* "Al club con" della pagina (0 = automatico). Se quel giocatore e' gia' al
+   * bancone e aspetta noi (o nessuno), il nostro Pico entra subito, come
+   * quando e' lui a sceglierci. */
+  OwlBridge.prototype.clubCon = function (peer) {
+    if (!this.clubAcc) return;
+    peer = +peer || 0;
+    if (this.clubAcc.scelto === peer) return;
+    this.clubAcc.scelto = peer;
+    this.log("[club ] " + (peer ? "al club con il peer " + peer + " (scelto da te)" : "al club: scelta automatica"));
+    if (this.club) {
+      if (this.clubPartner === null && peer) { this.clubAcc.partner = peer; this._clubLatch(peer); }
+      return;
+    }
+    if (peer) {
+      var per = this.clubAcc.alClub(now() / 1000)[peer];
+      if (per !== undefined && (per === 0 || per === this.peerId)) {
+        this.clubStart("il peer " + peer + " e' al Cable Club e l'hai scelto tu");
+      }
+    }
+  };
+
+  /* Chi e' al club e con chi, per la pagina: [{peer, per}] (per 0 = non ha
+   * scelto; per = il nostro peer = aspetta noi). */
+  OwlBridge.prototype.clubBacheca = function () {
+    if (!this.clubAcc) return [];
+    var al = this.clubAcc.alClub(now() / 1000), out = [];
+    for (var k in al) out.push({ peer: +k, per: al[k] });
+    return out;
+  };
+
+  /* La bacheca nel registro e nella pagina, a TRANSIZIONE. */
+  OwlBridge.prototype._clubBachecaDi = function (peerId, sub, per) {
+    var P = root.OwlClub.proto;
+    if (sub === P.CLUB_LEAVE) {
+      if (this.clubBachecaDetta[peerId] !== undefined) {
+        delete this.clubBachecaDetta[peerId];
+        this.log("[club ] il peer " + peerId + " ha lasciato il club");
+        if (this.onClubBacheca) this.onClubBacheca(peerId);
+      }
+      return;
+    }
+    per = per || 0;
+    if (this.clubBachecaDetta[peerId] === per) return;
+    this.clubBachecaDetta[peerId] = per;
+    var chi = per === this.peerId ? "e vuole farlo con TE"
+      : per ? "con il peer " + per
+      : Object.keys(this.clubPresenti()).length <= 1 ? "(siete in due: il partner e' lui)"
+      : "e non ha ancora scelto con chi";
+    this.log("[club ] il peer " + peerId + " e' al Cable Club " + chi);
+    if (this.onClubBacheca) this.onClubBacheca(peerId);
   };
 
   OwlBridge.prototype._clubDopo = function () {
@@ -846,6 +922,16 @@
     this.club = sess;
     if (this.clubSessions < 0) this.clubSessions = 0;
     this.clubSessions++;
+    // Il partner, se si sa gia': quello scelto, o chi ci sta aspettando.
+    if (this.clubAcc) {
+      var presenti = this.clubPresenti();
+      var giaNoto = this.clubAcc.inizio(this.peerId, presenti, now() / 1000);
+      if (giaNoto !== null) this.clubPartner = giaNoto;
+      else if (Object.keys(presenti).length >= 2) {
+        this.log("[club ] siete in " + (Object.keys(presenti).length + 1) + " nella stanza: CON CHI? " +
+          "sceglilo qui sotto («Al club con»). Se e' l'amico a scegliere te, entri da solo", null, true);
+      }
+    }
     if (this.clubPartner !== null) sess.setPartner(this.clubPartner);
     this.sendClub(C.proto.clubEnter(sess.epoca));
     if (this.onClub) this.onClub("inizio", this.clubPartner);
@@ -907,39 +993,53 @@
       this.clubAmici[peerId] = true;
       if (this.onClub) this.onClub("amico", peerId);
     }
-    if (this.club && this.clubPartner !== null && peerId !== this.clubPartner) {
-      // Il club e' a DUE: in una stanza da 3-4, il terzo che parlasse di
-      // club non deve inquinare la sessione in corso.
+    // E' PER NOI? Il relay porta il club di tutti a tutti: in una stanza da
+    // 3-4 la maggior parte dei pacchetti non lo e' (OwlClub.Accoppiamento).
+    // Quel che non e' per noi aggiorna solo la bacheca.
+    var per = P.clubPer ? P.clubPer(body) : null;
+    var acc = this.clubAcc;
+    if (acc) {
+      acc.vista(peerId, p.sub, per, now() / 1000);
+      this._clubBachecaDi(peerId, p.sub, per);
+    }
+    var presenti = this.clubPresenti();
+    if (!this.club) {
+      // Una sessione la apre solo un ENTER o uno stato (club gia' in corso,
+      // ricarica a meta': gli stati si riannunciano apposta; i DATA/REQ da
+      // soli no, arrivano anche da sessioni zombie) - e solo se e' per noi.
+      if (p.sub !== P.CLUB_ENTER && p.sub !== P.CLUB_STATUS) return;
+      if (acc && !acc.apre(this.peerId, peerId, per, presenti)) return;
+      this.clubStart(p.sub === P.CLUB_ENTER
+        ? "l'AMICO (peer " + peerId + ") e' entrato al Cable Club"
+        : "club gia' in corso dall'altra parte: mi aggancio in ritardo");
+      if (!this.club) return;
+    }
+    var esito = acc ? acc.accetta(this.peerId, peerId, per, presenti)
+      : (this.clubPartner === null || this.clubPartner === peerId ? false : null);
+    if (esito === null) {
+      // Il club e' a DUE: in una stanza da 3-4, chi parla di club con un
+      // altro (o col nostro partner mentre e' con un altro) non deve
+      // inquinare la sessione in corso.
       this.clubAltrui++;
-      if (this.clubAltrui === 1) {
-        this.log("[club ] il peer " + peerId + " parla di club mentre la sessione e' col peer " +
-          this.clubPartner + ": lo ignoro (il club e' a due)");
+      if (this.clubAltrui === 1 || this.clubAltrui % 500 === 0) {
+        this.log("[club ] il peer " + peerId + " parla di club " +
+          (per ? "con il peer " + per : "senza un partner") + ": non e' per noi, lo ignoro " +
+          "(il club e' a due; scartati " + this.clubAltrui + ")");
       }
       return;
     }
+    if (this.clubPartner === null) {
+      this.log("[club ] partner della sessione: peer " + peerId);
+      this._clubLatch(peerId);
+    }
     if (p.sub === P.CLUB_ENTER) {
-      this.clubStart("l'AMICO (peer " + peerId + ") e' entrato al Cable Club");
-      if (this.club) {
-        this._clubLatch(peerId);
-        this.club.notaPartner(p.epoca);
-      }
+      this.club.notaPartner(p.epoca);
       return;
     }
     if (p.sub === P.CLUB_LEAVE) {
-      if (this.club) { this.club.onNetLeave(p.epoca); this._clubDopo(); }
+      this.club.onNetLeave(p.epoca); this._clubDopo();
       return;
     }
-    if (!this.club) {
-      // Un CLUB_STATUS senza sessione = il club era gia' in corso quando
-      // questa pagina e' partita (ricarica a meta'): ci si aggancia. I
-      // DATA/REQ da soli non bastano ad aprire (arrivano anche da sessioni
-      // zombie); gli stati invece vengono riannunciati apposta.
-      if (p.sub === P.CLUB_STATUS) {
-        this.clubStart("club gia' in corso dall'altra parte: mi aggancio in ritardo");
-      }
-      if (!this.club) return;
-    }
-    this._clubLatch(peerId);
     if (p.sub === P.CLUB_STATUS) {
       this.controllaVersioneClub(p.versione, p.impronta);
       this.club.onNetStatus(p.epoca, p.sseq, p.status, p.caps);
@@ -978,7 +1078,6 @@
     var sess = this.club;
     if (!sess) return;
     this.club = null;
-    this.clubPartner = null;
     if (this.clubTimer) { T.clear(this.clubTimer); this.clubTimer = null; }
     var esito = sess.abortita ? "ABBANDONATA (" + (sess.motivoFine || "watchdog") + ")" : "conclusa";
     if (this.onClub) this.onClub("fine", null);
@@ -992,6 +1091,10 @@
     // dell'amico ancora in volo appartengono alla sessione appena morta.
     this.clubRiagganciofino = now() / 1000 + 10.0;
     this.sendClub(root.OwlClub.proto.clubLeave(sess.epoca));
+    // Il partner vale per LA SESSIONE; si dimentica DOPO il LEAVE, che deve
+    // ancora dire a chi era rivolto.
+    this.clubPartner = null;
+    if (this.clubAcc) this.clubAcc.fine();
     var dev = this.device, self = this;
     if (dev && typeof dev.clubExit === "function") {
       dev.onClubStatus = function () {};
@@ -1130,6 +1233,8 @@
       rttUltimo: this.rttUltimo, rttMin: this.rttMin, rttMedio: this.rttMedio, rttMax: this.rttMax,
       club: !!this.club, clubSessions: Math.max(0, this.clubSessions),
       clubAmici: Object.keys(this.clubAmici).map(Number),
+      clubBacheca: this.clubBacheca(), clubPartner: this.clubPartner,
+      clubScelto: this.clubAcc ? this.clubAcc.scelto : 0,
       chatInviati: this.chatInviati, chatRicevuti: this.chatRicevuti,
       squadraIo: this.squadraDi("io"), dettagliIo: this.dettagliDi("io"), squadreViste: this.squadreViste,
       squadraTrattenuti: this.squadraTrattenuti,

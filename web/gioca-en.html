@@ -4,12 +4,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>gen3-poke-multiplayer — Web panel</title>
+<title>Web panel: connect your GBA and play online — gen3-poke-multiplayer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="img/favicon.png">
 <link rel="alternate" hreflang="it" href="gioca.html">
-<script src="js/lingua.js?v=1.9.0"></script>
-<link rel="stylesheet" href="css/sito.css?v=1.9.0">
+<link rel="canonical" href="https://gbcatrade.wired-ariel.it/gioca-en.html">
+<meta name="description" content="From the browser: connect the GBA's USB adapter, load the game over multiboot and join an online Pokémon Emerald room.">
+<!-- seo 2026-10-25 -->
+<script src="js/lingua.js?v=1.10.0"></script>
+<link rel="stylesheet" href="css/sito.css?v=1.10.0">
 <!--
   Il pannello gen3-poke-multiplayer NEL BROWSER (2026-08-23; nuovo disegno e
   chat della stanza il 2026-10-11). Qui non c'e' nessun programma dietro: il
@@ -102,6 +105,10 @@
   .stanza-su .numero { font: 700 22px var(--mono); margin-top: 2px; }
   .amici-testa { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0 4px; }
   .amici-testa b { font-size: 13.5px; }
+  .club-con { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--riga); }
+  .club-con label { display: block; font-size: 12.5px; font-weight: 700; margin-bottom: 4px; }
+  .club-con select { height: 38px; font-family: var(--sans); }
+  .club-con .riga-mono:empty { display: none; }
   #chat-pannello .chat-testa { padding: 12px 18px 0; border-bottom: 0; }
   #chat-pannello .chat-testa .titolo { font-size: 14px; font-weight: 700; }
   #chat-pannello .chat-lista { height: 330px; flex: none; }
@@ -142,14 +149,14 @@
 <body>
 <!-- BANNER DELLA VERSIONE (2026-09-27): si cambia VERSIONE e testo a ogni rilascio. -->
 <div id="banner-versione">
-  <span class="v"><span class="l-it">Aggiornato alla versione 1.9.0</span><span class="l-en">Updated to version 1.9.0</span></span>
-  <span class="t l-it"><b>Emote nel gioco</b> («!», «?», cuore sopra la tua testa) e <b>la squadra di ogni allenatore</b> nella pagina della stanza, con PS, mosse e strumenti: cosa mostrare della tua lo scegli tu.
-    Il GBA prende il gioco nuovo da solo; chi usa l'emulatore deve <b>riscaricare lo script</b>. Emote e squadre si vedono se siete aggiornati tutti e due.</span>
-  <span class="t l-en"><b>In-game emotes</b> («!», «?», a heart over your head) and <b>every trainer's party</b> on the room page, with HP, moves and items: you choose what to show of yours.
-    The GBA picks up the new game by itself; emulator players must <b>download the script again</b>. You see emotes and parties when both of you are up to date.</span>
-  <button type="button" aria-label="Close" onclick="try{localStorage.setItem('banner-versione','1.9.0')}catch(e){};this.parentNode.hidden=true">×</button>
+  <span class="v"><span class="l-it">Aggiornato alla versione 1.10.0</span><span class="l-en">Updated to version 1.10.0</span></span>
+  <span class="t l-it"><b>Cable Club in tre o quattro</b>: scegli con chi scambiare o lottare in «Al Cable Club con», sotto l'elenco dei giocatori, e due coppie possono andare al bancone insieme. Chi non c'entra continua a camminare; in due non cambia niente.
+    Il GBA non deve ricaricare niente; chi usa l'emulatore deve <b>riscaricare lo script</b>, chi usa il pannello Python il pacchetto nuovo.</span>
+  <span class="t l-en"><b>Cable Club with three or four players</b>: pick who to trade or battle with in «Cable Club with», below the player list, and two pairs can go to the counter at the same time. Everyone else keeps walking; with two players nothing changes.
+    The GBA needs nothing new; emulator players must <b>download the script again</b>, Python panel users the new package.</span>
+  <button type="button" aria-label="Close" onclick="try{localStorage.setItem('banner-versione','1.10.0')}catch(e){};this.parentNode.hidden=true">×</button>
 </div>
-<script>try{if(localStorage.getItem('banner-versione')==='1.9.0')document.getElementById('banner-versione').hidden=true}catch(e){}</script>
+<script>try{if(localStorage.getItem('banner-versione')==='1.10.0')document.getElementById('banner-versione').hidden=true}catch(e){}</script>
 
 <header class="testata">
   <a class="marchio" id="marchio" href="index-en.html" aria-label="Home page">
@@ -340,7 +347,7 @@
             </div>
             <p class="aiuto" style="margin-top:12px"><span class="l-it">La <b>Mappa live</b> mostra Hoenn con te e gli amici dal vivo: si apre in una scheda a parte e prende le posizioni da questa pagina, quindi tienile aperte tutte e due. <b>Guarda soltanto</b> serve a chi non ha il GBA sottomano (o usa Firefox, dove WebUSB non esiste): ti colleghi al relay e vedi gli altri muoversi, senza mandare niente — e <b>senza occupare uno dei 4 posti</b> della stanza, quindi si può guardare anche a partita piena. Se stai giocando altrove (per esempio dentro mGBA), scrivi il numero di peer di quel client fra le Impostazioni avanzate: sulla mappa ti ritrovi come <b>«tu»</b>, in azzurro.</span><span class="l-en">The <b>Live map</b> shows Hoenn with you and your friends live: it opens in a separate tab and takes positions from this page, so keep both open. <b>Just watch</b> is for those without a GBA at hand (or on Firefox, where WebUSB doesn't exist): you connect to the relay and see the others move, without sending anything — and <b>without taking one of the room's 4 seats</b>, so you can watch even when the game is full. If you're playing elsewhere (for example inside mGBA), enter that client's peer number in the advanced Settings: on the map you'll show up as <b>«you»</b>, in light blue.</span></p>
             <p class="aiuto"><span class="l-it"><b>Giochi dentro mGBA?</b> Premi <b>Scarica lo script per l'emulatore</b>: ti viene giù un file <code>.lua</code> già scritto con la stanza delle Impostazioni — lo carichi in mGBA (<i>Tools → Scripting → Load script</i>) e giochi, senza modificare niente a mano. Per cambiare stanza dopo: riscarica, oppure scrivi <code>stanza(4242)</code> nella console di mGBA. La chat da dentro mGBA non c'è: per leggerla e scrivere apri questa pagina e premi «Guarda soltanto».</span><span class="l-en"><b>Playing inside mGBA?</b> Press <b>Download the emulator script</b>: you get a <code>.lua</code> file already set up with the room from the Settings — load it in mGBA (<i>Tools → Scripting → Load script</i>) and play, with nothing to edit by hand. To change room later: download it again, or type <code>stanza(4242)</code> in the mGBA console (with your room number). There is no chat inside mGBA: to read and write, open this page and press «Just watch».</span></p>
-            <p class="aiuto"><span class="l-it">Il <b>Cable Club</b> (scambi e lotte) funziona anche da qui: sedetevi al bancone della saletta in due, e il resto parte da solo — il registro dice «passo il Pico in modo LINK». Durante lo scambio puoi passare a un'altra scheda o ridurre la finestra (dal 27/09/2026, provato con uno scambio vero); la fermerebbe solo un browser che <i>sospende</i> le schede inattive (Edge «schede in sospensione», Chrome «Risparmio memoria»). Serve il Pico collegato: da spettatore, o dentro mGBA, il club non c'è.</span><span class="l-en">The <b>Cable Club</b> (trades and battles) works from here too: both of you sit at the counter in the club room, and the rest starts by itself — the log says «passo il Pico in modo LINK». During the trade you can switch to another tab or minimize the window (since 2026-09-27, tested with a real trade); only a browser that <i>suspends</i> inactive tabs (Edge «sleeping tabs», Chrome «Memory Saver») would stop it. The Pico must be connected: as a spectator, or inside mGBA, there is no club.</span></p>
+            <p class="aiuto"><span class="l-it">Il <b>Cable Club</b> (scambi e lotte) funziona anche da qui: sedetevi al bancone della saletta in due, e il resto parte da solo — il registro dice «passo il Pico in modo LINK». In tre o quattro nella stanza, uno dei due sceglie l'altro in «Al Cable Club con» (sotto l'elenco dei giocatori): così due coppie possono scambiare insieme senza pestarsi i piedi. Durante lo scambio puoi passare a un'altra scheda o ridurre la finestra (dal 27/09/2026, provato con uno scambio vero); la fermerebbe solo un browser che <i>sospende</i> le schede inattive (Edge «schede in sospensione», Chrome «Risparmio memoria»). Serve il Pico collegato: da spettatore, o dentro mGBA, il club non c'è.</span><span class="l-en">The <b>Cable Club</b> (trades and battles) works from here too: both of you sit at the counter in the club room, and the rest starts by itself — the log says «passo il Pico in modo LINK». With three or four in the room, one of the two picks the other in «Cable Club with» (below the player list): that way two pairs can trade at the same time without getting in each other's way. During the trade you can switch to another tab or minimize the window (since 2026-09-27, tested with a real trade); only a browser that <i>suspends</i> inactive tabs (Edge «sleeping tabs», Chrome «Memory Saver») would stop it. The Pico must be connected: as a spectator, or inside mGBA, there is no club.</span></p>
             <p class="aiuto"><span class="l-it">Vale per <b>Pokémon Smeraldo italiano</b> e <b>Pokémon Emerald inglese</b> (USA/Europa): il programma riconosce da solo la cartuccia inserita, e lo script per l’emulatore la ROM caricata. Non c’è niente da scegliere.</span><span class="l-en">Works with <b>Pokémon Emerald, English</b> (USA/Europe) and <b>Pokémon Smeraldo, Italian</b>: the program recognises the inserted cartridge by itself, and the emulator script the loaded ROM. Nothing to choose.</span></p>
           </div>
         </details>
@@ -369,6 +376,12 @@
         <p class="riga-mono" id="st-stanza"></p>
         <div class="amici-testa"><b id="st-amico">—</b><span class="spia" id="spia-amico"><i></i><em id="spia-amico-testo">—</em></span></div>
         <ul class="giocatori stretti" id="lista-amici"></ul>
+        <div class="club-con" id="club-con-box" hidden>
+          <label for="club-con"><span class="l-it">Al Cable Club con</span><span class="l-en">Cable Club with</span></label>
+          <select id="club-con"><option value="0">—</option></select>
+          <p class="riga-mono" id="club-bacheca"></p>
+          <small class="guida"><span class="l-it">In tre o quattro serve dire con chi scambiare o lottare: basta che lo scelga <b>uno dei due</b>, l'altro entra da solo. Chi non c'entra continua a camminare.</span><span class="l-en">With three or four players you need to say who you'll trade or battle with: it's enough that <b>one of the two</b> picks, the other joins by themselves. Everyone else keeps walking.</span></small>
+        </div>
       </div>
       <div id="chat-pannello"></div>
     </section>
@@ -382,17 +395,17 @@
   </footer>
 </main>
 
-<script src="config.js?v=1.9.0"></script>
-<script src="js/sio.js?v=1.9.0"></script>
-<script src="js/device.js?v=1.9.0"></script>
-<script src="js/multiboot.js?v=1.9.0"></script>
-<script src="js/battito.js?v=1.9.0"></script>
-<script src="js/relay.js?v=1.9.0"></script>
-<script src="js/club.js?v=1.9.0"></script>
-<script src="js/bridge.js?v=1.9.0"></script>
-<script src="js/sito.js?v=1.9.0"></script>
-<script src="js/chat.js?v=1.9.0"></script>
-<script src="js/chat-ui.js?v=1.9.0"></script>
-<script src="js/app.js?v=1.9.0"></script>
+<script src="config.js?v=1.10.0"></script>
+<script src="js/sio.js?v=1.10.0"></script>
+<script src="js/device.js?v=1.10.0"></script>
+<script src="js/multiboot.js?v=1.10.0"></script>
+<script src="js/battito.js?v=1.10.0"></script>
+<script src="js/relay.js?v=1.10.0"></script>
+<script src="js/club.js?v=1.10.0"></script>
+<script src="js/bridge.js?v=1.10.0"></script>
+<script src="js/sito.js?v=1.10.0"></script>
+<script src="js/chat.js?v=1.10.0"></script>
+<script src="js/chat-ui.js?v=1.10.0"></script>
+<script src="js/app.js?v=1.10.0"></script>
 </body>
 </html>

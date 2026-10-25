@@ -47,7 +47,8 @@ IMPALCATURA = """
     }
     ADDR_gLinkVSyncDis = 0
     REG_RCNT = 0
-    T_CLUB, CLUB_ENTER, CLUB_LEAVE = 6, 1, 2
+    T_CLUB = 6
+    CLUB_STATUS, CLUB_DATA, CLUB_REQ, CLUB_ENTER, CLUB_LEAVE = 1, 2, 3, 4, 5
     ST_HANDSHAKE_RX, ST_CLOSED = 3, 9
     CLUB_IO_ID, CLUB_PARTNER_ID = 0, 0
     inviati = {}
@@ -63,7 +64,15 @@ IMPALCATURA = """
       cafeCodice = 0, cafeFrame = 0,
       tx = 0, rx = 0, dup = 0, fuoriOrdine = 0, richiesti = 0,
       partnerPeer = nil, partnerLua = nil, riannunciEnter = 0,
+      scelto = 0, atteso = nil, altrui = 0,
     }
+    -- con chi (2026-10-25): io sono il peer 11; `cammina` = chi manda eventi
+    BACHECA_FRAME = 600
+    bacheca = {}
+    io_peer = 11
+    cammina = {}
+    function chiPeer() return io_peer end
+    function chiCammina() return cammina end
 """
 
 
@@ -91,7 +100,8 @@ class TestPartnerDellaSessione(unittest.TestCase):
     def nuovo(self):
         lua = self.lupa.LuaRuntime(unpack_returned_tuples=True)
         lua.execute(IMPALCATURA)
-        for nome in ("annuncia", "chiudi"):
+        for nome in ("adesso", "presenti", "sceltoValido", "accetta",
+                     "lungo", "perDi", "mandaClub", "annuncia", "chiudi"):
             lua.execute(ritaglia(self.src, nome)
                         .replace("local function", "function", 1))
         return lua
@@ -131,16 +141,70 @@ class TestPartnerDellaSessione(unittest.TestCase):
 
     def test_il_partner_si_registra_solo_a_sessione_viva(self):
         """Controllo STRUTTURALE (riceviCorpo ha troppe dipendenze per girare
-        qui): la scrittura di partnerPeer deve essere sotto stato.attivo."""
-        m = re.search(r"if peerId[^\n]*stato\.partnerPeer\s*=\s*peerId",
-                      self.src)
-        self.assertIsNotNone(
-            m, "la riga che registra partnerPeer non c'e' piu' o e' cambiata: "
-               "il test va riscritto insieme a lei")
-        self.assertIn("stato.attivo", m.group(0),
-                      "partnerPeer viene registrato anche a sessione spenta: "
-                      "un T_CLUB in volo pre-armerebbe il gate dell'attesa "
-                      "della sessione DOPO (difetto del 2026-08-28)")
+        qui): partnerPeer si scrive SOLO in accetta(), e riceviCorpo chiama
+        accetta() solo a sessione viva. Fino al 2026-10-25 riceviCorpo lo
+        riscriveva a ogni pacchetto: in 3-4 il partner saltava di peer in peer."""
+        scritture = re.findall(r"stato\.partnerPeer\s*=\s*(?!=)([^\n]+)", self.src)
+        vere = [w.strip() for w in scritture if not w.strip().startswith("nil")]
+        self.assertEqual(vere, ["mitt return true end"],
+                         "partnerPeer scritto fuori da accetta(): %r" % vere)
+        corpo = ritaglia(self.src.replace("function Club.riceviCorpo", "local function riceviCorpo"),
+                         "riceviCorpo")
+        self.assertRegex(corpo, r"if stato\.attivo then\s+if accetta\(",
+                         "accetta() va chiamata solo a sessione viva: un T_CLUB in "
+                         "volo pre-armerebbe il gate della sessione DOPO (2026-08-28)")
+
+    # --- con chi, in una stanza da 3-4 (2026-10-25) -----------------------
+
+    def test_in_due_il_primo_che_parla_e_il_partner(self):
+        lua = self.nuovo()
+        lua.execute("cammina = {[22] = true}; annuncia()")
+        self.assertEqual(lua.eval("accetta(22, nil)"), True)
+        self.assertEqual(lua.eval("stato.partnerPeer"), 22)
+        self.assertIsNone(lua.eval("accetta(33, nil)"))
+        self.assertEqual(lua.eval("accetta(22, 0)"), False)
+
+    def test_in_quattro_senza_scelta_passa_solo_chi_ci_sceglie(self):
+        lua = self.nuovo()
+        lua.execute("cammina = {[22] = true, [33] = true, [44] = true}; annuncia()")
+        self.assertIsNone(lua.eval("accetta(22, 0)"))
+        self.assertIsNone(lua.eval("accetta(22, 33)"))
+        self.assertIsNone(lua.eval("stato.partnerPeer"))
+        self.assertEqual(lua.eval("accetta(44, 11)"), True)
+        self.assertEqual(lua.eval("stato.partnerPeer"), 44)
+        self.assertIsNone(lua.eval("accetta(44, 33)"), "il partner che parla con un altro")
+
+    def test_annuncia_prende_chi_ci_aspetta_ma_non_lo_collega(self):
+        lua = self.nuovo()
+        lua.execute("cammina = {[22] = true, [33] = true}; "
+                    "bacheca[22] = {per = 11, quando = 1000}; annuncia()")
+        self.assertEqual(lua.eval("stato.atteso"), 22)
+        self.assertIsNone(lua.eval("stato.partnerPeer"),
+                          "partnerPeer apre il link: deve nascere da un pacchetto vero")
+        self.assertIsNone(lua.eval("accetta(33, 0)"))
+        self.assertEqual(lua.eval("accetta(22, 0)"), True)
+
+    def test_la_scelta_vince(self):
+        lua = self.nuovo()
+        lua.execute("cammina = {[22] = true, [33] = true, [44] = true}; "
+                    "bacheca[22] = {per = 11, quando = 1000}; stato.scelto = 44; annuncia()")
+        self.assertEqual(lua.eval("stato.atteso"), 44)
+
+    def test_il_destinatario_viaggia_in_coda(self):
+        lua = self.nuovo()
+        lua.execute("cammina = {[22] = true, [33] = true}; stato.scelto = 33; annuncia()")
+        self.assertEqual(lua.eval("#inviati[1]"), 7)          # ENTER: 5 + per
+        self.assertEqual(lua.eval("(string.unpack('<I2', inviati[1], 6))"), 33)
+        self.assertEqual(lua.eval("perDi(inviati[1])"), 33)
+        self.assertIsNone(lua.eval("perDi(string.pack('<BI4', 4, 9))"))
+
+    def test_chiudi_dimentica_anche_l_atteso(self):
+        lua = self.nuovo()
+        lua.execute("cammina = {[22] = true, [33] = true}; stato.scelto = 33; annuncia()")
+        lua.execute("chiudi('prova')")
+        self.assertIsNone(lua.eval("stato.atteso"))
+        # il LEAVE e' partito PRIMA di dimenticare: dice ancora a chi era rivolto
+        self.assertEqual(lua.eval("perDi(inviati[#inviati])"), 33)
 
 
 if __name__ == "__main__":

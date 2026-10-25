@@ -1,0 +1,11 @@
+# gen3-poke-multiplayer - https://gbcatrade.wired-ariel.it/
+# Le pagine di prova (banchi per WebUSB, multiboot e relay) non servono a chi cerca.
+User-agent: *
+Disallow: /test.html
+Disallow: /bridge_test.html
+Disallow: /device_test.html
+Disallow: /mb_test.html
+Disallow: /misura_battito.html
+Disallow: /ws
+
+Sitemap: https://gbcatrade.wired-ariel.it/sitemap.xml

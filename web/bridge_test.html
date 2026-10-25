@@ -1032,6 +1032,141 @@
       g.onRelayMessage(OwlRelay.pack(OwlRelay.T.CLUB, 555, 7, 1, CP.clubEnter(0x77)));
       return (g.club === null && g.clubSessions === -1 && d.clubEntrato === 0) || [g.clubSessions, d.clubEntrato];
     });
+
+    /* --- IL CLUB IN 3-4 (2026-10-25): gli stessi casi di net/test_club_coppie.py.
+     * Quattro bridge veri in una stanza finta che inoltra a tutti, e un Pico
+     * finto per bridge che marca i suoi blocchi col proprio peer: OGNI device
+     * deve ricevere blocchi SOLO dal suo partner. */
+    var TAG = 0xC1;
+    function picoFinto(peer, azioni) {
+      return {
+        peer: peer, entrate: 0, ruolo: null, collegato: false, ricevuti: [],
+        onClubStatus: function () {}, onClubBlock: function () {},
+        clubEnter: function () { var me = this; me.entrate++; azioni.push(function () { me.onClubStatus(ST.AWAIT_MODE); }); return Promise.resolve(true); },
+        clubExit: function () { return Promise.resolve(); },
+        clubCommand: function (c) {
+          var me = this;
+          if (c === CC.SET_MODE_MASTER || c === CC.SET_MODE_SLAVE) {
+            me.ruolo = c === CC.SET_MODE_MASTER ? "master" : "slave";
+            azioni.push(function () { me.onClubStatus(ST.HANDSHAKE_RX); });
+          } else if ((c === CC.START_HANDSHAKE && me.ruolo === "master") || c === CC.CONNECT_LINK) {
+            azioni.push(function () { me._collega(); });
+          }
+          return Promise.resolve();
+        },
+        _collega: function () {
+          if (this.collegato) return;
+          this.collegato = true;
+          this.onClubStatus(ST.CONNECTED);
+          for (var n = 0; n < 3; n++) {
+            var b = new Uint8Array(64); b[0] = TAG; b[1] = this.peer & 0xFF; b[2] = this.peer >> 8; b[3] = n;
+            this.onClubBlock(b);
+          }
+        },
+        clubSendBlock: function (b) { this.ricevuti.push(new Uint8Array(b)); return Promise.resolve(true); },
+        sendEvent: function () { return Promise.resolve(); },
+        daChi: function () {
+          var s = {};
+          this.ricevuti.forEach(function (b) { if (b[0] === TAG) s[b[1] | (b[2] << 8)] = true; });
+          return Object.keys(s).map(Number).sort();
+        }
+      };
+    }
+    function stanzaClub(peers) {
+      var coda = [], azioni = [], bb = [];
+      peers.forEach(function (p) {
+        var d = picoFinto(p, azioni);
+        var g = new OwlBridge({ peerId: p, room: 7, device: d, log: function () {} });
+        g.dev = d;
+        g.sendRelay = function (bytes) { coda.push([g, bytes]); return true; };
+        bb.push(g);
+      });
+      bb.forEach(function (g) {          // tutti si conoscono: si cammina insieme
+        bb.forEach(function (h) { if (h !== g) g.lastSeq[h.peerId] = 0; });
+      });
+      bb.gira = function () {
+        patchK({ CONNECT_RITARDO_S: 0 }, function () {
+          for (var giro = 0; giro < 400 && (coda.length || azioni.length); giro++) {
+            while (azioni.length) azioni.shift()();
+            while (coda.length) {
+              var m = coda.shift();
+              bb.forEach(function (h) { if (h !== m[0]) h.onRelayMessage(m[1]); });
+            }
+          }
+        });
+      };
+      bb.chiudi = function () {
+        bb.forEach(function (g) { if (g.club) { g.club.finita = true; g.club.abortita = true; g.clubEnd(); } });
+      };
+      return bb;
+    }
+    function coppiaOk(x, y) {
+      var ok = x.clubPartner === y.peerId && y.clubPartner === x.peerId &&
+        x.dev.collegato && y.dev.collegato &&
+        [x.dev.ruolo, y.dev.ruolo].sort().join() === "master,slave" &&
+        eq(x.dev.daChi(), [y.peerId]) && eq(y.dev.daChi(), [x.peerId]) &&
+        x.dev.ricevuti.length === 3 && y.dev.ricevuti.length === 3;
+      return ok || [x.peerId, x.clubPartner, x.dev.ruolo, x.dev.daChi(), y.peerId, y.clubPartner, y.dev.ruolo, y.dev.daChi()];
+    }
+
+    t("club in 3-4: il destinatario viaggia in coda e chi e' vecchio legge uguale", function () {
+      var c = CP.clubData(9, 5, new Uint8Array(64)), con = CP.clubConPer(c, 51000);
+      var s15 = CP.clubStatus(9, 1, ST.CONNECTED), s19 = CP.clubConPer(s15, 3);
+      return (CP.clubPer(con) === 51000 && CP.clubPer(c) === null && CP.clubUnpack(con).seq === 5 &&
+        s19.length === 19 && CP.clubPer(s19) === 3) || [CP.clubPer(con), s19.length];
+    });
+
+    t("club in 3-4: in due come prima (l'amico entra da solo)", function () {
+      var bb = stanzaClub([11, 22]);
+      bb[0].onDeviceEvent(ev(7, 0, 0, 0));
+      bb.gira();
+      var r = coppiaOk(bb[0], bb[1]);
+      bb.chiudi();
+      return r;
+    });
+
+    t("club in 3-4: due coppie insieme, sceglie uno per coppia", function () {
+      var bb = stanzaClub([11, 22, 33, 44]);
+      bb[0].clubCon(22); bb[2].clubCon(44);
+      bb[0].onDeviceEvent(ev(7, 0, 0, 0));
+      bb[2].onDeviceEvent(ev(7, 0, 0, 0));
+      bb.gira();
+      var r1 = coppiaOk(bb[0], bb[1]), r2 = coppiaOk(bb[2], bb[3]);
+      var entrate = bb.map(function (g) { return g.dev.entrate; });
+      bb.chiudi();
+      return (r1 === true && r2 === true && eq(entrate, [1, 1, 1, 1])) || [r1, r2, entrate];
+    });
+
+    t("club in 3-4: senza scelta nessuno viene tirato dentro, poi uno sceglie", function () {
+      var bb = stanzaClub([11, 22, 33, 44]);
+      bb[0].onDeviceEvent(ev(7, 0, 0, 0));
+      bb.gira();
+      var fuori = bb.slice(1).map(function (g) { return g.dev.entrate; });
+      var inAttesa = bb[0].clubPartner === null && bb[0].dev.ruolo === null;
+      var bacheca = bb[2].clubBacheca();
+      bb[2].clubCon(11);                     // il 33 sceglie l'11 dalla pagina
+      bb.gira();
+      var r = coppiaOk(bb[0], bb[2]);
+      var restano = [bb[1].dev.entrate, bb[3].dev.entrate];
+      bb.chiudi();
+      return (eq(fuori, [0, 0, 0]) && inAttesa && bacheca.length === 1 && bacheca[0].peer === 11 &&
+        bacheca[0].per === 0 && r === true && eq(restano, [0, 0])) || [fuori, inAttesa, bacheca, r, restano];
+    });
+
+    t("club in 3-4: il partner occupato non si ruba", function () {
+      var bb = stanzaClub([11, 22, 33, 44]);
+      bb[0].clubCon(22);
+      bb[0].onDeviceEvent(ev(7, 0, 0, 0));
+      bb.gira();
+      bb[2].clubCon(11);
+      bb[2].onDeviceEvent(ev(7, 0, 0, 0));
+      bb.gira();
+      var r = coppiaOk(bb[0], bb[1]);
+      var esito = r === true && bb[2].dev.ricevuti.length === 0 && bb[0].clubAltrui > 0 && bb[3].dev.entrate === 0;
+      var dettagli = [r, bb[2].dev.ricevuti.length, bb[0].clubAltrui, bb[3].dev.entrate];
+      bb.chiudi();
+      return esito || dettagli;
+    });
   })();
 
   /* --- IL PICO STACCATO (2026-08-30) ------------------------------------

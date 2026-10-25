@@ -56,6 +56,10 @@ class BridgeFinto(C.Bridge):
         # campi toccati dal ramo T_BYE di handle_udp
         self.peer_room = {}
         self.last_seq = {}
+        # chi esce lascia anche la bacheca del club (2026-10-25)
+        from club_link import Accoppiamento
+        self.club_acc = Accoppiamento()
+        self.club_bacheca_detta = {}
         # il va-e-vieni (2026-08-30)
         self.peer_andato_at = {}
         self.flap = 0

@@ -67,7 +67,8 @@ hardware link and online Cable Club possible. Our addition is the shared overwor
 - go to sleep by itself in battles, menus and special screens, and wake up when you
   return to the overworld;
 - **trades and battles over the internet** through the game's Cable Club (tested on real
-  hardware, from the website and from the PC panel);
+  hardware, from the website and from the PC panel); with three or four in a room, one of the two
+  picks the other («Cable Club with» on the site), so two pairs can trade at the same time;
 - let real GBAs, mGBA emulators and browser spectators play together **in the same room**;
 - provide a **Live map** of Hoenn showing where everyone is, and a **room chat** on the website,
   with emotes ("!", "?", heart) that pop up over your head in your friends' games;
@@ -271,6 +272,7 @@ python net/test_tre_giocatori.py
 ```
 
 The others: `net/test_deframer.py`, `test_bridge_tcp.py`, `test_relay_rebind.py`, `test_club.py`,
+`test_club_coppie.py` (four clients, two pairs at the Cable Club: every GBA gets blocks only from its partner),
 `test_pannello.py`, `test_relay_ws.py`, `test_slot.py`, `test_relay_cap.py`, `test_client_ws.py`,
 `test_spettatore.py`, `test_presenza.py`, `test_stanze_aperte.py`, `test_numero_occupato.py` (a peer number
 already used in the room by another live player or spectator is refused with `T_TAKEN`), and in `tools/` `test_ruolo_relay.py`, `test_club_lua.py`

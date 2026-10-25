@@ -60,7 +60,8 @@ from protocol import (  # noqa: E402
     IMPRONTA_LUA, IMPRONTA_SORGENTI,
     IMPRONTA_WEB, T_BYE, T_CHAT, T_CLUB,
     T_EVENT, T_HELLO, T_PING, T_PONG, T_TAKEN, VERSIONE_CLUB,
-    card_put_chunk, chat_unpack, club_block_riga, club_enter, club_leave, club_unpack,
+    card_put_chunk, chat_unpack, club_block_riga, club_con_per, club_enter, club_leave,
+    club_per, club_unpack,
     party_details, party_details_put_chunk, party_from_card, squadra_in_uscita,
     extract_map_key, make_leave_event, nome_stato, pack, unpack,
 )
@@ -259,10 +260,15 @@ class Bridge:
         # NOSTRO GBA invece riapre sempre.
         self.club_riaggancio_dopo = 0.0
         self.club_stantii = 0              # EVENT_CLUB in quarantena, ignorati
-        # Il peer dell'amico al bancone, per la regola dei ruoli. Vale per LA
-        # SESSIONE: si azzera quando finisce, o al bancone dopo si deciderebbe
-        # il ruolo contro chi c'era la volta scorsa.
-        self.club_partner_peer = None
+        # CON CHI si va al club (club_link.Accoppiamento, 2026-10-25): il
+        # partner della sessione, la bacheca di chi e' al bancone e la scelta
+        # di chi gioca (--club-con). Il partner vale per LA SESSIONE: si
+        # azzera quando finisce, o al bancone dopo si deciderebbe il ruolo
+        # contro chi c'era la volta scorsa.
+        from club_link import Accoppiamento
+        self.club_acc = Accoppiamento()
+        self.club_acc.scelto = getattr(args, "club_con", 0) or 0
+        self.club_bacheca_detta = {}   # peer -> con chi, l'ultima volta detto
         # Le TRANSIZIONI di stato, mie e dell'amico (2026-08-21): una riga
         # per cambio, non per evento. Sul fisico e' l'unico modo di
         # vedere se il GBA emette lo stato giusto e se all'altro arriva.
@@ -660,6 +666,8 @@ class Bridge:
             # numero qualsiasi e senza questo lo scarteremmo come arretrato.
             room = self.peer_room.pop(peer_id, None)
             self.last_seq.pop(peer_id, None)
+            self.club_acc.via(peer_id)
+            self.club_bacheca_detta.pop(peer_id, None)
             # Anche la catena delle posizioni: se torna, riparte da zero e il
             # primo evento non va "ricucito" contro una posizione di ieri.
             self.peer_pos.pop(peer_id, None)
@@ -1201,9 +1209,50 @@ class Bridge:
             if not self.usb.club_send_block(block64):
                 self.errori += 1
 
+    @property
+    def club_partner_peer(self):
+        return self.club_acc.partner
+
     def send_club(self, body):
+        # Il destinatario in coda a OGNI corpo, anche a quelli che la
+        # sessione manda da se' (riannunci, rispedizioni): e' qui che passano
+        # tutti. Vedi protocol.club_con_per.
+        body = club_con_per(body, self.club_acc.per_uscita())
         self.send_udp(pack(T_CLUB, self.peer_id, self.room, self.next_seq(),
                            body), time.time())
+
+    def club_presenti(self, now=None):
+        """Gli ALTRI giocatori della stanza che conosciamo: chi manda eventi
+        (gli spettatori non ne mandano) piu' chi si e' fatto sentire al club.
+        Serve a dire "siamo in due" - e nel dubbio, cioe' se non sappiamo di
+        nessun terzo, lo siamo: e' il comportamento di prima."""
+        if now is None:
+            now = time.monotonic()
+        altri = set(self.last_seq) | set(self.club_acc.al_club(now))
+        altri.discard(self.peer_id)
+        return altri
+
+    def club_con(self, peer):
+        """Chi gioca sceglie con chi andare al club (0 = automatico). Se quel
+        giocatore e' gia' al bancone e ci sta aspettando (o non aspetta
+        nessuno), il nostro Pico entra subito, come quando ti sceglie lui."""
+        peer = int(peer or 0)
+        self.club_acc.scelto = peer
+        if peer:
+            self.log("[club ] al club con il peer %d (scelto da te)" % peer)
+        else:
+            self.log("[club ] al club: scelta automatica")
+        if self.club is not None:
+            if self.club_acc.partner is None and peer:
+                self.club_acc.partner = peer
+                from club_link import ruolo_master
+                self.club.set_master(ruolo_master(self.peer_id, peer))
+            return
+        if peer:
+            adesso = time.monotonic()
+            per = self.club_acc.al_club(adesso).get(peer)
+            if per is not None and per in (0, self.peer_id):
+                self.club_start("il peer %d e' al Cable Club e l'hai scelto tu" % peer)
 
     def club_start(self, motivo, dal_gba=False):
         if self.club is not None:
@@ -1223,6 +1272,12 @@ class Bridge:
             return
 
         from club_link import ClubSession, ruolo_master
+
+        # Il partner, se si sa gia': quello scelto, o chi ci sta aspettando.
+        # Altrimenti lo decidera' il primo pacchetto accettato (in due) o la
+        # scelta di uno dei due (in 3-4).
+        self.club_acc.inizio(self.peer_id, self.club_presenti(),
+                             time.monotonic())
 
         self.log("=" * 60)
         self.log("[club ] %s" % motivo)
@@ -1270,19 +1325,19 @@ class Bridge:
                     % ("MASTER" if sess.master else "SLAVE",
                        self.peer_id, self.club_partner_peer)
         self.log("[club ] ruolo: %s | epoca 0x%08X" % (ruolo, sess.epoca))
+        if self.club_acc.partner is None and len(self.club_presenti()) >= 2:
+            # In 3-4 nessuno ha scelto: non si tira a indovinare. Lo si dice
+            # QUI, nel registro di chi e' al bancone, che e' chi puo' farlo.
+            self.log("[club ] siete in %d nella stanza: CON CHI? sceglilo sul sito "
+                     "(\"Al club con\") o col pannello (--club-con N). Se e' "
+                     "l'amico a scegliere te, entri da solo"
+                     % (len(self.club_presenti()) + 1))
 
     def handle_club_net(self, peer_id, body, now):
-        # IL PEER DELL'AMICO, dall'header del primo T_CLUB della sessione: e'
-        # meta' della regola dei ruoli (l'altra meta' e' il nostro peer-id).
-        # Si fissa una volta e si dimentica a fine sessione, come _clubLatch
-        # nel browser: un peer di ieri farebbe decidere il ruolo contro
-        # qualcuno che non e' al bancone.
-        if self.club_partner_peer is None and peer_id is not None:
-            self.club_partner_peer = peer_id
-            if self.club is not None:
-                from club_link import ruolo_master
-                self.club.set_master(ruolo_master(self.peer_id, peer_id))
-
+        """Un T_CLUB dalla stanza. Prima di tutto: E' PER NOI? Il relay lo
+        porta a tutti, e in 3-4 la maggior parte non lo e' (vedi
+        club_link.Accoppiamento). Quel che non e' per noi aggiorna solo la
+        bacheca di chi e' al club."""
         parsed = club_unpack(body)
         if parsed is None:
             # Un corpo che non si legge e' quasi sempre un client con i .py
@@ -1294,34 +1349,79 @@ class Bridge:
                          "diversa - aggiornate il pacchetto su ENTRAMBI i PC")
             return
         sub, epoca, payload = parsed
+        per = club_per(body)
+        adesso = time.monotonic()
+        self.club_acc.vista(peer_id, sub, per, adesso)
+        self._club_bacheca_log(peer_id, sub, per)
+        presenti = self.club_presenti(adesso)
 
-        if sub == CLUB_ENTER:
-            self.club_start("l'AMICO e' entrato al Cable Club")
-            if self.club is not None:
-                self.club.nota_partner(epoca)
-            return
-        if sub == CLUB_LEAVE:
-            if self.club is not None:
-                self.club.on_net_leave(epoca)
-            return
         if self.club is None:
-            # Un CLUB_STATUS senza sessione = il club era gia' in corso
-            # quando questo client e' partito (riavvio a meta'): ci si
-            # aggancia. I DATA/REQ da soli non bastano ad aprire (arrivano
-            # anche da sessioni zombie); gli stati invece vengono
-            # riannunciati apposta.
-            if sub == CLUB_STATUS:
+            # Una sessione la apre solo un ENTER, o uno stato (club gia' in
+            # corso, riavvio a meta': gli stati vengono riannunciati apposta;
+            # i DATA/REQ da soli no, arrivano anche da sessioni zombie) - e
+            # in entrambi i casi solo se e' per noi.
+            if sub not in (CLUB_ENTER, CLUB_STATUS):
+                return
+            if not self.club_acc.apre(self.peer_id, peer_id, per, presenti):
+                return
+            if sub == CLUB_ENTER:
+                self.club_start("l'AMICO (peer %d) e' entrato al Cable Club"
+                                % peer_id)
+            else:
                 self.club_start("club gia' in corso dall'altra parte: "
                                 "mi aggancio in ritardo")
             if self.club is None:
                 return
-        if sub == CLUB_STATUS:
+
+        esito = self.club_acc.accetta(self.peer_id, peer_id, per, presenti)
+        if esito is None:
+            n = self.club_acc.scartati
+            if n == 1 or n % 500 == 0:
+                self.log("[club ] il peer %d parla di club %s: non e' per noi, "
+                         "lo ignoro (il club e' a due; scartati %d)"
+                         % (peer_id, "con il peer %d" % per if per
+                            else "senza un partner", n))
+            return
+        if esito:
+            # IL PEER DELL'AMICO e' meta' della regola dei ruoli (l'altra
+            # meta' e' il nostro peer-id): appena si sa, il ruolo parte.
+            from club_link import ruolo_master
+            self.log("[club ] partner della sessione: peer %d" % peer_id)
+            self.club.set_master(ruolo_master(self.peer_id, peer_id))
+
+        if sub == CLUB_ENTER:
+            self.club.nota_partner(epoca)
+        elif sub == CLUB_LEAVE:
+            self.club.on_net_leave(epoca)
+        elif sub == CLUB_STATUS:
             self.controlla_versione(payload[2], payload[3])
             self.club.on_net_status(epoca, payload[0], payload[1], payload[4])
         elif sub == CLUB_DATA:
             self.club.on_net_block(epoca, payload[0], payload[1])
         elif sub == CLUB_REQ:
             self.club.on_net_req(epoca, payload)
+
+    def _club_bacheca_log(self, peer_id, sub, per):
+        """La bacheca nel registro, a TRANSIZIONE: chi arriva al club e con
+        chi vuole farlo. In 3-4 e' la riga che spiega perche' una sessione
+        non parte (nessuno ha scelto) o con chi e' partita."""
+        if sub == CLUB_LEAVE:
+            if self.club_bacheca_detta.pop(peer_id, None) is not None:
+                self.log("[club ] il peer %d ha lasciato il club" % peer_id)
+            return
+        per = per or 0
+        if self.club_bacheca_detta.get(peer_id) == per:
+            return
+        self.club_bacheca_detta[peer_id] = per
+        if per == self.peer_id:
+            chi = "e vuole farlo con TE"
+        elif per:
+            chi = "con il peer %d" % per
+        elif len(self.club_presenti()) <= 1:
+            chi = "(siete in due: il partner e' lui)"
+        else:
+            chi = "e non ha ancora scelto con chi"
+        self.log("[club ] il peer %d e' al Cable Club %s" % (peer_id, chi))
 
     def controlla_versione(self, versione, impronta):
         """I due PC devono avere gli STESSI file. Sembra ovvio e invece e'
@@ -1390,9 +1490,6 @@ class Bridge:
     def club_end(self):
         sess = self.club
         self.club = None
-        # Il partner vale per LA SESSIONE: la prossima decidera' il ruolo con
-        # chi sara' al bancone allora, non con chi c'era adesso.
-        self.club_partner_peer = None
         if sess.abortita:
             esito = "ABBANDONATA (%s)" % (sess.motivo_fine or "watchdog")
         else:
@@ -1411,6 +1508,10 @@ class Bridge:
         self.gba_muto = True
         self.gba_muto_scartati = 0
         self.send_club(club_leave(sess.epoca))
+        # Il partner vale per LA SESSIONE: la prossima decidera' il ruolo con
+        # chi sara' al bancone allora, non con chi c'era adesso. Si dimentica
+        # DOPO il LEAVE, che deve ancora dire a chi era rivolto.
+        self.club_acc.fine()
         try:
             self.usb.club_exit()
             self.log("[club ] Pico di nuovo in passthrough: aspetto che il GBA "
@@ -1505,7 +1606,10 @@ class Bridge:
         # diagnostica di sotto ("CANALE FERMO", "DIREZIONE ROTTA") mentirebbe
         # su tutta la linea. Una riga sola, quella giusta.
         if self.club is not None:
-            self.log("[club ] sessione viva | %s" % self.club.riassunto())
+            altrui = (" | partner peer %s | club ALTRUI scartati %d"
+                      % (self.club_acc.partner or "?", self.club_acc.scartati)
+                      if self.club_acc.scartati else "")
+            self.log("[club ] sessione viva | %s%s" % (self.club.riassunto(), altrui))
             return
 
         # Il bridge 2 del primo test ha stampato tredici righe di "inviati 0"
@@ -1908,6 +2012,10 @@ def main():
                          "su mGBA la perdita misurata sul fisico. Non e' --loss, "
                          "che agisce verso il relay ed e' curabile dalla "
                          "ricucitura dell'altro")
+    ap.add_argument("--club-con", type=int, default=0, metavar="PEER",
+                    help="in una stanza da 3-4: con quale peer andare al Cable "
+                         "Club (0 = automatico: in due il partner e' l'altro, in "
+                         "3-4 entri con chi sceglie te). Vedi club_link.Accoppiamento")
     ap.add_argument("--squadra", choices=("tutta", "base", "niente"), default="tutta",
                     help="che cosa della TUA squadra vede la stanza: tutta (anche "
                          "soprannomi, PS, mosse, strumenti, natura, sesso, stato), "

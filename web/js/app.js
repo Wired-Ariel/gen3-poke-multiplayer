@@ -756,6 +756,10 @@
   }
 
   var CLUB_GENERE = { inizio: "club", fine: "clubfine", amico: "amico", amicofine: "amicofine" };
+  /* "Al Cable Club con" (2026-10-25): il peer scelto in questa pagina, 0 =
+   * automatico. Non si salva: una scelta di ieri su chi oggi non c'e' non
+   * conterebbe comunque (OwlClub.Accoppiamento.sceltoValido). */
+  var clubCon = 0, clubConChiave = "";
 
   /* --- la partita ----------------------------------------------------------- */
   /* --- le stanze aperte (2026-09-27) ---------------------------------------
@@ -867,7 +871,9 @@
       onNumeroOccupato: numeroOccupato,
       onChat: function (peer, corpo) { if (chat) chat.ricevi(peer, corpo); },
       onAmico: function (cosa, peer) { if (chat) chat.evento(cosa, peer, chat.nomeDi(peer)); disegnaStanza(); },
-      onClub: function (cosa, peer) { if (chat) chat.evento(CLUB_GENERE[cosa], peer || 0, peer ? chat.nomeDi(peer) : ""); disegnaStanza(); }
+      onClub: function (cosa, peer) { if (chat) chat.evento(CLUB_GENERE[cosa], peer || 0, peer ? chat.nomeDi(peer) : ""); disegnaStanza(); },
+      onClubBacheca: function () { disegnaStanza(); },
+      clubCon: clubCon
     });
     link = new OwlRelay.RelayLink(url, {
       onMessage: function (b) { bridge.onRelayMessage(b); },
@@ -1143,9 +1149,59 @@
       clubAmici: s ? s.clubAmici : (ospite ? ospite.clubAmici : [])
     };
     var n = ChatUI.giocatori($("lista-amici"), modello);
+    disegnaClubCon(s, amici);
     var spett = chat.spettatori().length + (inPartita && spettatore ? 1 : 0);
     $("pill-stanza").textContent = L("Stanza ", "Room ") + (stanza || "—") + (inPartita || ospite ? " · " + n + L(" di 4", " of 4") : "");
     return { giocatori: n, spettatori: spett };
+  }
+
+  /* Il menu "Al Cable Club con" e la riga della bacheca. Serve solo in 3-4:
+   * in due il partner e' l'unico altro, quindi il menu si mostra solo da due
+   * amici in su (o se qualcuno ci aspetta al club). */
+  function disegnaClubCon(s, amici) {
+    var box = $("club-con-box");
+    if (!box) return;
+    var io = peerInUso();
+    var bacheca = s && s.clubBacheca ? s.clubBacheca : [];
+    var mAspetta = bacheca.some(function (b) { return b.per === io; });
+    var serve = inPartita && !spettatore && (amici.length >= 2 || mAspetta);
+    box.hidden = !serve;
+    if (!serve) return;
+    var sel = $("club-con");
+    // Le opzioni si rifanno solo se cambia chi c'e' (o un nome): rifarle a
+    // ogni battito chiuderebbe la tendina sotto il dito.
+    var chiave = amici.map(function (a) { return a.peerId + ":" + chat.nomeDi(a.peerId); }).join("|") + "#" + clubCon;
+    if (chiave !== clubConChiave && document.activeElement !== sel) {
+      clubConChiave = chiave;
+      sel.innerHTML = "";
+      var o = document.createElement("option");
+      o.value = "0";
+      o.textContent = L("automatico (chi sceglie te)", "automatic (whoever picks you)");
+      sel.appendChild(o);
+      var presente = false;
+      amici.forEach(function (a) {
+        var op = document.createElement("option");
+        op.value = String(a.peerId);
+        op.textContent = chat.nomeDi(a.peerId);
+        if (a.peerId === clubCon) presente = true;
+        sel.appendChild(op);
+      });
+      sel.value = presente ? String(clubCon) : "0";
+    }
+    // La bacheca: chi e' al club e con chi.
+    var righe = [];
+    if (s && s.club) {
+      righe.push(s.clubPartner ? L("sei al club con ", "you're at the club with ") + chat.nomeDi(s.clubPartner)
+        : L("sei al club: aspetti che qualcuno scelga te, o scegli qui sopra", "you're at the club: wait for someone to pick you, or pick above"));
+    }
+    bacheca.forEach(function (b) {
+      if (s && s.club && b.peer === s.clubPartner) return;
+      var nome = chat.nomeDi(b.peer);
+      righe.push(b.per === io ? nome + L(" ti aspetta al club", " is waiting for you at the club")
+        : b.per ? nome + " \u2194 " + chat.nomeDi(b.per) + L(" al club", " at the club")
+        : nome + L(" e' al club e non ha scelto con chi", " is at the club and hasn't picked anyone"));
+    });
+    $("club-bacheca").textContent = righe.join(" \u00b7 ");
   }
 
   function disegnaStato() {
@@ -1264,6 +1320,11 @@
     S.caricaLuoghi().then(function () { disegnaStato(); if (chatUI) chatUI.aggiorna(); });
     allineaChat();
     $("btn-copia").textContent = L("Copia tutto il registro", "Copy the whole log");
+    $("club-con").onchange = function () {
+      clubCon = +this.value || 0;
+      if (bridge) bridge.clubCon(clubCon);
+      disegnaStanza();
+    };
     $("btn-invito").onclick = function () {
       var b = this, n = stanzaInUso();
       S.copia(S.urlInvito(n)).then(function (ok) {

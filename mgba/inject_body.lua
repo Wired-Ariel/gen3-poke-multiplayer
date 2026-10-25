@@ -822,7 +822,8 @@ end
 if ClubLua then
     ClubLua.collega(owlSend,
                     function() return RELAY_PEER end,
-                    function() return LINK_ROLE == "relay" end)
+                    function() return LINK_ROLE == "relay" end,
+                    function() return ws.peers end)
 end
 
 local function wsConnect()
@@ -886,6 +887,7 @@ local function relayDatagram(data)
         local p = ws.peers[peerId]
         ws.peers[peerId] = nil
         ws.bye = ws.bye + 1
+        if ClubLua and ClubLua.via then ClubLua.via(peerId) end
         if p and p.slot then
             table.insert(ws.slotsFree, p.slot)
             table.sort(ws.slotsFree)
@@ -1324,6 +1326,15 @@ function aperta(v)
     console:log("[rete ] stanza " .. RELAY_ROOM .. (ws.pubblica and " APERTA a tutti" or " privata")
                 .. (salvato and (" (salvato in " .. salvato .. ")") or ""))
     if ws.sock and ws.handshaken then ws.segnoPubblica() end
+end
+
+-- CON CHI andare al Cable Club in una stanza da 3-4 (2026-10-25): club(N)
+-- con il peer dell'amico, club(0) per tornare all'automatico. In due non
+-- serve; e basta che scelga uno dei due, l'altro entra da solo.
+function club(n)
+    if not ClubLua then return end
+    local v = ClubLua.con(n)
+    console:log(v ~= 0 and ("[club ] al club con il peer " .. v) or "[club ] al club: scelta automatica")
 end
 
 function peer(n)

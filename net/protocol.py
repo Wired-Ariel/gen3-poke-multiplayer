@@ -288,6 +288,50 @@ def club_block_riga(block64):
     return "%s | %s" % (" ".join("%04X" % x for x in w), nome)
 
 
+# IL DESTINATARIO (2026-10-25). Il relay inoltra un T_CLUB a TUTTA la stanza,
+# e fino a qui il club non diceva a chi era rivolto: in una stanza da 3-4 il
+# primo ENTER tirava dentro tutti, e il partner era "chi risponde per primo".
+# Adesso ogni corpo porta in CODA [per u16] = il peer con cui chi scrive vuole
+# fare il club (0 = non lo sa ancora). In coda e non in testa per la stessa
+# ragione di versione e impronta: chi e' vecchio legge i suoi byte e ignora il
+# resto, quindi in due si gioca ancora con chi non ha aggiornato. Il peer e'
+# u16 perche' il sito lo sorteggia fino a 65001. Gemelli: clubConPer/clubPer
+# in web/js/club.js e conPer/perDi in mgba/club_lua.lua.
+def club_lungo(body):
+    """La lunghezza di un corpo club SENZA il destinatario."""
+    sub = body[0]
+    if sub == CLUB_STATUS:
+        return 17                     # fino alle capacita' comprese
+    if sub == CLUB_DATA:
+        return 9 + 64
+    if sub == CLUB_REQ:
+        return 6 + 4 * body[5] if len(body) >= 6 else len(body)
+    return 5                          # ENTER, LEAVE
+
+
+def club_con_per(body, per):
+    """Il corpo con il destinatario in coda. Uno stato senza capacita' (15
+    byte) le prende a zero, perche' il destinatario deve cadere sempre allo
+    stesso posto; un corpo piu' corto di cosi' resta com'e'."""
+    n = club_lungo(body)
+    if body[0] == CLUB_STATUS and len(body) == 15:
+        body = body + b"\x00\x00"
+    if len(body) < n:
+        return body
+    return body[:n] + struct.pack("<H", (per or 0) & 0xFFFF)
+
+
+def club_per(body):
+    """Il destinatario di un corpo club, o None se chi l'ha scritto e' di una
+    versione che non lo mette (= lo si tratta come 0)."""
+    if not body:
+        return None
+    n = club_lungo(body)
+    if len(body) >= n + 2:
+        return struct.unpack_from("<H", body, n)[0]
+    return None
+
+
 def club_unpack(body):
     """Ritorna (sub, epoca, payload) oppure None se malformato.
 
